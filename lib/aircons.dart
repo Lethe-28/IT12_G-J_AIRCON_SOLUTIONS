@@ -104,16 +104,26 @@ class _AirconsScreenState extends State<AirconsScreen> {
     var filtered = _aircons;
 
     if (_filterCustomerId != null) {
-      filtered = filtered.where((a) => a.customer.id == _filterCustomerId).toList();
+      filtered = filtered
+          .where((a) => a.customer.id == _filterCustomerId)
+          .toList();
     }
 
     if (_searchQuery.isNotEmpty) {
       final q = _searchQuery.toLowerCase();
-      filtered = filtered.where((a) =>
-          a.brand.name.toLowerCase().contains(q) ||
-          a.airconType.typeName.toLowerCase().contains(q) ||
-          a.remarks.toLowerCase().contains(q) ||
-          (a.customer.companyName.isNotEmpty ? a.customer.companyName.toLowerCase() : '${a.customer.firstName} ${a.customer.lastName}'.toLowerCase()).contains(q)).toList();
+      filtered = filtered
+          .where(
+            (a) =>
+                a.brand.name.toLowerCase().contains(q) ||
+                a.airconType.typeName.toLowerCase().contains(q) ||
+                a.remarks.toLowerCase().contains(q) ||
+                (a.customer.companyName.isNotEmpty
+                        ? a.customer.companyName.toLowerCase()
+                        : '${a.customer.firstName} ${a.customer.lastName}'
+                              .toLowerCase())
+                    .contains(q),
+          )
+          .toList();
     }
 
     return filtered;
@@ -134,13 +144,15 @@ class _AirconsScreenState extends State<AirconsScreen> {
     setState(() {
       if (existing == null) {
         final newId = _aircons.isNotEmpty ? _aircons.last.id + 1 : 1;
-        _aircons.add(AirconData(
-          id: newId,
-          brand: result.brand,
-          airconType: result.airconType,
-          customer: result.customer,
-          remarks: result.remarks,
-        ));
+        _aircons.add(
+          AirconData(
+            id: newId,
+            brand: result.brand,
+            airconType: result.airconType,
+            customer: result.customer,
+            remarks: result.remarks,
+          ),
+        );
       } else {
         final index = _aircons.indexWhere((a) => a.id == existing.id);
         if (index != -1) {
@@ -155,10 +167,18 @@ class _AirconsScreenState extends State<AirconsScreen> {
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Delete Aircon Unit'),
-        content: Text('Are you sure you want to delete this ${aircon.brand.name} ${aircon.airconType.typeName} unit?'),
+        content: Text(
+          'Are you sure you want to delete this ${aircon.brand.name} ${aircon.airconType.typeName} unit?',
+        ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
-          TextButton(onPressed: () => Navigator.pop(context, true), child: const Text('Delete')),
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Delete'),
+          ),
         ],
       ),
     );
@@ -178,6 +198,9 @@ class _AirconsScreenState extends State<AirconsScreen> {
     final aircons = _filteredAircons;
     final fontSize = _isAdmin ? 14.0 : 16.0;
 
+    // FIX: Detect mobile screen size
+    final isMobileView = MediaQuery.of(context).size.width < 600;
+
     return AppShell(
       selectedIndex: 7,
       body: Column(
@@ -188,84 +211,218 @@ class _AirconsScreenState extends State<AirconsScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Row(
-                    children: [
-                      Text(
-                        'Aircon Unit Management',
-                        style: TextStyle(fontSize: _isAdmin ? 24 : 28, fontWeight: FontWeight.w700),
+                  // FIX: Responsive Header (Stack on Mobile, Row on Desktop)
+                  if (isMobileView) ...[
+                    const Text(
+                      'Aircon Unit Management',
+                      style: TextStyle(
+                        fontSize: 24,
+                        fontWeight: FontWeight.w700,
                       ),
-                      const Spacer(),
-                      if (_isAdmin)
-                        ElevatedButton.icon(
+                    ),
+                    const SizedBox(height: 12),
+                    if (_isAdmin)
+                      SizedBox(
+                        width: double.infinity,
+                        child: ElevatedButton.icon(
                           onPressed: () => _onAddOrEdit(),
                           icon: const Icon(Icons.add),
                           label: const Text('Add Aircon Unit'),
-                        ),
-                    ],
-                  ),
-                  const SizedBox(height: 16),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: TextField(
-                          onChanged: (v) => setState(() => _searchQuery = v),
-                          style: TextStyle(fontSize: fontSize),
-                          decoration: InputDecoration(
-                            hintText: 'Search by brand, type, customer, or remarks...',
-                            prefixIcon: const Icon(Icons.search),
-                            filled: true,
-                            fillColor: Colors.white,
-                            border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(10),
-                              borderSide: BorderSide.none,
-                            ),
+                          style: ElevatedButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(vertical: 12),
                           ),
                         ),
                       ),
-                      const SizedBox(width: 12),
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 12),
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(10),
-                          border: Border.all(color: const Color(0xFFE2E8F0)),
+                  ] else ...[
+                    Row(
+                      children: [
+                        Text(
+                          'Aircon Unit Management',
+                          style: TextStyle(
+                            fontSize: _isAdmin ? 24 : 28,
+                            fontWeight: FontWeight.w700,
+                          ),
                         ),
-                        child: DropdownButton<int?>(
-                          value: _filterCustomerId,
-                          underline: const SizedBox(),
-                          hint: const Text('Filter by Customer'),
-                          items: [
-                            const DropdownMenuItem<int?>(value: null, child: Text('All Customers')),
-                            ..._customers.map((c) => DropdownMenuItem<int?>(
-                                  value: c.id,
-                                  child: Text(_getCustomerName(c)),
-                                )),
-                          ],
-                          onChanged: (v) => setState(() => _filterCustomerId = v),
-                        ),
-                      ),
-                    ],
-                  ),
+                        const Spacer(),
+                        if (_isAdmin)
+                          ElevatedButton.icon(
+                            onPressed: () => _onAddOrEdit(),
+                            icon: const Icon(Icons.add),
+                            label: const Text('Add Aircon Unit'),
+                          ),
+                      ],
+                    ),
+                  ],
+
                   const SizedBox(height: 16),
-                  Container(
-                    decoration: _cardDeco(),
-                    child: SingleChildScrollView(
-                      scrollDirection: Axis.horizontal,
-                      child: ConstrainedBox(
-                        constraints: const BoxConstraints(minWidth: 1000),
-                        child: DataTable(
-                          columns: [
-                            DataColumn(label: Text('BRAND', style: TextStyle(fontSize: fontSize, fontWeight: FontWeight.w700))),
-                            DataColumn(label: Text('TYPE', style: TextStyle(fontSize: fontSize, fontWeight: FontWeight.w700))),
-                            DataColumn(label: Text('CUSTOMER', style: TextStyle(fontSize: fontSize, fontWeight: FontWeight.w700))),
-                            DataColumn(label: Text('REMARKS', style: TextStyle(fontSize: fontSize, fontWeight: FontWeight.w700))),
-                            DataColumn(label: Text('ACTIONS', style: TextStyle(fontSize: fontSize, fontWeight: FontWeight.w700))),
-                          ],
-                          rows: aircons.map((a) => _dataRow(a)).toList(),
+
+                  // FIX: Responsive Filters (Stack on Mobile)
+                  if (isMobileView) ...[
+                    TextField(
+                      onChanged: (v) => setState(() => _searchQuery = v),
+                      style: TextStyle(fontSize: fontSize),
+                      decoration: InputDecoration(
+                        hintText: 'Search by brand, type...',
+                        prefixIcon: const Icon(Icons.search),
+                        filled: true,
+                        fillColor: Colors.white,
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(10),
+                          borderSide: BorderSide.none,
                         ),
                       ),
                     ),
-                  ),
+                    const SizedBox(height: 12),
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.symmetric(horizontal: 12),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(color: const Color(0xFFE2E8F0)),
+                      ),
+                      child: DropdownButtonHideUnderline(
+                        child: DropdownButton<int?>(
+                          value: _filterCustomerId,
+                          hint: const Text('Filter by Customer'),
+                          isExpanded: true,
+                          items: [
+                            const DropdownMenuItem<int?>(
+                              value: null,
+                              child: Text('All Customers'),
+                            ),
+                            ..._customers.map(
+                              (c) => DropdownMenuItem<int?>(
+                                value: c.id,
+                                child: Text(
+                                  _getCustomerName(c),
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                            ),
+                          ],
+                          onChanged: (v) =>
+                              setState(() => _filterCustomerId = v),
+                        ),
+                      ),
+                    ),
+                  ] else ...[
+                    Row(
+                      children: [
+                        Expanded(
+                          child: TextField(
+                            onChanged: (v) => setState(() => _searchQuery = v),
+                            style: TextStyle(fontSize: fontSize),
+                            decoration: InputDecoration(
+                              hintText:
+                                  'Search by brand, type, customer, or remarks...',
+                              prefixIcon: const Icon(Icons.search),
+                              filled: true,
+                              fillColor: Colors.white,
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(10),
+                                borderSide: BorderSide.none,
+                              ),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 12),
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(10),
+                            border: Border.all(color: const Color(0xFFE2E8F0)),
+                          ),
+                          child: DropdownButton<int?>(
+                            value: _filterCustomerId,
+                            underline: const SizedBox(),
+                            hint: const Text('Filter by Customer'),
+                            items: [
+                              const DropdownMenuItem<int?>(
+                                value: null,
+                                child: Text('All Customers'),
+                              ),
+                              ..._customers.map(
+                                (c) => DropdownMenuItem<int?>(
+                                  value: c.id,
+                                  child: Text(_getCustomerName(c)),
+                                ),
+                              ),
+                            ],
+                            onChanged: (v) =>
+                                setState(() => _filterCustomerId = v),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+
+                  const SizedBox(height: 16),
+
+                  // FIX: Card View on Mobile, Table on Desktop
+                  if (isMobileView)
+                    ...aircons.map((a) => _buildMobileCard(a, fontSize))
+                  else
+                    Container(
+                      decoration: _cardDeco(),
+                      child: SingleChildScrollView(
+                        scrollDirection: Axis.horizontal,
+                        child: ConstrainedBox(
+                          constraints: const BoxConstraints(minWidth: 1000),
+                          child: DataTable(
+                            columns: [
+                              DataColumn(
+                                label: Text(
+                                  'BRAND',
+                                  style: TextStyle(
+                                    fontSize: fontSize,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                              ),
+                              DataColumn(
+                                label: Text(
+                                  'TYPE',
+                                  style: TextStyle(
+                                    fontSize: fontSize,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                              ),
+                              DataColumn(
+                                label: Text(
+                                  'CUSTOMER',
+                                  style: TextStyle(
+                                    fontSize: fontSize,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                              ),
+                              DataColumn(
+                                label: Text(
+                                  'REMARKS',
+                                  style: TextStyle(
+                                    fontSize: fontSize,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                              ),
+                              DataColumn(
+                                label: Text(
+                                  'ACTIONS',
+                                  style: TextStyle(
+                                    fontSize: fontSize,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                              ),
+                            ],
+                            rows: aircons.map((a) => _dataRow(a)).toList(),
+                          ),
+                        ),
+                      ),
+                    ),
                 ],
               ),
             ),
@@ -275,13 +432,130 @@ class _AirconsScreenState extends State<AirconsScreen> {
     );
   }
 
+  // New Mobile Card Widget
+  Widget _buildMobileCard(AirconData a, double fontSize) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.05),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                a.brand.name,
+                style: const TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: Colors.blue.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Text(
+                  a.airconType.typeName,
+                  style: const TextStyle(
+                    fontSize: 12,
+                    color: Colors.blue,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              const Icon(Icons.person_outline, size: 16, color: Colors.grey),
+              const SizedBox(width: 4),
+              Expanded(
+                child: Text(
+                  _getCustomerName(a.customer),
+                  style: const TextStyle(fontSize: 14, color: Colors.black87),
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            ],
+          ),
+          if (a.remarks.isNotEmpty) ...[
+            const SizedBox(height: 8),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Icon(Icons.info_outline, size: 16, color: Colors.grey),
+                const SizedBox(width: 4),
+                Expanded(
+                  child: Text(
+                    a.remarks,
+                    style: const TextStyle(fontSize: 13, color: Colors.black54),
+                  ),
+                ),
+              ],
+            ),
+          ],
+          if (_isAdmin) ...[
+            const Divider(height: 24),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.end,
+              children: [
+                TextButton.icon(
+                  onPressed: () => _onAddOrEdit(existing: a),
+                  icon: const Icon(Icons.edit, size: 16),
+                  label: const Text('Edit'),
+                ),
+                const SizedBox(width: 8),
+                TextButton.icon(
+                  onPressed: () => _onDelete(a),
+                  icon: const Icon(Icons.delete, size: 16),
+                  label: const Text(
+                    'Delete',
+                    style: TextStyle(color: Colors.red),
+                  ),
+                  style: TextButton.styleFrom(foregroundColor: Colors.red),
+                ),
+              ],
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
   DataRow _dataRow(AirconData a) {
     final fontSize = _isAdmin ? 14.0 : 16.0;
     return DataRow(
       cells: [
-        DataCell(Text(a.brand.name, style: TextStyle(fontSize: fontSize, fontWeight: FontWeight.w600))),
-        DataCell(Text(a.airconType.typeName, style: TextStyle(fontSize: fontSize))),
-        DataCell(Text(_getCustomerName(a.customer), style: TextStyle(fontSize: fontSize))),
+        DataCell(
+          Text(
+            a.brand.name,
+            style: TextStyle(fontSize: fontSize, fontWeight: FontWeight.w600),
+          ),
+        ),
+        DataCell(
+          Text(a.airconType.typeName, style: TextStyle(fontSize: fontSize)),
+        ),
+        DataCell(
+          Text(
+            _getCustomerName(a.customer),
+            style: TextStyle(fontSize: fontSize),
+          ),
+        ),
         DataCell(
           SizedBox(
             width: 250,
@@ -298,27 +572,38 @@ class _AirconsScreenState extends State<AirconsScreen> {
               ? Row(
                   children: [
                     IconButton(
-                      icon: const Icon(Icons.edit_outlined, size: 18, color: Colors.black87),
+                      icon: const Icon(
+                        Icons.edit_outlined,
+                        size: 18,
+                        color: Colors.black87,
+                      ),
                       onPressed: () => _onAddOrEdit(existing: a),
                     ),
                     const SizedBox(width: 4),
                     IconButton(
-                      icon: const Icon(Icons.delete_outline, size: 18, color: Colors.red),
+                      icon: const Icon(
+                        Icons.delete_outline,
+                        size: 18,
+                        color: Colors.red,
+                      ),
                       onPressed: () => _onDelete(a),
                     ),
                   ],
                 )
-              : const Text('View only', style: TextStyle(fontSize: 12, color: Colors.black54)),
+              : const Text(
+                  'View only',
+                  style: TextStyle(fontSize: 12, color: Colors.black54),
+                ),
         ),
       ],
     );
   }
 
   BoxDecoration _cardDeco() => BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: const Color(0xFFE2E8F0)),
-      );
+    color: Colors.white,
+    borderRadius: BorderRadius.circular(12),
+    border: Border.all(color: const Color(0xFFE2E8F0)),
+  );
 }
 
 class _AirconDialog extends StatefulWidget {
@@ -389,7 +674,10 @@ class _AirconDialogState extends State<_AirconDialog> {
             children: [
               Text(
                 widget.aircon == null ? 'Add Aircon Unit' : 'Edit Aircon Unit',
-                style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w700),
+                style: const TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.w700,
+                ),
               ),
               const SizedBox(height: 20),
               DropdownButtonFormField<BrandData>(
@@ -398,30 +686,45 @@ class _AirconDialogState extends State<_AirconDialog> {
                 items: widget.brands
                     .map((b) => DropdownMenuItem(value: b, child: Text(b.name)))
                     .toList(),
-                onChanged: (v) => setState(() => _selectedBrand = v ?? widget.brands.first),
+                onChanged: (v) =>
+                    setState(() => _selectedBrand = v ?? widget.brands.first),
               ),
               const SizedBox(height: 12),
               DropdownButtonFormField<AirconTypeData>(
                 value: _selectedType,
                 decoration: const InputDecoration(labelText: 'Aircon Type *'),
                 items: widget.airconTypes
-                    .map((t) => DropdownMenuItem(value: t, child: Text(t.typeName)))
+                    .map(
+                      (t) =>
+                          DropdownMenuItem(value: t, child: Text(t.typeName)),
+                    )
                     .toList(),
-                onChanged: (v) => setState(() => _selectedType = v ?? widget.airconTypes.first),
+                onChanged: (v) => setState(
+                  () => _selectedType = v ?? widget.airconTypes.first,
+                ),
               ),
               const SizedBox(height: 12),
               DropdownButtonFormField<CustomerData>(
                 value: _selectedCustomer,
                 decoration: const InputDecoration(labelText: 'Customer *'),
                 items: widget.customers
-                    .map((c) => DropdownMenuItem(value: c, child: Text(_getCustomerName(c))))
+                    .map(
+                      (c) => DropdownMenuItem(
+                        value: c,
+                        child: Text(_getCustomerName(c)),
+                      ),
+                    )
                     .toList(),
-                onChanged: (v) => setState(() => _selectedCustomer = v ?? widget.customers.first),
+                onChanged: (v) => setState(
+                  () => _selectedCustomer = v ?? widget.customers.first,
+                ),
               ),
               const SizedBox(height: 12),
               TextField(
                 controller: _remarksController,
-                decoration: const InputDecoration(labelText: 'Remarks / Location'),
+                decoration: const InputDecoration(
+                  labelText: 'Remarks / Location',
+                ),
                 maxLines: 3,
               ),
               const SizedBox(height: 24),
@@ -433,10 +736,7 @@ class _AirconDialogState extends State<_AirconDialog> {
                     child: const Text('Cancel'),
                   ),
                   const SizedBox(width: 12),
-                  ElevatedButton(
-                    onPressed: _submit,
-                    child: const Text('Save'),
-                  ),
+                  ElevatedButton(onPressed: _submit, child: const Text('Save')),
                 ],
               ),
             ],
@@ -446,4 +746,3 @@ class _AirconDialogState extends State<_AirconDialog> {
     );
   }
 }
-
