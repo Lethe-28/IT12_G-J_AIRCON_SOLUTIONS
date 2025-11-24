@@ -12,149 +12,120 @@ class DashboardScreen extends StatefulWidget {
 }
 
 class _DashboardScreenState extends State<DashboardScreen> {
-  // Sample Data (Simulating the Database)
+  // Sample data - in production, this would come from a data service
   final int _pendingJobs = 8;
   final int _unfinishedDocuments = 3;
   final double _totalRevenue = 125000.0;
-  final int _todayJobsCount = 5;
+  final int _todayJobs = 5;
+  final int _thisWeekJobs = 18;
+  final int _thisMonthJobs = 72;
 
   final List<_TodayJob> _todayJobOrders = [
-    _TodayJob(
-      'JO-2025-001',
-      'ABC Corporation',
-      '9:00 AM',
-      'Installation',
-      'In Progress',
-      'Makati',
-    ),
-    _TodayJob(
-      'JO-2025-002',
-      'XYZ Retail Store',
-      '11:30 AM',
-      'Maintenance',
-      'Pending',
-      'Quezon City',
-    ),
-    _TodayJob(
-      'JO-2025-003',
-      'Global Mall',
-      '2:00 PM',
-      'Repair',
-      'Pending',
-      'Pasig',
-    ),
-    _TodayJob(
-      'JO-2025-004',
-      'Maria Santos',
-      '3:30 PM',
-      'Installation',
-      'Scheduled',
-      'Mandaluyong',
-    ),
+    _TodayJob('JO-2025-001', 'ABC Corporation', '9:00 AM', 'Installation', 'In Progress'),
+    _TodayJob('JO-2025-002', 'XYZ Retail Store', '11:30 AM', 'Maintenance', 'Pending'),
+    _TodayJob('JO-2025-003', 'Global Mall', '2:00 PM', 'Repair', 'Pending'),
+    _TodayJob('JO-2025-004', 'Maria Santos', '3:30 PM', 'Installation', 'Scheduled'),
   ];
 
   final List<_AttentionItem> _attentionItems = [
-    _AttentionItem(
-      'Payment verification needed',
-      'JO-2025-002',
-      'High',
-      Colors.orange,
-    ),
-    _AttentionItem(
-      'Document pending review',
-      'JO-2025-001',
-      'Medium',
-      Colors.blue,
-    ),
-    _AttentionItem(
-      'Expense approval required',
-      'JO-2025-003',
-      'Medium',
-      Colors.purple,
-    ),
+    _AttentionItem('Payment verification needed', 'JO-2025-002', 'High', Colors.orange),
+    _AttentionItem('Document pending review', 'JO-2025-001', 'Medium', Colors.blue),
+    _AttentionItem('Expense approval required', 'JO-2025-003', 'Medium', Colors.purple),
+  ];
+
+  final List<_ActivityItem> _recentActivities = [
+    _ActivityItem('New job order created', 'JO-2025-005', '2 hours ago', Icons.add_circle),
+    _ActivityItem('Payment received', 'JO-2025-002', '4 hours ago', Icons.payments),
+    _ActivityItem('Job completed', 'JO-2025-001', 'Yesterday', Icons.check_circle),
+    _ActivityItem('Expense recorded', 'Fuel expense', 'Yesterday', Icons.receipt),
   ];
 
   bool get _isServiceManager => AppState.currentRole == UserRole.serviceManager;
 
   @override
   Widget build(BuildContext context) {
+    final titleFontSize = _isServiceManager ? 24.0 : 20.0;
+    
     return AppShell(
       selectedIndex: 0,
       body: Column(
         children: [
-          // 1. Shared Header (Kept for consistency)
           SharedHeader(
             welcomeText: AppState.headerWelcomeText(),
-            subtitleText: _isServiceManager
-                ? 'Here is your schedule for today.'
-                : 'Overview of company performance.',
+            subtitleText: AppState.headerSubtitle(),
             notificationCount: _attentionItems.length,
           ),
-
-          // 2. Main Content Area
           Expanded(
             child: SingleChildScrollView(
-              padding: const EdgeInsets.all(20),
-              child: LayoutBuilder(
-                builder: (context, constraints) {
-                  final isMobile = constraints.maxWidth < 900;
-
-                  // --- MOBILE LAYOUT (Vertical Stack) ---
-                  if (isMobile) {
-                    return Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        _SummaryStatsRow(
-                          pending: _pendingJobs,
-                          revenue: _totalRevenue,
-                          docs: _unfinishedDocuments,
-                          isMobile: true,
-                        ),
-                        const SizedBox(height: 20),
-                        // Mobile Priority: Schedule first!
-                        _TodaysJobsCard(
-                          jobs: _todayJobOrders,
-                          count: _todayJobsCount,
-                        ),
-                        const SizedBox(height: 20),
-                        _AttentionCard(items: _attentionItems),
-                      ],
-                    );
-                  }
-
-                  // --- DESKTOP LAYOUT (Grid / Side-by-Side) ---
-                  return Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+              padding: EdgeInsets.all(_isServiceManager ? 24 : 20),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
                     children: [
-                      _SummaryStatsRow(
-                        pending: _pendingJobs,
-                        revenue: _totalRevenue,
-                        docs: _unfinishedDocuments,
-                        isMobile: false,
+                      Text(
+                        'Overview',
+                        style: TextStyle(fontSize: titleFontSize, fontWeight: FontWeight.w700),
                       ),
-                      const SizedBox(height: 24),
-                      Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          // Left Col: Schedule (Flex 2)
-                          Expanded(
-                            flex: 2,
-                            child: _TodaysJobsCard(
-                              jobs: _todayJobOrders,
-                              count: _todayJobsCount,
-                            ),
-                          ),
-                          const SizedBox(width: 20),
-                          // Right Col: Attention Items (Flex 1)
-                          Expanded(
-                            flex: 1,
-                            child: _AttentionCard(items: _attentionItems),
-                          ),
-                        ],
+                      const Spacer(),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: const Color(0xFFE2E8F0)),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text('This month', style: TextStyle(fontSize: _isServiceManager ? 16.0 : 14.0)),
+                            const SizedBox(width: 8),
+                            const Icon(Icons.keyboard_arrow_up, size: 18, color: Colors.green),
+                          ],
+                        ),
                       ),
                     ],
-                  );
-                },
+                  ),
+                  const SizedBox(height: 16),
+                  _overviewCardsRow(),
+                  const SizedBox(height: 24),
+                  LayoutBuilder(
+                    builder: (context, constraints) {
+                      final isWideScreen = constraints.maxWidth >= 1024;
+                      
+                      if (isWideScreen) {
+                        // Desktop layout: side by side
+                        return Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Expanded(child: _todaysJobOrdersCard()),
+                            const SizedBox(width: 20),
+                            Expanded(
+                              child: Column(
+                                children: [
+                                  _attentionCard(),
+                                  const SizedBox(height: 20),
+                                  _recentActivityCard(),
+                                ],
+                              ),
+                            ),
+                          ],
+                        );
+                      } else {
+                        // Mobile/Tablet layout: stacked vertically
+                        return Column(
+                          children: [
+                            _todaysJobOrdersCard(),
+                            const SizedBox(height: 20),
+                            _attentionCard(),
+                            const SizedBox(height: 20),
+                            _recentActivityCard(),
+                          ],
+                        );
+                      }
+                    },
+                  ),
+                ],
               ),
             ),
           ),
@@ -169,7 +140,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
         final isMobileView = isMobile(context);
         final isTabletView = isTablet(context);
         final fontSize = _isServiceManager ? 18.0 : 16.0;
-
+        
         final pendingCard = _overviewCard(
           'Pending Jobs',
           _pendingJobs.toString(),
@@ -191,7 +162,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
           Colors.blue,
           fontSize,
         );
-
+        
         if (isMobileView) {
           return Column(
             children: [
@@ -203,7 +174,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
             ],
           );
         }
-
+        
         if (isTabletView) {
           return Column(
             children: [
@@ -219,7 +190,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
             ],
           );
         }
-
+        
         return Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -234,78 +205,63 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
-  Widget _overviewCard(
-    String title,
-    String value,
-    IconData icon,
-    Color color,
-    double fontSize,
-  ) {
+  Widget _overviewCard(String title, String value, IconData icon, Color color, double fontSize) {
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(12),
         border: Border.all(color: const Color(0xFFE2E8F0)),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.02),
-            blurRadius: 4,
-            offset: const Offset(0, 2),
-          ),
-        ],
       ),
-      child: Row(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
         children: [
-          Container(
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: color.withOpacity(0.1),
-              borderRadius: BorderRadius.circular(10),
-            ),
-            child: Icon(icon, color: color, size: 24),
-          ),
-          const SizedBox(width: 16),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+          Row(
             children: [
-              Text(
-                value,
-                style: const TextStyle(
-                  fontSize: 20,
-                  fontWeight: FontWeight.w800,
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: color.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(10),
                 ),
+                child: Icon(icon, color: color, size: 24),
               ),
-              Text(
-                title,
-                style: const TextStyle(
-                  fontSize: 12,
-                  color: Colors.black54,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
+              const Spacer(),
             ],
+          ),
+          const SizedBox(height: 12),
+          Text(
+            value,
+            style: TextStyle(
+              fontSize: fontSize + 4,
+              fontWeight: FontWeight.w800,
+              color: Colors.black87,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            title,
+            style: TextStyle(
+              fontSize: fontSize - 2,
+              fontWeight: FontWeight.w600,
+              color: Colors.black54,
+            ),
           ),
         ],
       ),
     );
   }
-}
 
-class _TodaysJobsCard extends StatelessWidget {
-  final List<_TodayJob> jobs;
-  final int count;
-
-  const _TodaysJobsCard({required this.jobs, required this.count});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      decoration: BoxDecoration(
+  BoxDecoration _whiteCardDeco() => BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(12),
         border: Border.all(color: const Color(0xFFE2E8F0)),
-      ),
+      );
+
+  Widget _attentionCard() {
+    return Container(
+      decoration: _whiteCardDeco(),
       padding: const EdgeInsets.all(20),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -313,21 +269,203 @@ class _TodaysJobsCard extends StatelessWidget {
           Row(
             children: [
               const Text(
-                "Today's Jobs",
+                'Attention Required',
                 style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
               ),
               const Spacer(),
               Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 10,
-                  vertical: 4,
-                ),
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                 decoration: BoxDecoration(
-                  color: const Color(0xFFEAF2FF),
-                  borderRadius: BorderRadius.circular(12),
+                  color: Colors.red.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(999),
                 ),
                 child: Text(
-                  '$count Active',
+                  '${_attentionItems.length}',
+                  style: const TextStyle(color: Colors.red, fontWeight: FontWeight.w600),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          if (_attentionItems.isEmpty)
+            const Padding(
+              padding: EdgeInsets.all(20),
+              child: Center(
+                child: Text('No items requiring attention', style: TextStyle(color: Colors.black54)),
+              ),
+            )
+          else
+            ..._attentionItems.map((item) => _attentionItemRow(item)),
+        ],
+      ),
+    );
+  }
+
+  Widget _attentionItemRow(_AttentionItem item) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: item.color.withOpacity(0.05),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: item.color.withOpacity(0.2)),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 8,
+            height: 8,
+            decoration: BoxDecoration(
+              color: item.color,
+              shape: BoxShape.circle,
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  item.title,
+                  style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  item.reference,
+                  style: const TextStyle(fontSize: 12, color: Colors.black54),
+                ),
+              ],
+            ),
+          ),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            decoration: BoxDecoration(
+              color: item.color.withOpacity(0.1),
+              borderRadius: BorderRadius.circular(999),
+            ),
+            child: Text(
+              item.priority,
+              style: TextStyle(fontSize: 11, color: item.color, fontWeight: FontWeight.w600),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _recentActivityCard() {
+    return Container(
+      decoration: _whiteCardDeco(),
+      padding: const EdgeInsets.all(20),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Recent Activity',
+            style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
+          ),
+          const SizedBox(height: 16),
+          if (_recentActivities.isEmpty)
+            const Padding(
+              padding: EdgeInsets.all(20),
+              child: Center(
+                child: Text('No recent activity', style: TextStyle(color: Colors.black54)),
+              ),
+            )
+          else
+            ..._recentActivities.map((activity) => _activityItemRow(activity)),
+        ],
+      ),
+    );
+  }
+
+  Widget _activityItemRow(_ActivityItem activity) {
+    // Determine icon background color based on activity type
+    Color bgColor = const Color(0xFFEAF2FF);
+    Color iconColor = const Color(0xFF2563EB);
+    
+    if (activity.title.contains('Payment')) {
+      bgColor = const Color(0xFFE8FFF3);
+      iconColor = Colors.green;
+    } else if (activity.title.contains('Expense')) {
+      bgColor = const Color(0xFFFFF4E5);
+      iconColor = Colors.orange;
+    } else if (activity.title.contains('completed') || activity.title.contains('Completed')) {
+      bgColor = const Color(0xFFE0F2FE);
+      iconColor = Colors.blue;
+    }
+    
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFAFAFA),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: const Color(0xFFE8E8E8)),
+      ),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: bgColor,
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Icon(activity.icon, size: 20, color: iconColor),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  activity.title,
+                  style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  '${activity.reference} • ${activity.time}',
+                  style: const TextStyle(fontSize: 12, color: Colors.black54),
+                ),
+              ],
+            ),
+          ),
+          // Add visual indicator
+          Container(
+            width: 8,
+            height: 8,
+            decoration: BoxDecoration(
+              color: iconColor,
+              shape: BoxShape.circle,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _todaysJobOrdersCard() {
+    return Container(
+      decoration: _whiteCardDeco(),
+      padding: const EdgeInsets.all(20),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Text(
+                "Today's Job Orders",
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
+              ),
+              const Spacer(),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFEAF2FF),
+                  borderRadius: BorderRadius.circular(999),
+                ),
+                child: Text(
+                  '${_todayJobs} jobs',
                   style: const TextStyle(
                     color: Color(0xFF2563EB),
                     fontWeight: FontWeight.w600,
@@ -337,253 +475,159 @@ class _TodaysJobsCard extends StatelessWidget {
               ),
             ],
           ),
-          const SizedBox(height: 20),
-          if (jobs.isEmpty)
-            const Center(
-              child: Text(
-                'No jobs scheduled for today.',
-                style: TextStyle(color: Colors.black45),
+          const SizedBox(height: 16),
+          if (_todayJobOrders.isEmpty)
+            const Padding(
+              padding: EdgeInsets.all(20),
+              child: Center(
+                child: Text('No job orders scheduled for today', style: TextStyle(color: Colors.black54)),
               ),
             )
           else
-            ListView.separated(
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              itemCount: jobs.length,
-              separatorBuilder: (_, __) => const Divider(height: 24),
-              itemBuilder: (context, index) {
-                final job = jobs[index];
-                return Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    // Time Column
-                    SizedBox(
-                      width: 70,
-                      child: Text(
-                        job.time,
-                        style: const TextStyle(
-                          fontWeight: FontWeight.w600,
-                          color: Colors.black54,
-                        ),
-                      ),
-                    ),
-                    // Job Details
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            job.client,
-                            style: const TextStyle(
-                              fontWeight: FontWeight.w700,
-                              fontSize: 15,
-                            ),
-                          ),
-                          const SizedBox(height: 4),
-                          Row(
-                            children: [
-                              Icon(
-                                Icons.location_on_outlined,
-                                size: 14,
-                                color: Colors.grey[600],
-                              ),
-                              const SizedBox(width: 4),
-                              Text(
-                                job.location,
-                                style: TextStyle(
-                                  fontSize: 13,
-                                  color: Colors.grey[600],
-                                ),
-                              ),
-                              const SizedBox(width: 12),
-                              Container(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 6,
-                                  vertical: 2,
-                                ),
-                                decoration: BoxDecoration(
-                                  color: Colors.grey[100],
-                                  borderRadius: BorderRadius.circular(4),
-                                ),
-                                child: Text(
-                                  job.type,
-                                  style: TextStyle(
-                                    fontSize: 11,
-                                    color: Colors.grey[700],
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ],
-                      ),
-                    ),
-                    // Status Badge
-                    _StatusBadge(status: job.status),
-                  ],
-                );
-              },
-            ),
+            ..._todayJobOrders.map((job) => _jobOrderRow(job)),
+          const SizedBox(height: 12),
+          const Divider(),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              _statMiniCard('Today', _todayJobs.toString(), Colors.blue),
+              const SizedBox(width: 12),
+              _statMiniCard('This Week', _thisWeekJobs.toString(), Colors.green),
+              const SizedBox(width: 12),
+              _statMiniCard('This Month', _thisMonthJobs.toString(), Colors.purple),
+            ],
+          ),
         ],
       ),
     );
   }
-}
 
-class _StatusBadge extends StatelessWidget {
-  final String status;
-  const _StatusBadge({required this.status});
-
-  @override
-  Widget build(BuildContext context) {
-    Color color;
-    Color bg;
-
-    switch (status.toLowerCase()) {
+  Widget _jobOrderRow(_TodayJob job) {
+    Color statusColor;
+    switch (job.status.toLowerCase()) {
       case 'in progress':
-        color = Colors.blue;
-        bg = Colors.blue.withOpacity(0.1);
+        statusColor = Colors.blue;
         break;
       case 'completed':
-        color = Colors.green;
-        bg = Colors.green.withOpacity(0.1);
+        statusColor = Colors.green;
+        break;
+      case 'pending':
+        statusColor = Colors.orange;
         break;
       default:
-        color = Colors.orange;
-        bg = Colors.orange.withOpacity(0.1);
+        statusColor = Colors.grey;
     }
 
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: bg,
+        color: const Color(0xFFF8FAFC),
         borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
       ),
-      child: Text(
-        status,
-        style: TextStyle(
-          fontSize: 11,
-          fontWeight: FontWeight.w700,
-          color: color,
+      child: Row(
+        children: [
+          Container(
+            width: 4,
+            height: 40,
+            decoration: BoxDecoration(
+              color: statusColor,
+              borderRadius: BorderRadius.circular(2),
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Text(
+                      job.id,
+                      style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 14),
+                    ),
+                    const SizedBox(width: 8),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: statusColor.withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(999),
+                      ),
+                      child: Text(
+                        job.status,
+                        style: TextStyle(fontSize: 10, color: statusColor, fontWeight: FontWeight.w600),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  job.client,
+                  style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+                ),
+                const SizedBox(height: 2),
+                Row(
+                  children: [
+                    Icon(Icons.access_time, size: 12, color: Colors.black54),
+                    const SizedBox(width: 4),
+                    Text(
+                      '${job.time} • ${job.type}',
+                      style: const TextStyle(fontSize: 12, color: Colors.black54),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _statMiniCard(String label, String value, Color color) {
+    return Expanded(
+      child: Container(
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: color.withOpacity(0.05),
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              value,
+              style: TextStyle(
+                fontSize: 20,
+                fontWeight: FontWeight.w800,
+                color: color,
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 12,
+                color: Colors.black54,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ],
         ),
       ),
     );
   }
 }
 
-class _AttentionCard extends StatelessWidget {
-  final List<_AttentionItem> items;
-
-  const _AttentionCard({required this.items});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: const Color(0xFFE2E8F0)),
-      ),
-      padding: const EdgeInsets.all(20),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              const Text(
-                'Attention Needed',
-                style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
-              ),
-              const Spacer(),
-              if (items.isNotEmpty)
-                Container(
-                  width: 8,
-                  height: 8,
-                  decoration: const BoxDecoration(
-                    color: Colors.red,
-                    shape: BoxShape.circle,
-                  ),
-                ),
-            ],
-          ),
-          const SizedBox(height: 16),
-          if (items.isEmpty)
-            const Text(
-              'All caught up!',
-              style: TextStyle(color: Colors.black54),
-            )
-          else
-            ListView.separated(
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              itemCount: items.length,
-              separatorBuilder: (_, __) => const SizedBox(height: 12),
-              itemBuilder: (context, index) {
-                final item = items[index];
-                return Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: item.color.withOpacity(0.05),
-                    borderRadius: BorderRadius.circular(8),
-                    border: Border.all(color: item.color.withOpacity(0.1)),
-                  ),
-                  child: Row(
-                    children: [
-                      Icon(
-                        Icons.warning_amber_rounded,
-                        color: item.color,
-                        size: 20,
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              item.title,
-                              style: const TextStyle(
-                                fontWeight: FontWeight.w600,
-                                fontSize: 13,
-                              ),
-                            ),
-                            Text(
-                              item.reference,
-                              style: const TextStyle(
-                                fontSize: 11,
-                                color: Colors.black54,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-                );
-              },
-            ),
-        ],
-      ),
-    );
-  }
-}
-
-// Data Models
 class _TodayJob {
   final String id;
   final String client;
   final String time;
   final String type;
   final String status;
-  final String location;
 
-  _TodayJob(
-    this.id,
-    this.client,
-    this.time,
-    this.type,
-    this.status,
-    this.location,
-  );
+  _TodayJob(this.id, this.client, this.time, this.type, this.status);
 }
 
 class _AttentionItem {
@@ -593,4 +637,13 @@ class _AttentionItem {
   final Color color;
 
   _AttentionItem(this.title, this.reference, this.priority, this.color);
+}
+
+class _ActivityItem {
+  final String title;
+  final String reference;
+  final String time;
+  final IconData icon;
+
+  _ActivityItem(this.title, this.reference, this.time, this.icon);
 }
