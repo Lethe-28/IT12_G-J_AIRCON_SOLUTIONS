@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'data/app_state.dart';
 import 'data/models.dart';
 import 'ui_app_shell.dart';
-import 'shared_header.dart';
+import 'shared/widgets.dart';
 
 class ServiceItemsScreen extends StatefulWidget {
   const ServiceItemsScreen({super.key});
@@ -130,12 +130,6 @@ class _ServiceItemsScreenState extends State<ServiceItemsScreen> {
       selectedIndex: 8,
       body: Column(
         children: [
-          SharedHeader(
-            welcomeText: 'Service Catalog',
-            subtitleText: 'Standardize billable services and materials.',
-            notificationCount: 0,
-            showGreeting: false,
-          ),
           Expanded(
             child: SingleChildScrollView(
               padding: EdgeInsets.all(_isAdmin ? 20 : 24),

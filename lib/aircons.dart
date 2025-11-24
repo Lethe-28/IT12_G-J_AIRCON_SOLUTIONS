@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'data/app_state.dart';
 import 'data/models.dart';
 import 'ui_app_shell.dart';
-import 'shared_header.dart';
+import 'shared/widgets.dart';
 
 class AirconsScreen extends StatefulWidget {
   const AirconsScreen({super.key});
@@ -182,12 +182,6 @@ class _AirconsScreenState extends State<AirconsScreen> {
       selectedIndex: 7,
       body: Column(
         children: [
-          SharedHeader(
-            welcomeText: 'Aircon Assets',
-            subtitleText: 'Map customer equipment, locations, and notes.',
-            notificationCount: 0,
-            showGreeting: false,
-          ),
           Expanded(
             child: SingleChildScrollView(
               padding: EdgeInsets.all(_isAdmin ? 20 : 24),

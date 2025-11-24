@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'data/app_state.dart';
 import 'ui_app_shell.dart';
 import 'shared_header.dart';
+import 'shared/widgets.dart' show isMobile, isTablet;
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
@@ -161,77 +162,85 @@ class _DashboardScreenState extends State<DashboardScreen> {
       ),
     );
   }
-}
 
-// ==============================================================================
-// SUB-WIDGETS (Extracted for Cleanliness)
-// ==============================================================================
+  Widget _overviewCardsRow() {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final isMobileView = isMobile(context);
+        final isTabletView = isTablet(context);
+        final fontSize = _isServiceManager ? 18.0 : 16.0;
 
-class _SummaryStatsRow extends StatelessWidget {
-  final int pending;
-  final double revenue;
-  final int docs;
-  final bool isMobile;
+        final pendingCard = _overviewCard(
+          'Pending Jobs',
+          _pendingJobs.toString(),
+          Icons.pending_actions,
+          Colors.orange,
+          fontSize,
+        );
+        final paymentsCard = _overviewCard(
+          'Total Payments',
+          '₱${_totalRevenue.toStringAsFixed(0)}',
+          Icons.payments,
+          Colors.green,
+          fontSize,
+        );
+        final documentsCard = _overviewCard(
+          'Documents',
+          _unfinishedDocuments.toString(),
+          Icons.description,
+          Colors.blue,
+          fontSize,
+        );
 
-  const _SummaryStatsRow({
-    required this.pending,
-    required this.revenue,
-    required this.docs,
-    required this.isMobile,
-  });
+        if (isMobileView) {
+          return Column(
+            children: [
+              pendingCard,
+              const SizedBox(height: 12),
+              paymentsCard,
+              const SizedBox(height: 12),
+              documentsCard,
+            ],
+          );
+        }
 
-  @override
-  Widget build(BuildContext context) {
-    // If mobile, stack them or use a tighter grid.
-    // For simplicity, we stick to the Row but expanded, or Column if very small.
-    // Here we use a Flex Layout that adapts.
+        if (isTabletView) {
+          return Column(
+            children: [
+              Row(
+                children: [
+                  Expanded(child: pendingCard),
+                  const SizedBox(width: 12),
+                  Expanded(child: paymentsCard),
+                ],
+              ),
+              const SizedBox(height: 12),
+              documentsCard,
+            ],
+          );
+        }
 
-    List<Widget> cards = [
-      _StatCard(
-        'Pending Jobs',
-        pending.toString(),
-        Icons.pending_actions,
-        Colors.orange,
-      ),
-      if (!isMobile) const SizedBox(width: 16),
-      if (isMobile) const SizedBox(height: 12),
-      _StatCard(
-        'Today\'s Revenue',
-        '₱${revenue.toStringAsFixed(0)}',
-        Icons.payments,
-        Colors.green,
-      ),
-      if (!isMobile) const SizedBox(width: 16),
-      if (isMobile) const SizedBox(height: 12),
-      _StatCard(
-        'Pending Docs',
-        docs.toString(),
-        Icons.description,
-        Colors.blue,
-      ),
-    ];
-
-    if (isMobile) {
-      return Column(children: cards);
-    }
-    return Row(
-      children: cards
-          .map((c) => c is SizedBox ? c : Expanded(child: c))
-          .toList(),
+        return Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(child: pendingCard),
+            const SizedBox(width: 16),
+            Expanded(child: paymentsCard),
+            const SizedBox(width: 16),
+            Expanded(child: documentsCard),
+          ],
+        );
+      },
     );
   }
-}
 
-class _StatCard extends StatelessWidget {
-  final String title;
-  final String value;
-  final IconData icon;
-  final Color color;
-
-  const _StatCard(this.title, this.value, this.icon, this.color);
-
-  @override
-  Widget build(BuildContext context) {
+  Widget _overviewCard(
+    String title,
+    String value,
+    IconData icon,
+    Color color,
+    double fontSize,
+  ) {
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
