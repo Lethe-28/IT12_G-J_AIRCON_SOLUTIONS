@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'data/app_state.dart';
 import 'ui_app_shell.dart';
 import 'shared_header.dart';
+import 'shared/widgets.dart' show isMobile, isTablet;
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
@@ -136,7 +137,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
   Widget _overviewCardsRow() {
     return LayoutBuilder(
       builder: (context, constraints) {
-        final isNarrow = constraints.maxWidth < 600;
+        final isMobileView = isMobile(context);
+        final isTabletView = isTablet(context);
         final fontSize = _isServiceManager ? 18.0 : 16.0;
         
         final pendingCard = _overviewCard(
@@ -161,12 +163,28 @@ class _DashboardScreenState extends State<DashboardScreen> {
           fontSize,
         );
         
-        if (isNarrow) {
+        if (isMobileView) {
           return Column(
             children: [
               pendingCard,
               const SizedBox(height: 12),
               paymentsCard,
+              const SizedBox(height: 12),
+              documentsCard,
+            ],
+          );
+        }
+        
+        if (isTabletView) {
+          return Column(
+            children: [
+              Row(
+                children: [
+                  Expanded(child: pendingCard),
+                  const SizedBox(width: 12),
+                  Expanded(child: paymentsCard),
+                ],
+              ),
               const SizedBox(height: 12),
               documentsCard,
             ],

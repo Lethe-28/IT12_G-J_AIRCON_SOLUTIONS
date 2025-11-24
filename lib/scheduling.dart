@@ -3,6 +3,7 @@ import 'data/app_state.dart';
 import 'data/models.dart';
 import 'ui_app_shell.dart';
 import 'calendar_view.dart';
+import 'shared/widgets.dart' show LoadingOverlay, LoadingButton, EmptyState, FilterChipGroup, SortableColumnHeader, showConfirmDialog, showUndoSnackBar, AppDesignTokens;
 
 // --- Data Classes ---
 
@@ -104,11 +105,13 @@ class SchedulingScreen extends StatefulWidget {
 class _SchedulingScreenState extends State<SchedulingScreen> {
   String _searchQuery = '';
   final Set<String> _selectedOrderIds = {};
-  bool get _isServiceManager => AppState.currentRole == UserRole.serviceManager;
-  String? _hoveredOrderId;
-  int _currentPage = 0;
-  final int _rowsPerPage = 10;
   bool _isTableView = true; 
+  bool _isLoading = false;
+  String? _statusFilter;
+  String? _sortColumn;
+  bool _sortAscending = true;
+  JobOrder? _lastDeletedOrder;
+  int? _lastDeletedIndex;
 
   // Design Constants
   static const Color kPrimaryColor = Color(0xFF2563EB);
@@ -208,35 +211,39 @@ class _SchedulingScreenState extends State<SchedulingScreen> {
   }
 
   void _onArchive(JobOrder order) async {
-    final confirmed = await showDialog<bool>(
+    final confirmed = await showConfirmDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Archive Job Order'),
-        content: Text('Are you sure you want to archive ${order.id}?'),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
-          TextButton(
-            onPressed: () => Navigator.pop(context, true), 
-            style: TextButton.styleFrom(foregroundColor: Colors.orange),
-            child: const Text('Archive')
-          ),
-        ],
-      ),
+      title: 'Archive Job Order',
+      message: 'Are you sure you want to archive ${order.id}? This action can be undone.',
+      confirmLabel: 'Archive',
+      cancelLabel: 'Cancel',
+      isDestructive: false,
     );
     if (confirmed != true) return;
+    
     setState(() {
-      AppState.sharedJobOrders.removeWhere((o) => (o as JobOrder).id == order.id);
+      final index = AppState.sharedJobOrders.indexWhere((o) => (o as JobOrder).id == order.id);
+      if (index != -1) {
+        _lastDeletedOrder = order;
+        _lastDeletedIndex = index;
+        AppState.sharedJobOrders.removeAt(index);
       _selectedOrderIds.remove(order.id);
+      }
     });
-    if (mounted) {
-      ScaffoldMessenger.of(context).hideCurrentSnackBar();
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('${order.id} has been archived'),
-          backgroundColor: Colors.orange[800],
-          behavior: SnackBarBehavior.floating,
-          width: 300,
-        ),
+    
+    if (mounted && _lastDeletedOrder != null) {
+      showUndoSnackBar(
+        context: context,
+        message: '${order.id} has been archived',
+        onUndo: () {
+          if (_lastDeletedOrder != null && _lastDeletedIndex != null) {
+            setState(() {
+              AppState.sharedJobOrders.insert(_lastDeletedIndex!, _lastDeletedOrder!);
+              _lastDeletedOrder = null;
+              _lastDeletedIndex = null;
+            });
+          }
+        },
       );
     }
   }
@@ -286,14 +293,54 @@ class _SchedulingScreenState extends State<SchedulingScreen> {
   }
 
   List<JobOrder> get _filteredOrders {
-    if (_searchQuery.isEmpty) return _orders;
+    var filtered = _orders;
+    
+    // Search filter
+    if (_searchQuery.isNotEmpty) {
     final q = _searchQuery.toLowerCase();
-    return _orders
+      filtered = filtered
         .where((o) =>
             o.clientName.toLowerCase().contains(q) ||
             o.technician.toLowerCase().contains(q) ||
-            o.id.toLowerCase().contains(q))
+              o.id.toLowerCase().contains(q) ||
+              o.location.toLowerCase().contains(q) ||
+              o.jobType.toLowerCase().contains(q))
         .toList();
+    }
+    
+    // Status filter
+    if (_statusFilter != null && _statusFilter!.isNotEmpty && _statusFilter != 'All') {
+      filtered = filtered
+          .where((o) => o.status.toLowerCase() == _statusFilter!.toLowerCase())
+          .toList();
+    }
+    
+    // Sorting
+    if (_sortColumn != null) {
+      filtered.sort((a, b) {
+        int comparison = 0;
+        switch (_sortColumn) {
+          case 'id':
+            comparison = a.id.compareTo(b.id);
+            break;
+          case 'client':
+            comparison = a.clientName.compareTo(b.clientName);
+            break;
+          case 'date':
+            comparison = a.dateTime.compareTo(b.dateTime);
+            break;
+          case 'status':
+            comparison = a.status.compareTo(b.status);
+            break;
+          case 'location':
+            comparison = a.location.compareTo(b.location);
+            break;
+        }
+        return _sortAscending ? comparison : -comparison;
+      });
+    }
+    
+    return filtered;
   }
 
   String _formatDate(DateTime? dt) {
@@ -310,47 +357,63 @@ class _SchedulingScreenState extends State<SchedulingScreen> {
   @override
   Widget build(BuildContext context) {
     final filtered = _filteredOrders;
+    final isMobileView = MediaQuery.of(context).size.width < 600;
 
     return AppShell(
       selectedIndex: 1,
-      body: Container(
+      body: LoadingOverlay(
+        isLoading: _isLoading,
+        child: Container(
         color: const Color(0xFFF8FAFC),
         child: Column(
           children: [
-            // Header
+              // Header - Responsive
             Container(
-              padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 24),
+                padding: EdgeInsets.symmetric(
+                  horizontal: isMobileView ? 16 : 32,
+                  vertical: isMobileView ? 16 : 24,
+                ),
               color: Colors.white,
               width: double.infinity,
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text(
+                    Text(
                     'Job Orders & Scheduling',
-                    style: TextStyle(fontSize: 24, fontWeight: FontWeight.w700, color: kTextPrimary, letterSpacing: -0.5),
+                      style: TextStyle(
+                        fontSize: isMobileView ? 20 : 24,
+                        fontWeight: FontWeight.w700,
+                        color: kTextPrimary,
+                        letterSpacing: -0.5,
+                      ),
                   ),
                   const SizedBox(height: 6),
                   Text(
                     'Manage deployments, track progress, and view schedule.',
-                    style: TextStyle(fontSize: 14, color: kTextSecondary),
+                      style: TextStyle(
+                        fontSize: isMobileView ? 12 : 14,
+                        color: kTextSecondary,
+                      ),
                   ),
                 ],
               ),
             ),
             const Divider(height: 1, color: kBorderColor),
             
-            // Content
+              // Content - Responsive padding
             Expanded(
               child: SingleChildScrollView(
-                padding: const EdgeInsets.all(32),
+                  padding: EdgeInsets.all(isMobileView ? 16 : 32),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     _buildStatsCards(),
-                    const SizedBox(height: 32),
+                      SizedBox(height: isMobileView ? 16 : 32),
                     _buildToolbar(),
                     const SizedBox(height: 16),
-                    _isTableView 
+                      filtered.isEmpty
+                          ? _buildEmptyState()
+                          : (_isTableView && !isMobileView)
                       ? _buildJobTable(filtered)
                       : _buildJobCards(filtered),
                   ],
@@ -358,8 +421,22 @@ class _SchedulingScreenState extends State<SchedulingScreen> {
               ),
             ),
           ],
+          ),
         ),
       ),
+    );
+  }
+  
+  Widget _buildEmptyState() {
+    return EmptyState(
+      icon: Icons.assignment_outlined,
+      title: 'No Job Orders Found',
+      message: _searchQuery.isNotEmpty || _statusFilter != null
+          ? 'Try adjusting your search or filters to find what you\'re looking for.'
+          : 'Get started by creating your first job order.',
+      actionLabel: 'Add Job Order',
+      onAction: () => _onAddOrEdit(),
+      iconColor: kPrimaryColor,
     );
   }
 
@@ -369,33 +446,38 @@ class _SchedulingScreenState extends State<SchedulingScreen> {
     final completed = _orders.where((o) => o.status.toLowerCase() == 'completed').length;
 
     return LayoutBuilder(builder: (context, constraints) {
-      final isMobile = constraints.maxWidth < 800;
-      final width = isMobile ? constraints.maxWidth : (constraints.maxWidth - 48) / 3;
+      final isMobile = constraints.maxWidth < 600;
+      final isTablet = constraints.maxWidth >= 600 && constraints.maxWidth < 1024;
+      final cardWidth = isMobile
+          ? constraints.maxWidth
+          : isTablet
+              ? (constraints.maxWidth - 32) / 2
+              : (constraints.maxWidth - 48) / 3;
 
       return Wrap(
-        spacing: 24,
-        runSpacing: 16,
+        spacing: isMobile ? 12 : 24,
+        runSpacing: isMobile ? 12 : 16,
         children: [
           _StatCard(
             title: 'Open Jobs',
             value: pending.toString(),
             icon: Icons.pending_actions_rounded,
             color: Colors.orange,
-            width: width,
+            width: isMobile ? double.infinity : cardWidth,
           ),
           _StatCard(
             title: 'In Progress',
             value: inProgress.toString(),
             icon: Icons.engineering_rounded,
             color: kPrimaryColor,
-            width: width,
+            width: isMobile ? double.infinity : cardWidth,
           ),
           _StatCard(
             title: 'Completed (30d)',
             value: completed.toString(),
             icon: Icons.verified_rounded,
             color: Colors.green,
-            width: width,
+            width: isMobile ? double.infinity : cardWidth,
           ),
         ],
       );
@@ -403,36 +485,17 @@ class _SchedulingScreenState extends State<SchedulingScreen> {
   }
 
   Widget _buildToolbar() {
-    return Row(
+    final isMobile = MediaQuery.of(context).size.width < 600;
+    
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Container(
-          decoration: BoxDecoration(
-            color: const Color(0xFFE2E8F0),
-            borderRadius: BorderRadius.circular(8),
-          ),
-          padding: const EdgeInsets.all(2),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
+        // Search and filters row
+        Row(
             children: [
-              _ViewToggleButton(
-                label: 'Table', 
-                icon: Icons.table_chart_outlined,
-                isSelected: _isTableView,
-                onTap: () => setState(() => _isTableView = true),
-              ),
-              _ViewToggleButton(
-                label: 'Cards', 
-                icon: Icons.grid_view_outlined,
-                isSelected: !_isTableView,
-                onTap: () => setState(() => _isTableView = false),
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(width: 16),
         Expanded(
           child: Container(
-            height: 40,
+                height: isMobile ? 44 : 40,
             decoration: BoxDecoration(
               color: Colors.white,
               borderRadius: BorderRadius.circular(8),
@@ -440,18 +503,22 @@ class _SchedulingScreenState extends State<SchedulingScreen> {
             ),
             child: TextField(
               onChanged: (v) => setState(() => _searchQuery = v),
-              style: const TextStyle(fontSize: 14),
-              decoration: const InputDecoration(
-                hintText: 'Search client, JO number...',
-                hintStyle: TextStyle(color: kTextSecondary, fontSize: 13),
-                prefixIcon: Icon(Icons.search, color: kTextSecondary, size: 18),
+                  style: TextStyle(fontSize: isMobile ? 14 : 14),
+                  decoration: InputDecoration(
+                    hintText: 'Search client, JO number, location...',
+                    hintStyle: const TextStyle(color: kTextSecondary, fontSize: 13),
+                    prefixIcon: const Icon(Icons.search, color: kTextSecondary, size: 18),
                 border: InputBorder.none,
-                contentPadding: EdgeInsets.symmetric(vertical: 10),
+                    contentPadding: EdgeInsets.symmetric(
+                      vertical: isMobile ? 12 : 10,
+                      horizontal: 12,
               ),
             ),
           ),
         ),
-        const SizedBox(width: 16),
+            ),
+            if (!isMobile) ...[
+              const SizedBox(width: 12),
         _ActionButton(
           label: 'Calendar',
           icon: Icons.calendar_month,
@@ -463,11 +530,66 @@ class _SchedulingScreenState extends State<SchedulingScreen> {
           },
         ),
         const SizedBox(width: 8),
+            ],
         _ActionButton(
-          label: 'Add Job Order',
+              label: isMobile ? 'Add' : 'Add Job Order',
           icon: Icons.add,
           isPrimary: true,
           onPressed: () => _onAddOrEdit(),
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        // Filter chips and view toggle
+        Row(
+          children: [
+            Expanded(
+              child: SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: Row(
+                  children: [
+                    FilterChipGroup(
+                      label: 'Status',
+                      options: ['All', 'Pending', 'In progress', 'Completed'],
+                      selected: _statusFilter ?? 'All',
+                      onSelected: (value) {
+                        setState(() {
+                          _statusFilter = value == 'All' ? null : value;
+                        });
+                      },
+                    ),
+                    if (!isMobile) ...[
+                      const SizedBox(width: 16),
+                      Container(
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFE2E8F0),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        padding: const EdgeInsets.all(2),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            _ViewToggleButton(
+                              label: 'Table',
+                              icon: Icons.table_chart_outlined,
+                              isSelected: _isTableView,
+                              onTap: () => setState(() => _isTableView = true),
+                            ),
+                            _ViewToggleButton(
+                              label: 'Cards',
+                              icon: Icons.grid_view_outlined,
+                              isSelected: !_isTableView,
+                              onTap: () => setState(() => _isTableView = false),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ),
+          ],
         ),
       ],
     );
@@ -484,10 +606,13 @@ class _SchedulingScreenState extends State<SchedulingScreen> {
         ],
       ),
       clipBehavior: Clip.antiAlias,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Theme(
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: ConstrainedBox(
+          constraints: BoxConstraints(
+            minWidth: MediaQuery.of(context).size.width - 64,
+          ),
+          child: Theme(
             data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
             child: DataTable(
               headingRowColor: MaterialStateProperty.all(const Color(0xFFF8FAFC)),
@@ -496,25 +621,100 @@ class _SchedulingScreenState extends State<SchedulingScreen> {
               dataRowMaxHeight: 68,
               horizontalMargin: 24,
               columnSpacing: 24,
-              columns: const [
-                DataColumn(label: Text('CHECK', style: TextStyle(fontWeight: FontWeight.w700, color: kTextPrimary, fontSize: 11))),
-                DataColumn(label: Text('JO NUMBER', style: TextStyle(fontWeight: FontWeight.w700, color: kTextPrimary, fontSize: 11))),
-                DataColumn(label: Text('CLIENT', style: TextStyle(fontWeight: FontWeight.w700, color: kTextPrimary, fontSize: 11))),
-                DataColumn(label: Text('JOB / WORK TYPE', style: TextStyle(fontWeight: FontWeight.w700, color: kTextPrimary, fontSize: 11))),
-                DataColumn(label: Text('DATE STARTED / COMPLETED', style: TextStyle(fontWeight: FontWeight.w700, color: kTextPrimary, fontSize: 11))),
-                DataColumn(label: Text('LOCATION', style: TextStyle(fontWeight: FontWeight.w700, color: kTextPrimary, fontSize: 11))),
-                DataColumn(label: Text('STATUS', style: TextStyle(fontWeight: FontWeight.w700, color: kTextPrimary, fontSize: 11))),
-                DataColumn(label: Text('ACTIONS', style: TextStyle(fontWeight: FontWeight.w700, color: kTextPrimary, fontSize: 11))),
+              columns: [
+                const DataColumn(label: Text('CHECK', style: TextStyle(fontWeight: FontWeight.w700, color: kTextPrimary, fontSize: 11))),
+                DataColumn(
+                  label: SortableColumnHeader(
+                    label: 'JO NUMBER',
+                    isSorted: _sortColumn == 'id',
+                    isAscending: _sortAscending,
+                    onSort: () {
+                      setState(() {
+                        if (_sortColumn == 'id') {
+                          _sortAscending = !_sortAscending;
+                        } else {
+                          _sortColumn = 'id';
+                          _sortAscending = true;
+                        }
+                      });
+                    },
+                  ),
+                ),
+                DataColumn(
+                  label: SortableColumnHeader(
+                    label: 'CLIENT',
+                    isSorted: _sortColumn == 'client',
+                    isAscending: _sortAscending,
+                    onSort: () {
+                      setState(() {
+                        if (_sortColumn == 'client') {
+                          _sortAscending = !_sortAscending;
+                        } else {
+                          _sortColumn = 'client';
+                          _sortAscending = true;
+                        }
+                      });
+                    },
+                  ),
+                ),
+                const DataColumn(label: Text('JOB / WORK TYPE', style: TextStyle(fontWeight: FontWeight.w700, color: kTextPrimary, fontSize: 11))),
+                DataColumn(
+                  label: SortableColumnHeader(
+                    label: 'DATE',
+                    isSorted: _sortColumn == 'date',
+                    isAscending: _sortAscending,
+                    onSort: () {
+                      setState(() {
+                        if (_sortColumn == 'date') {
+                          _sortAscending = !_sortAscending;
+                        } else {
+                          _sortColumn = 'date';
+                          _sortAscending = true;
+                        }
+                      });
+                    },
+                  ),
+                ),
+                DataColumn(
+                  label: SortableColumnHeader(
+                    label: 'LOCATION',
+                    isSorted: _sortColumn == 'location',
+                    isAscending: _sortAscending,
+                    onSort: () {
+                      setState(() {
+                        if (_sortColumn == 'location') {
+                          _sortAscending = !_sortAscending;
+                        } else {
+                          _sortColumn = 'location';
+                          _sortAscending = true;
+                        }
+                      });
+                    },
+                  ),
+                ),
+                DataColumn(
+                  label: SortableColumnHeader(
+                    label: 'STATUS',
+                    isSorted: _sortColumn == 'status',
+                    isAscending: _sortAscending,
+                    onSort: () {
+                      setState(() {
+                        if (_sortColumn == 'status') {
+                          _sortAscending = !_sortAscending;
+                        } else {
+                          _sortColumn = 'status';
+                          _sortAscending = true;
+                        }
+                      });
+                    },
+                  ),
+                ),
+                const DataColumn(label: Text('ACTIONS', style: TextStyle(fontWeight: FontWeight.w700, color: kTextPrimary, fontSize: 11))),
               ],
               rows: orders.map((order) => _buildDataRow(order)).toList(),
             ),
           ),
-          if (orders.isEmpty)
-            const Padding(
-              padding: EdgeInsets.all(40),
-              child: Center(child: Text("No job orders found.", style: TextStyle(color: kTextSecondary))),
             ),
-        ],
       ),
     );
   }
@@ -588,18 +788,26 @@ class _SchedulingScreenState extends State<SchedulingScreen> {
 
   Widget _buildJobCards(List<JobOrder> orders) {
     if (orders.isEmpty) {
-      return const Center(child: Text("No job orders found."));
+      return _buildEmptyState();
     }
     return LayoutBuilder(
       builder: (context, constraints) {
-        final cardWidth = constraints.maxWidth < 700 ? constraints.maxWidth : (constraints.maxWidth - 16) / 2;
+        final isMobile = constraints.maxWidth < 600;
+        final isTablet = constraints.maxWidth >= 600 && constraints.maxWidth < 1024;
+        final cardWidth = isMobile
+            ? constraints.maxWidth
+            : isTablet
+                ? (constraints.maxWidth - 16) / 2
+                : (constraints.maxWidth - 32) / 3;
         return Wrap(
-          spacing: 16,
-          runSpacing: 16,
+          spacing: isMobile ? 12 : 16,
+          runSpacing: isMobile ? 12 : 16,
           children: orders.map((order) => _JobCard(
             order: order, 
             width: cardWidth,
             onView: () => _onViewDetails(order),
+            onEdit: () => _onAddOrEdit(existing: order),
+            onArchive: () => _onArchive(order),
           )).toList(),
         );
       }
@@ -770,8 +978,16 @@ class _JobCard extends StatelessWidget {
   final JobOrder order;
   final double width;
   final VoidCallback onView;
+  final VoidCallback? onEdit;
+  final VoidCallback? onArchive;
 
-  const _JobCard({required this.order, required this.width, required this.onView});
+  const _JobCard({
+    required this.order,
+    required this.width,
+    required this.onView,
+    this.onEdit,
+    this.onArchive,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -811,23 +1027,36 @@ class _JobCard extends StatelessWidget {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Column(
+              Expanded(
+                child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   const Text('Work Type', style: TextStyle(fontSize: 10, color: Color(0xFF94A3B8))),
                   Text(order.jobType, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
                 ],
               ),
-              ElevatedButton(
+              ),
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (onEdit != null)
+                    IconButton(
+                      icon: const Icon(Icons.edit_outlined, size: 16),
+                      onPressed: onEdit,
+                      tooltip: 'Edit',
+                      padding: EdgeInsets.zero,
+                      constraints: const BoxConstraints(),
+                    ),
+                  const SizedBox(width: 8),
+                  TextButton(
                 onPressed: onView,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFFF1F5F9),
-                  foregroundColor: const Color(0xFF475569),
-                  elevation: 0,
+                    style: TextButton.styleFrom(
                   padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                   minimumSize: Size.zero,
                 ),
-                child: const Text('See More', style: TextStyle(fontSize: 11)),
+                    child: const Text('View', style: TextStyle(fontSize: 11)),
+                  ),
+                ],
               ),
             ],
           ),
@@ -875,6 +1104,12 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
   List<JobOrderTechnician> _selectedTechnicians = [];
   List<JobOrderAircon> _selectedAircons = [];
   List<JobOrderServiceItem> _selectedServiceItems = [];
+  
+  // Form validation
+  String? _idError;
+  String? _clientError;
+  String? _locationError;
+  bool _isSubmitting = false;
 
   // Data Sources (Mock)
   final List<TechnicianData> _availableTechnicians = [
@@ -896,9 +1131,10 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
       remarks: 'Main Lobby',
     ),
   ];
-  final List<ServiceItemData> _availableServiceItems = [
-    const ServiceItemData(id: 1, itemName: 'Installation', itemType: 'Service', price: 5000),
-  ];
+  // Service items available but not used in current implementation
+  // final List<ServiceItemData> _availableServiceItems = [
+  //   const ServiceItemData(id: 1, itemName: 'Installation', itemType: 'Service', price: 5000),
+  // ];
 
   @override
   void initState() {
@@ -919,11 +1155,34 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
     _notesController = TextEditingController(text: o?.workNotes ?? '');
     _followUpController = TextEditingController(text: o?.followUpSchedule ?? '');
     
-    _status = o?.status ?? 'Pending';
+    // Normalize status to match dropdown options
+    final statusValue = o?.status ?? 'Pending';
+    _status = ['Pending', 'In progress', 'Completed'].contains(statusValue) 
+        ? statusValue 
+        : 'Pending';
+    
     _dateTime = o?.dateTime ?? DateTime.now();
-    _segment = o?.segment ?? 'B2C';
-    _customerStatus = o?.customerStatus ?? 'New';
-    _workType = o?.workType ?? 'Installation';
+    
+    // Normalize segment
+    final segmentValue = o?.segment ?? 'B2C';
+    _segment = ['B2C', 'B2B'].contains(segmentValue) ? segmentValue : 'B2C';
+    
+    // Normalize customer status
+    final customerStatusValue = o?.customerStatus ?? 'New';
+    _customerStatus = ['New', 'Returning'].contains(customerStatusValue) 
+        ? customerStatusValue 
+        : 'New';
+    
+    // Normalize work type - handle "PM" as "Maintenance"
+    final workTypeValue = o?.workType ?? 'Installation';
+    if (workTypeValue == 'PM' || workTypeValue == 'Preventive Maintenance') {
+      _workType = 'Maintenance';
+    } else {
+      _workType = ['Installation', 'Maintenance', 'Repair'].contains(workTypeValue)
+          ? workTypeValue
+          : 'Installation';
+    }
+    
     _customerType = o?.customerType ?? 'Residential';
     
     _dateStarted = o?.dateStarted;
@@ -952,7 +1211,33 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
     super.dispose();
   }
 
-  void _submit() {
+  void _validateForm() {
+    setState(() {
+      _idError = _idController.text.trim().isEmpty ? 'JO Number is required' : null;
+      _clientError = _clientController.text.trim().isEmpty ? 'Client name is required' : null;
+      _locationError = _locationController.text.trim().isEmpty ? 'Location is required' : null;
+    });
+  }
+  
+  bool get _isFormValid {
+    return _idController.text.trim().isNotEmpty &&
+        _clientController.text.trim().isNotEmpty &&
+        _locationController.text.trim().isNotEmpty;
+  }
+  
+  Future<void> _submit() async {
+    _validateForm();
+    if (!_isFormValid) {
+      return;
+    }
+    
+    setState(() => _isSubmitting = true);
+    
+    // Simulate async operation
+    await Future.delayed(const Duration(milliseconds: 500));
+    
+    if (!mounted) return;
+    
     final order = JobOrder(
       id: _idController.text.trim(),
       clientName: _clientController.text.trim(),
@@ -980,7 +1265,10 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
       dateStarted: _dateStarted,
       dateCompleted: _dateCompleted,
     );
+    
+    if (mounted) {
     Navigator.of(context).pop(order);
+    }
   }
 
   InputDecoration _inputDecor(String label) {
@@ -1049,12 +1337,17 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
 
   @override
   Widget build(BuildContext context) {
+    final isMobile = MediaQuery.of(context).size.width < 600;
+    
     return Dialog(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       child: Container(
-        width: 600,
-        constraints: const BoxConstraints(maxHeight: 700),
-        padding: const EdgeInsets.all(24),
+        width: isMobile ? double.infinity : 600,
+        constraints: BoxConstraints(
+          maxHeight: MediaQuery.of(context).size.height * 0.9,
+          maxWidth: isMobile ? MediaQuery.of(context).size.width * 0.95 : 600,
+        ),
+        padding: EdgeInsets.all(isMobile ? 16 : 24),
         child: SingleChildScrollView(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -1072,11 +1365,27 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
               const SizedBox(height: 24),
               
               // Essential Fields (Primary)
-              Row(
+              LayoutBuilder(
+                builder: (context, constraints) {
+                  final isNarrow = constraints.maxWidth < 500;
+                  if (isNarrow) {
+                    return Column(
                 children: [
-                  Expanded(child: TextField(controller: _idController, decoration: _inputDecor('JO Number'))),
-                  const SizedBox(width: 16),
-                  Expanded(child: 
+                        TextField(
+                          controller: _idController,
+                          decoration: _inputDecor('JO Number').copyWith(
+                            errorText: _idError,
+                            suffixIcon: _idController.text.trim().isNotEmpty && _idError == null
+                                ? const Icon(Icons.check_circle, color: AppDesignTokens.success, size: 20)
+                                : null,
+                          ),
+                          onChanged: (v) {
+                            if (v.trim().isNotEmpty) {
+                              setState(() => _idError = null);
+                            }
+                          },
+                        ),
+                        const SizedBox(height: 16),
                     Container(
                       padding: const EdgeInsets.symmetric(horizontal: 12),
                       decoration: BoxDecoration(
@@ -1087,16 +1396,73 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
                         child: DropdownButton<String>(
                           value: _status,
                           isExpanded: true,
-                          items: ['Pending', 'In progress', 'Completed'].map((s) => DropdownMenuItem(value: s, child: Text(s, style: const TextStyle(fontSize: 14)))).toList(),
+                              items: ['Pending', 'In progress', 'Completed']
+                                  .map((s) => DropdownMenuItem(value: s, child: Text(s, style: const TextStyle(fontSize: 14))))
+                                  .toList(),
                           onChanged: (v) => setState(() => _status = v!),
                         ),
                       ),
-                    )
-                  ),
-                ],
+                        ),
+                      ],
+                    );
+                  }
+                  return Row(
+                    children: [
+                      Expanded(
+                        child: TextField(
+                          controller: _idController,
+                          decoration: _inputDecor('JO Number').copyWith(
+                            errorText: _idError,
+                            suffixIcon: _idController.text.trim().isNotEmpty && _idError == null
+                                ? const Icon(Icons.check_circle, color: AppDesignTokens.success, size: 20)
+                                : null,
+                          ),
+                          onChanged: (v) {
+                            if (v.trim().isNotEmpty) {
+                              setState(() => _idError = null);
+                            }
+                          },
+                        ),
+                      ),
+                      const SizedBox(width: 16),
+                      Expanded(
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 12),
+                          decoration: BoxDecoration(
+                            border: Border.all(color: const Color(0xFFE2E8F0)),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: DropdownButtonHideUnderline(
+                            child: DropdownButton<String>(
+                              value: _status,
+                              isExpanded: true,
+                              items: ['Pending', 'In progress', 'Completed']
+                                  .map((s) => DropdownMenuItem(value: s, child: Text(s, style: const TextStyle(fontSize: 14))))
+                                  .toList(),
+                              onChanged: (v) => setState(() => _status = v!),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  );
+                },
               ),
               const SizedBox(height: 16),
-              TextField(controller: _clientController, decoration: _inputDecor('Client Name')),
+              TextField(
+                controller: _clientController,
+                decoration: _inputDecor('Client Name').copyWith(
+                  errorText: _clientError,
+                  suffixIcon: _clientController.text.trim().isNotEmpty && _clientError == null
+                      ? const Icon(Icons.check_circle, color: AppDesignTokens.success, size: 20)
+                      : null,
+                ),
+                onChanged: (v) {
+                  if (v.trim().isNotEmpty) {
+                    setState(() => _clientError = null);
+                  }
+                },
+              ),
               const SizedBox(height: 16),
               InkWell(
                 onTap: _pickDateTime,
@@ -1124,7 +1490,22 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
                 children: [
                   Expanded(child: TextField(controller: _jobTypeController, decoration: _inputDecor('Job Type'))),
                   const SizedBox(width: 16),
-                  Expanded(child: TextField(controller: _locationController, decoration: _inputDecor('Location'))),
+                  Expanded(
+                    child: TextField(
+                      controller: _locationController,
+                      decoration: _inputDecor('Location').copyWith(
+                        errorText: _locationError,
+                        suffixIcon: _locationController.text.trim().isNotEmpty && _locationError == null
+                            ? const Icon(Icons.check_circle, color: AppDesignTokens.success, size: 20)
+                            : null,
+                      ),
+                      onChanged: (v) {
+                        if (v.trim().isNotEmpty) {
+                          setState(() => _locationError = null);
+                        }
+                      },
+                    ),
+                  ),
                 ],
               ),
 
@@ -1141,7 +1522,29 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
                     const SizedBox(height: 8),
                     const Text("Customer Info", style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF94A3B8))),
                     const SizedBox(height: 8),
-                    Row(
+                    LayoutBuilder(
+                      builder: (context, constraints) {
+                        final isNarrow = constraints.maxWidth < 500;
+                        if (isNarrow) {
+                          return Column(
+                            children: [
+                              DropdownButtonFormField<String>(
+                                value: _segment,
+                                decoration: _inputDecor('Segment'),
+                                items: ['B2C', 'B2B'].map((s) => DropdownMenuItem(value: s, child: Text(s))).toList(),
+                                onChanged: (v) => setState(() => _segment = v!),
+                              ),
+                              const SizedBox(height: 12),
+                              DropdownButtonFormField<String>(
+                                value: _customerStatus,
+                                decoration: _inputDecor('Customer Status'),
+                                items: ['New', 'Returning'].map((s) => DropdownMenuItem(value: s, child: Text(s))).toList(),
+                                onChanged: (v) => setState(() => _customerStatus = v!),
+                              ),
+                            ],
+                          );
+                        }
+                        return Row(
                       children: [
                         Expanded(
                           child: DropdownButtonFormField<String>(
@@ -1161,6 +1564,8 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
                           ),
                         ),
                       ],
+                        );
+                      },
                     ),
                     const SizedBox(height: 12),
                     TextField(controller: _addressController, decoration: _inputDecor('Customer Address')),
@@ -1170,7 +1575,24 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
                     const SizedBox(height: 16),
                     const Text("Technical & Units", style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF94A3B8))),
                     const SizedBox(height: 8),
-                    Row(
+                    LayoutBuilder(
+                      builder: (context, constraints) {
+                        final isNarrow = constraints.maxWidth < 500;
+                        if (isNarrow) {
+                          return Column(
+                            children: [
+                              TextField(controller: _durationController, decoration: _inputDecor('Duration (e.g., 2h)')),
+                              const SizedBox(height: 12),
+                              DropdownButtonFormField<String>(
+                                value: _workType,
+                                decoration: _inputDecor('Work Type'),
+                                items: ['Installation', 'Maintenance', 'Repair'].map((s) => DropdownMenuItem(value: s, child: Text(s))).toList(),
+                                onChanged: (v) => setState(() => _workType = v!),
+                              ),
+                            ],
+                          );
+                        }
+                        return Row(
                       children: [
                         Expanded(child: TextField(controller: _durationController, decoration: _inputDecor('Duration (e.g., 2h)'))),
                         const SizedBox(width: 12),
@@ -1183,6 +1605,8 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
                           ),
                         ),
                       ],
+                        );
+                      },
                     ),
                     const SizedBox(height: 12),
                     Row(
@@ -1209,11 +1633,25 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
                     const SizedBox(height: 12),
                     const Text("Manual Unit Entry (If not selected above)", style: TextStyle(fontSize: 11, fontStyle: FontStyle.italic, color: Colors.grey)),
                     const SizedBox(height: 4),
-                    Row(children: [
+                    LayoutBuilder(
+                      builder: (context, constraints) {
+                        final isNarrow = constraints.maxWidth < 500;
+                        if (isNarrow) {
+                          return Column(
+                            children: [
+                              TextField(controller: _brandController, decoration: _inputDecor('Brand')),
+                              const SizedBox(height: 12),
+                              TextField(controller: _unitLocationController, decoration: _inputDecor('Unit Location')),
+                            ],
+                          );
+                        }
+                        return Row(children: [
                       Expanded(child: TextField(controller: _brandController, decoration: _inputDecor('Brand'))),
                       const SizedBox(width: 12),
                       Expanded(child: TextField(controller: _unitLocationController, decoration: _inputDecor('Unit Location'))),
-                    ]),
+                        ]);
+                      },
+                    ),
                     const SizedBox(height: 12),
                     TextField(controller: _installDetailsController, decoration: _inputDecor('Installation Details')),
                     
@@ -1232,20 +1670,16 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
                 mainAxisAlignment: MainAxisAlignment.end,
                 children: [
                   TextButton(
-                    onPressed: () => Navigator.pop(context),
+                    onPressed: _isSubmitting ? null : () => Navigator.pop(context),
                     style: TextButton.styleFrom(foregroundColor: const Color(0xFF64748B)),
                     child: const Text('Cancel'),
                   ),
                   const SizedBox(width: 8),
-                  ElevatedButton(
-                    onPressed: _submit,
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFF2563EB),
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                    ),
-                    child: const Text('Save'),
+                  LoadingButton(
+                    onPressed: _isSubmitting ? null : _submit,
+                    label: 'Save',
+                    isLoading: _isSubmitting,
+                    isPrimary: true,
                   ),
                 ],
               ),
@@ -1265,11 +1699,18 @@ class _JobOrderDetailsDialog extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isMobile = MediaQuery.of(context).size.width < 600;
+    
     return Dialog(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       child: Container(
-        width: 600,
-        padding: const EdgeInsets.all(32),
+        width: isMobile ? double.infinity : 600,
+        constraints: BoxConstraints(
+          maxHeight: MediaQuery.of(context).size.height * 0.9,
+          maxWidth: isMobile ? MediaQuery.of(context).size.width * 0.95 : 600,
+        ),
+        padding: EdgeInsets.all(isMobile ? 16 : 32),
+        child: SingleChildScrollView(
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           mainAxisSize: MainAxisSize.min,
@@ -1331,6 +1772,7 @@ class _JobOrderDetailsDialog extends StatelessWidget {
               ),
             ),
           ],
+          ),
         ),
       ),
     );

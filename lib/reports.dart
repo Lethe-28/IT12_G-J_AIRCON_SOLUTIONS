@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'ui_app_shell.dart';
+import 'shared/widgets.dart' show isMobile;
 
 // --- Design Constants ---
 const Color kPrimaryColor = Color(0xFF2563EB);
@@ -36,18 +37,19 @@ class _ReportsScreenState extends State<ReportsScreen> {
         color: const Color(0xFFF8FAFC),
         child: Column(
           children: [
-            // Header & Controls
+            // Header & Controls - Responsive
             Container(
-              padding: const EdgeInsets.all(24),
+              padding: EdgeInsets.all(isMobile(context) ? 16 : 24),
               color: Colors.white,
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      const Text('Reports & Analytics', style: TextStyle(fontSize: 24, fontWeight: FontWeight.w700, color: kTextPrimary)),
-                      OutlinedButton.icon(
+                  if (isMobile(context)) ...[
+                    const Text('Reports & Analytics', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700, color: kTextPrimary)),
+                    const SizedBox(height: 12),
+                    SizedBox(
+                      width: double.infinity,
+                      child: OutlinedButton.icon(
                         onPressed: () {},
                         icon: const Icon(Icons.download, size: 16),
                         label: const Text('Export All Reports'),
@@ -57,10 +59,27 @@ class _ReportsScreenState extends State<ReportsScreen> {
                           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                         ),
                       ),
-                    ],
-                  ),
+                    ),
+                  ] else ...[
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Text('Reports & Analytics', style: TextStyle(fontSize: 24, fontWeight: FontWeight.w700, color: kTextPrimary)),
+                        OutlinedButton.icon(
+                          onPressed: () {},
+                          icon: const Icon(Icons.download, size: 16),
+                          label: const Text('Export All Reports'),
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: kTextSecondary,
+                            side: const BorderSide(color: kBorderColor),
+                            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
                   const SizedBox(height: 24),
-                  // Filters Row
+                  // Filters Row - Always scrollable
                   SingleChildScrollView(
                     scrollDirection: Axis.horizontal,
                     child: Row(
@@ -73,6 +92,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
                           ),
                           padding: const EdgeInsets.all(4),
                           child: Row(
+                            mainAxisSize: MainAxisSize.min,
                             children: [
                               _RangeTab('This month', _ReportRange.thisMonth == _selectedRange, () => setState(() => _selectedRange = _ReportRange.thisMonth)),
                               _RangeTab('Last 30 days', _ReportRange.last30Days == _selectedRange, () => setState(() => _selectedRange = _ReportRange.last30Days)),
@@ -80,12 +100,12 @@ class _ReportsScreenState extends State<ReportsScreen> {
                             ],
                           ),
                         ),
-                        const SizedBox(width: 24),
-                        // Type Tabs
+                        const SizedBox(width: 12),
+                        // Type Tabs - Scrollable
                         _TypeTab('Service Summary', _ReportType.serviceSummary == _selectedType, () => setState(() => _selectedType = _ReportType.serviceSummary)),
-                        const SizedBox(width: 12),
+                        const SizedBox(width: 8),
                         _TypeTab('Expense Report', _ReportType.expenseReport == _selectedType, () => setState(() => _selectedType = _ReportType.expenseReport)),
-                        const SizedBox(width: 12),
+                        const SizedBox(width: 8),
                         _TypeTab('Technician Productivity', _ReportType.technicianProductivity == _selectedType, () => setState(() => _selectedType = _ReportType.technicianProductivity)),
                       ],
                     ),
@@ -95,22 +115,22 @@ class _ReportsScreenState extends State<ReportsScreen> {
             ),
             const Divider(height: 1, color: kBorderColor),
 
-            // Main Content
+            // Main Content - Responsive padding
             Expanded(
               child: SingleChildScrollView(
-                padding: const EdgeInsets.all(32),
+                padding: EdgeInsets.all(isMobile(context) ? 16 : 32),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     // KPI Grid
                     _buildKpiGrid(report),
-                    const SizedBox(height: 32),
+                    SizedBox(height: isMobile(context) ? 16 : 32),
                     
                     // Financial Section
-                    const Text("Financial Overview", style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600, color: kTextPrimary)),
+                    Text("Financial Overview", style: TextStyle(fontSize: isMobile(context) ? 16 : 18, fontWeight: FontWeight.w600, color: kTextPrimary)),
                     const SizedBox(height: 16),
                     _buildFinancialGrid(report),
-                    const SizedBox(height: 32),
+                    SizedBox(height: isMobile(context) ? 16 : 32),
 
                     // Charts Section
                     _buildChartSection(),
@@ -233,25 +253,59 @@ class _ReportsScreenState extends State<ReportsScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              const Text("Service Summary (Last 6 Months)", style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: kTextPrimary)),
-              Row(
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final isNarrow = constraints.maxWidth < 500;
+              if (isNarrow) {
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text("Service Summary (Last 6 Months)", style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: kTextPrimary)),
+                    const SizedBox(height: 12),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        _ChartFilterBtn('6M', true),
+                        _ChartFilterBtn('1Y', false),
+                        OutlinedButton.icon(
+                          onPressed: (){}, 
+                          icon: const Icon(Icons.picture_as_pdf, size: 14),
+                          label: const Text('PDF', style: TextStyle(fontSize: 12)),
+                          style: OutlinedButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8)),
+                        ),
+                      ],
+                    ),
+                  ],
+                );
+              }
+              return Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  _ChartFilterBtn('6M', true),
-                  const SizedBox(width: 8),
-                  _ChartFilterBtn('1Y', false),
-                  const SizedBox(width: 8),
-                  OutlinedButton.icon(
-                    onPressed: (){}, 
-                    icon: const Icon(Icons.picture_as_pdf, size: 14),
-                    label: const Text('PDF', style: TextStyle(fontSize: 12)),
-                    style: OutlinedButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8)),
-                  )
+                  const Text("Service Summary (Last 6 Months)", style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: kTextPrimary)),
+                  Flexible(
+                    child: SingleChildScrollView(
+                      scrollDirection: Axis.horizontal,
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          _ChartFilterBtn('6M', true),
+                          const SizedBox(width: 8),
+                          _ChartFilterBtn('1Y', false),
+                          const SizedBox(width: 8),
+                          OutlinedButton.icon(
+                            onPressed: (){}, 
+                            icon: const Icon(Icons.picture_as_pdf, size: 14),
+                            label: const Text('PDF', style: TextStyle(fontSize: 12)),
+                            style: OutlinedButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8)),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
                 ],
-              )
-            ],
+              );
+            },
           ),
           const SizedBox(height: 32),
           // Chart Visualization
@@ -282,16 +336,30 @@ class _ReportsScreenState extends State<ReportsScreen> {
             ),
           ),
           const SizedBox(height: 24),
-          // Legend
-          Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: const [
-              _ChartLegend(color: kPrimaryColor, label: 'Installations'),
-              SizedBox(width: 24),
-              _ChartLegend(color: kSuccessColor, label: 'Maintenance'),
-              SizedBox(width: 24),
-              _ChartLegend(color: kWarningColor, label: 'Repairs'),
-            ],
+          // Legend - Responsive
+          LayoutBuilder(
+            builder: (context, constraints) {
+              if (constraints.maxWidth < 400) {
+                return Column(
+                  children: const [
+                    _ChartLegend(color: kPrimaryColor, label: 'Installations'),
+                    SizedBox(height: 8),
+                    _ChartLegend(color: kSuccessColor, label: 'Maintenance'),
+                    SizedBox(height: 8),
+                    _ChartLegend(color: kWarningColor, label: 'Repairs'),
+                  ],
+                );
+              }
+              return Wrap(
+                alignment: WrapAlignment.center,
+                spacing: 24,
+                children: const [
+                  _ChartLegend(color: kPrimaryColor, label: 'Installations'),
+                  _ChartLegend(color: kSuccessColor, label: 'Maintenance'),
+                  _ChartLegend(color: kWarningColor, label: 'Repairs'),
+                ],
+              );
+            },
           )
         ],
       ),

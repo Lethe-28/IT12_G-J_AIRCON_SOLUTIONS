@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'data/app_state.dart';
 import 'data/models.dart';
 import 'ui_app_shell.dart';
-import 'shared_header.dart';
+import 'shared/widgets.dart';
 
 class TechniciansScreen extends StatefulWidget {
   const TechniciansScreen({super.key});
@@ -112,75 +112,230 @@ class _TechniciansScreenState extends State<TechniciansScreen> {
   Widget build(BuildContext context) {
     final technicians = _filteredTechnicians;
     final fontSize = _isAdmin ? 14.0 : 16.0;
+    final isMobileView = isMobile(context);
 
     return AppShell(
       selectedIndex: 6,
-      body: Column(
-        children: [
-          SharedHeader(
-            welcomeText: 'Technician Roster',
-            subtitleText: 'Track deployment-ready specialists and contact info.',
-            notificationCount: 0,
-            showGreeting: false,
+      body: Container(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [AppDesignTokens.gray50, Colors.white],
           ),
-          Expanded(
-            child: SingleChildScrollView(
-              padding: EdgeInsets.all(_isAdmin ? 20 : 24),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Text(
-                        'Technician Management',
-                        style: TextStyle(fontSize: _isAdmin ? 24 : 28, fontWeight: FontWeight.w700),
-                      ),
-                      const Spacer(),
-                      if (_isAdmin)
-                        ElevatedButton.icon(
+        ),
+        child: Column(
+          children: [
+            AnimatedCard(
+              delay: const Duration(milliseconds: 100),
+              child: Container(
+                padding: EdgeInsets.all(isMobileView ? 16 : 24),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.05),
+                      blurRadius: 10,
+                      offset: const Offset(0, 2),
+                    ),
+                  ],
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Technician Roster',
+                                style: TextStyle(
+                                  fontSize: isMobileView ? 24 : 28,
+                                  fontWeight: FontWeight.w700,
+                                  color: AppDesignTokens.gray900,
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                'Track deployment-ready specialists and contact info.',
+                                style: TextStyle(
+                                  fontSize: 14,
+                                  color: AppDesignTokens.gray500,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        if (!isMobileView && _isAdmin)
+                          AnimatedButton(
+                            onPressed: () => _onAddOrEdit(),
+                            icon: Icons.add,
+                            backgroundColor: AppDesignTokens.primary,
+                            foregroundColor: Colors.white,
+                            child: const Text('Add Technician'),
+                          ),
+                      ],
+                    ),
+                    if (isMobileView && _isAdmin) ...[
+                      const SizedBox(height: 16),
+                      SizedBox(
+                        width: double.infinity,
+                        child: AnimatedButton(
                           onPressed: () => _onAddOrEdit(),
-                          icon: const Icon(Icons.add),
-                          label: const Text('Add Technician'),
+                          icon: Icons.add,
+                          backgroundColor: AppDesignTokens.primary,
+                          foregroundColor: Colors.white,
+                          child: const Text('Add Technician'),
                         ),
+                      ),
                     ],
-                  ),
-                  const SizedBox(height: 16),
-                  TextField(
-                    onChanged: (v) => setState(() => _searchQuery = v),
-                    style: TextStyle(fontSize: fontSize),
-                    decoration: InputDecoration(
-                      hintText: 'Search by name or contact number...',
-                      prefixIcon: const Icon(Icons.search),
-                      filled: true,
-                      fillColor: Colors.white,
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(10),
-                        borderSide: BorderSide.none,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  Container(
-                    decoration: _cardDeco(),
-                    child: SingleChildScrollView(
-                      scrollDirection: Axis.horizontal,
-                      child: ConstrainedBox(
-                        constraints: const BoxConstraints(minWidth: 800),
-                        child: DataTable(
-                          columns: [
-                            DataColumn(label: Text('NAME', style: TextStyle(fontSize: fontSize, fontWeight: FontWeight.w700))),
-                            DataColumn(label: Text('CONTACT NUMBER', style: TextStyle(fontSize: fontSize, fontWeight: FontWeight.w700))),
-                            DataColumn(label: Text('ACTIONS', style: TextStyle(fontSize: fontSize, fontWeight: FontWeight.w700))),
-                          ],
-                          rows: technicians.map((t) => _dataRow(t)).toList(),
+                  ],
+                ),
+              ),
+            ),
+            Expanded(
+              child: SingleChildScrollView(
+                padding: EdgeInsets.all(isMobileView ? 16 : 24),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    AnimatedCard(
+                      delay: const Duration(milliseconds: 200),
+                      child: HoverCard(
+                        padding: EdgeInsets.zero,
+                        child: TextField(
+                          onChanged: (v) => setState(() => _searchQuery = v),
+                          style: TextStyle(fontSize: fontSize),
+                          decoration: InputDecoration(
+                            hintText: 'Search by name or contact number...',
+                            prefixIcon: const Icon(Icons.search),
+                            filled: true,
+                            fillColor: Colors.white,
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12),
+                              borderSide: BorderSide.none,
+                            ),
+                          ),
                         ),
                       ),
                     ),
-                  ),
-                ],
+                    const SizedBox(height: 16),
+                    if (technicians.isEmpty)
+                      EmptyState(
+                        icon: Icons.engineering_outlined,
+                        title: 'No technicians found',
+                        message: 'Add your first technician to get started.',
+                        actionLabel: 'Add Technician',
+                        onAction: _isAdmin ? () => _onAddOrEdit() : null,
+                      )
+                    else if (isMobileView)
+                      ...technicians.asMap().entries.map((entry) {
+                        final index = entry.key;
+                        final t = entry.value;
+                        return AnimatedCard(
+                          delay: Duration(milliseconds: 300 + (index * 50)),
+                          child: _buildMobileCard(t),
+                        );
+                      }).toList()
+                    else
+                      AnimatedCard(
+                        delay: const Duration(milliseconds: 300),
+                        child: HoverCard(
+                          padding: EdgeInsets.zero,
+                          child: SingleChildScrollView(
+                            scrollDirection: Axis.horizontal,
+                            child: DataTable(
+                              columns: [
+                                DataColumn(label: Text('NAME', style: TextStyle(fontSize: fontSize, fontWeight: FontWeight.w700))),
+                                DataColumn(label: Text('CONTACT NUMBER', style: TextStyle(fontSize: fontSize, fontWeight: FontWeight.w700))),
+                                DataColumn(label: Text('ACTIONS', style: TextStyle(fontSize: fontSize, fontWeight: FontWeight.w700))),
+                              ],
+                              rows: technicians.map((t) => _dataRow(t)).toList(),
+                            ),
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+  
+  Widget _buildMobileCard(TechnicianData t) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.05),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          CircleAvatar(
+            radius: 24,
+            backgroundColor: AppDesignTokens.primary.withOpacity(0.1),
+            child: Text(
+              '${t.firstName[0]}${t.lastName[0]}',
+              style: TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.w600,
+                color: AppDesignTokens.primary,
               ),
             ),
           ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  _getFullName(t),
+                  style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
+                ),
+                const SizedBox(height: 4),
+                Row(
+                  children: [
+                    const Icon(Icons.phone, size: 14, color: Colors.black54),
+                    const SizedBox(width: 4),
+                    Expanded(
+                      child: Text(
+                        t.contactNumber,
+                        style: const TextStyle(fontSize: 14, color: Colors.black54),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          if (_isAdmin)
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                IconButton(
+                  icon: const Icon(Icons.edit_outlined, size: 18),
+                  onPressed: () => _onAddOrEdit(existing: t),
+                ),
+                IconButton(
+                  icon: const Icon(Icons.delete_outline, size: 18, color: Colors.red),
+                  onPressed: () => _onDelete(t),
+                ),
+              ],
+            ),
         ],
       ),
     );
@@ -228,11 +383,6 @@ class _TechniciansScreenState extends State<TechniciansScreen> {
     );
   }
 
-  BoxDecoration _cardDeco() => BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: const Color(0xFFE2E8F0)),
-      );
 }
 
 class _TechnicianDialog extends StatefulWidget {

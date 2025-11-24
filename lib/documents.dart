@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'ui_app_shell.dart';
+import 'shared/widgets.dart' show isMobile;
 
 // --- Design Constants (Moved to top-level for global access) ---
 const Color kPrimaryColor = Color(0xFF2563EB);
@@ -134,80 +135,143 @@ class _DocumentsScreenState extends State<DocumentsScreen> {
         color: const Color(0xFFF8FAFC),
         child: Column(
           children: [
-            // Header
+            // Header - Responsive
             Container(
-              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+              padding: EdgeInsets.symmetric(
+                horizontal: isMobile(context) ? 16 : 24,
+                vertical: isMobile(context) ? 12 : 16,
+              ),
               color: Colors.white,
               width: double.infinity,
-              child: Row(
-                children: [
-                  const Text(
-                    'Document Management',
-                    style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700, color: kTextPrimary, letterSpacing: -0.5),
-                  ),
-                  const Spacer(),
-                  SizedBox(
-                    width: 300,
-                    height: 40,
-                    child: TextField(
-                      onChanged: (v) => setState(() => _searchQuery = v),
-                      style: const TextStyle(fontSize: 14),
-                      decoration: InputDecoration(
-                        hintText: 'Search in Drive...',
-                        prefixIcon: const Icon(Icons.search, color: kTextSecondary, size: 20),
-                        filled: true,
-                        fillColor: const Color(0xFFF1F5F9),
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(8),
-                          borderSide: BorderSide.none,
+              child: isMobile(context)
+                  ? Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'Document Management',
+                          style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700, color: kTextPrimary, letterSpacing: -0.5),
                         ),
-                        contentPadding: const EdgeInsets.symmetric(vertical: 0),
-                      ),
+                        const SizedBox(height: 12),
+                        TextField(
+                          onChanged: (v) => setState(() => _searchQuery = v),
+                          style: const TextStyle(fontSize: 14),
+                          decoration: InputDecoration(
+                            hintText: 'Search in Drive...',
+                            prefixIcon: const Icon(Icons.search, color: kTextSecondary, size: 20),
+                            filled: true,
+                            fillColor: const Color(0xFFF1F5F9),
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(8),
+                              borderSide: BorderSide.none,
+                            ),
+                            contentPadding: const EdgeInsets.symmetric(vertical: 12),
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        SizedBox(
+                          width: double.infinity,
+                          child: ElevatedButton.icon(
+                            onPressed: () {},
+                            icon: const Icon(Icons.cloud_upload_outlined, size: 18),
+                            label: const Text('Upload'),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: kPrimaryColor,
+                              foregroundColor: Colors.white,
+                              elevation: 0,
+                              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                            ),
+                          ),
+                        ),
+                      ],
+                    )
+                  : Row(
+                      children: [
+                        const Text(
+                          'Document Management',
+                          style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700, color: kTextPrimary, letterSpacing: -0.5),
+                        ),
+                        const Spacer(),
+                        SizedBox(
+                          width: 300,
+                          height: 40,
+                          child: TextField(
+                            onChanged: (v) => setState(() => _searchQuery = v),
+                            style: const TextStyle(fontSize: 14),
+                            decoration: InputDecoration(
+                              hintText: 'Search in Drive...',
+                              prefixIcon: const Icon(Icons.search, color: kTextSecondary, size: 20),
+                              filled: true,
+                              fillColor: const Color(0xFFF1F5F9),
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(8),
+                                borderSide: BorderSide.none,
+                              ),
+                              contentPadding: const EdgeInsets.symmetric(vertical: 0),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 16),
+                        ElevatedButton.icon(
+                          onPressed: () {},
+                          icon: const Icon(Icons.cloud_upload_outlined, size: 18),
+                          label: const Text('Upload'),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: kPrimaryColor,
+                            foregroundColor: Colors.white,
+                            elevation: 0,
+                            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 18),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                          ),
+                        ),
+                      ],
                     ),
-                  ),
-                  const SizedBox(width: 16),
-                  ElevatedButton.icon(
-                    onPressed: () {},
-                    icon: const Icon(Icons.cloud_upload_outlined, size: 18),
-                    label: const Text('Upload'),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: kPrimaryColor,
-                      foregroundColor: Colors.white,
-                      elevation: 0,
-                      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 18),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                    ),
-                  ),
-                ],
-              ),
             ),
             const Divider(height: 1, color: kBorderColor),
 
-            // Main Content
+            // Main Content - Responsive layout
             Expanded(
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  // Left Sidebar (Fixed width on desktop)
-                  SizedBox(
-                    width: 250,
-                    child: _buildCategorySidebar(),
-                  ),
-                  const VerticalDivider(width: 1, color: kBorderColor),
-
-                  // Right Content Area
-                  Expanded(
-                    child: Column(
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  final isMobileView = isMobile(context);
+                  
+                  if (isMobileView) {
+                    // Mobile: Stacked layout
+                    return Column(
                       children: [
-                        // Toolbar / Filters
+                        // Category filter as horizontal scroll
                         Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                          height: 60,
+                          padding: const EdgeInsets.symmetric(vertical: 8),
+                          color: Colors.white,
+                          child: SingleChildScrollView(
+                            scrollDirection: Axis.horizontal,
+                            child: Row(
+                              children: [
+                                _buildMobileCategoryChip('All Documents', Icons.folder_open),
+                                const SizedBox(width: 8),
+                                _buildMobileCategoryChip('Invoices', Icons.receipt_long),
+                                const SizedBox(width: 8),
+                                _buildMobileCategoryChip('Job Reports', Icons.assessment_outlined),
+                                const SizedBox(width: 8),
+                                _buildMobileCategoryChip('Receipts', Icons.payment),
+                                const SizedBox(width: 8),
+                                _buildMobileCategoryChip('Contracts', Icons.gavel_outlined),
+                              ],
+                            ),
+                          ),
+                        ),
+                        const Divider(height: 1, color: kBorderColor),
+                        
+                        // Toolbar
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                           color: Colors.white,
                           child: Row(
                             children: [
-                              Text(_selectedCategory, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: kTextPrimary)),
-                              const Spacer(),
-                              // View Toggle
+                              Expanded(
+                                child: Text(_selectedCategory, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: kTextPrimary)),
+                              ),
                               Container(
                                 decoration: BoxDecoration(
                                   color: const Color(0xFFF1F5F9),
@@ -215,23 +279,24 @@ class _DocumentsScreenState extends State<DocumentsScreen> {
                                   border: Border.all(color: kBorderColor),
                                 ),
                                 child: Row(
+                                  mainAxisSize: MainAxisSize.min,
                                   children: [
                                     IconButton(
                                       onPressed: () => setState(() => _isGridView = true),
-                                      icon: const Icon(Icons.grid_view_rounded, size: 20),
+                                      icon: const Icon(Icons.grid_view_rounded, size: 18),
                                       color: _isGridView ? kPrimaryColor : kTextSecondary,
                                       tooltip: 'Grid View',
                                       padding: EdgeInsets.zero,
-                                      constraints: const BoxConstraints(minWidth: 40, minHeight: 36),
+                                      constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
                                     ),
                                     Container(width: 1, height: 20, color: kBorderColor),
                                     IconButton(
                                       onPressed: () => setState(() => _isGridView = false),
-                                      icon: const Icon(Icons.view_list_rounded, size: 20),
+                                      icon: const Icon(Icons.view_list_rounded, size: 18),
                                       color: !_isGridView ? kPrimaryColor : kTextSecondary,
                                       tooltip: 'List View',
                                       padding: EdgeInsets.zero,
-                                      constraints: const BoxConstraints(minWidth: 40, minHeight: 36),
+                                      constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
                                     ),
                                   ],
                                 ),
@@ -241,10 +306,10 @@ class _DocumentsScreenState extends State<DocumentsScreen> {
                         ),
                         const Divider(height: 1, color: kBorderColor),
                         
-                        // Stats Row (Compact)
+                        // Stats Row
                         Container(
                           width: double.infinity,
-                          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                           color: const Color(0xFFF8FAFC),
                           child: _buildStatsRow(),
                         ),
@@ -252,15 +317,12 @@ class _DocumentsScreenState extends State<DocumentsScreen> {
                         // File Content
                         Expanded(
                           child: SingleChildScrollView(
-                            padding: const EdgeInsets.all(24),
+                            padding: const EdgeInsets.all(16),
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                // Upload Zone (Compact)
                                 _buildUploadZone(),
-                                const SizedBox(height: 24),
-                                
-                                // Files
+                                const SizedBox(height: 16),
                                 if (_filteredDocs.isEmpty)
                                   const Center(child: Padding(padding: EdgeInsets.all(40), child: Text("No documents found.")))
                                 else if (_isGridView)
@@ -272,9 +334,95 @@ class _DocumentsScreenState extends State<DocumentsScreen> {
                           ),
                         ),
                       ],
-                    ),
-                  ),
-                ],
+                    );
+                  }
+                  
+                  // Desktop: Sidebar + Content
+                  return Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      SizedBox(
+                        width: 250,
+                        child: _buildCategorySidebar(),
+                      ),
+                      const VerticalDivider(width: 1, color: kBorderColor),
+                      Expanded(
+                        child: Column(
+                          children: [
+                            // Toolbar / Filters
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                              color: Colors.white,
+                              child: Row(
+                                children: [
+                                  Text(_selectedCategory, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: kTextPrimary)),
+                                  const Spacer(),
+                                  Container(
+                                    decoration: BoxDecoration(
+                                      color: const Color(0xFFF1F5F9),
+                                      borderRadius: BorderRadius.circular(8),
+                                      border: Border.all(color: kBorderColor),
+                                    ),
+                                    child: Row(
+                                      children: [
+                                        IconButton(
+                                          onPressed: () => setState(() => _isGridView = true),
+                                          icon: const Icon(Icons.grid_view_rounded, size: 20),
+                                          color: _isGridView ? kPrimaryColor : kTextSecondary,
+                                          tooltip: 'Grid View',
+                                          padding: EdgeInsets.zero,
+                                          constraints: const BoxConstraints(minWidth: 40, minHeight: 36),
+                                        ),
+                                        Container(width: 1, height: 20, color: kBorderColor),
+                                        IconButton(
+                                          onPressed: () => setState(() => _isGridView = false),
+                                          icon: const Icon(Icons.view_list_rounded, size: 20),
+                                          color: !_isGridView ? kPrimaryColor : kTextSecondary,
+                                          tooltip: 'List View',
+                                          padding: EdgeInsets.zero,
+                                          constraints: const BoxConstraints(minWidth: 40, minHeight: 36),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            const Divider(height: 1, color: kBorderColor),
+                            
+                            // Stats Row
+                            Container(
+                              width: double.infinity,
+                              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                              color: const Color(0xFFF8FAFC),
+                              child: _buildStatsRow(),
+                            ),
+
+                            // File Content
+                            Expanded(
+                              child: SingleChildScrollView(
+                                padding: const EdgeInsets.all(24),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    _buildUploadZone(),
+                                    const SizedBox(height: 24),
+                                    if (_filteredDocs.isEmpty)
+                                      const Center(child: Padding(padding: EdgeInsets.all(40), child: Text("No documents found.")))
+                                    else if (_isGridView)
+                                      _buildGrid(_filteredDocs)
+                                    else
+                                      _buildList(_filteredDocs),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  );
+                },
               ),
             ),
           ],
@@ -352,21 +500,76 @@ class _DocumentsScreenState extends State<DocumentsScreen> {
     );
   }
 
+  Widget _buildMobileCategoryChip(String name, IconData icon) {
+    final isSelected = _selectedCategory == name;
+    final count = name == 'All Documents' 
+        ? _documents.length 
+        : _documents.where((d) => d.category == name).length;
+    
+    return GestureDetector(
+      onTap: () => setState(() => _selectedCategory = name),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        decoration: BoxDecoration(
+          color: isSelected ? const Color(0xFFEFF6FF) : Colors.white,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(
+            color: isSelected ? kPrimaryColor : kBorderColor,
+            width: isSelected ? 1.5 : 1,
+          ),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 16, color: isSelected ? kPrimaryColor : kTextSecondary),
+            const SizedBox(width: 6),
+            Text(
+              name,
+              style: TextStyle(
+                fontSize: 12,
+                color: isSelected ? kPrimaryColor : kTextPrimary,
+                fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
+              ),
+            ),
+            if (count > 0) ...[
+              const SizedBox(width: 6),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                decoration: BoxDecoration(
+                  color: isSelected ? Colors.white : const Color(0xFFF1F5F9),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Text(
+                  count.toString(),
+                  style: TextStyle(
+                    fontSize: 10,
+                    color: isSelected ? kPrimaryColor : kTextSecondary,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _buildStatsRow() {
-    // Horizontal scrolling row for stats to save vertical space
     final pending = _documents.where((d) => d.status == 'Pending').length;
     final verified = _documents.where((d) => d.status == 'Verified').length;
+    final isMobileView = isMobile(context);
     
     return SingleChildScrollView(
       scrollDirection: Axis.horizontal,
       child: Row(
         children: [
           _MiniStatChip(label: 'Total Files', value: _documents.length.toString(), icon: Icons.folder),
-          const SizedBox(width: 12),
+          SizedBox(width: isMobileView ? 8 : 12),
           _MiniStatChip(label: 'Pending Review', value: pending.toString(), icon: Icons.pending_actions, color: Colors.orange),
-          const SizedBox(width: 12),
+          SizedBox(width: isMobileView ? 8 : 12),
           _MiniStatChip(label: 'Verified', value: verified.toString(), icon: Icons.check_circle, color: Colors.green),
-          const SizedBox(width: 12),
+          SizedBox(width: isMobileView ? 8 : 12),
           const _MiniStatChip(label: 'Storage Used', value: '2.1 MB', icon: Icons.cloud, color: Colors.blue),
         ],
       ),
@@ -427,57 +630,122 @@ class _DocumentsScreenState extends State<DocumentsScreen> {
   }
 
   Widget _buildList(List<DocumentItem> docs) {
+    final isMobileView = isMobile(context);
+    
+    if (isMobileView) {
+      // Mobile: Card view instead of table
+      return Column(
+        children: docs.map((doc) => Container(
+          margin: const EdgeInsets.only(bottom: 12),
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: kBorderColor),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Icon(_getFileIcon(doc.type), size: 24, color: _getFileColor(doc.type)),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          doc.title,
+                          style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: kTextPrimary),
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        const SizedBox(height: 4),
+                        Text(doc.size, style: const TextStyle(fontSize: 11, color: kTextSecondary)),
+                      ],
+                    ),
+                  ),
+                  _StatusBadge(status: doc.status),
+                ],
+              ),
+              const SizedBox(height: 12),
+              const Divider(height: 1),
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  const Icon(Icons.person_outline, size: 14, color: kTextSecondary),
+                  const SizedBox(width: 6),
+                  Text(doc.uploadedBy, style: const TextStyle(fontSize: 12, color: kTextSecondary)),
+                  const Spacer(),
+                  const Icon(Icons.calendar_today, size: 14, color: kTextSecondary),
+                  const SizedBox(width: 6),
+                  Text('${doc.date.month}/${doc.date.day}/${doc.date.year}', style: const TextStyle(fontSize: 12, color: kTextSecondary)),
+                ],
+              ),
+            ],
+          ),
+        )).toList(),
+      );
+    }
+    
+    // Desktop: Table view
     return Container(
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(12),
         border: Border.all(color: kBorderColor),
       ),
-      child: Column(
-        children: [
-          // Header
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-            decoration: const BoxDecoration(
-              border: Border(bottom: BorderSide(color: kBorderColor)),
-              color: Color(0xFFF8FAFC),
-            ),
-            child: Row(
-              children: const [
-                Expanded(flex: 4, child: Text('Name', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: kTextSecondary))),
-                Expanded(flex: 2, child: Text('Owner', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: kTextSecondary))),
-                Expanded(flex: 2, child: Text('Date', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: kTextSecondary))),
-                Expanded(flex: 2, child: Text('Status', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: kTextSecondary))),
-                SizedBox(width: 40), // For Actions
-              ],
-            ),
-          ),
-          // Items
-          ...docs.map((doc) => Container(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-            decoration: const BoxDecoration(
-              border: Border(bottom: BorderSide(color: kBorderColor)),
-            ),
-            child: Row(
-              children: [
-                Expanded(
-                  flex: 4,
-                  child: Row(
-                    children: [
-                      Icon(_getFileIcon(doc.type), size: 20, color: _getFileColor(doc.type)),
-                      const SizedBox(width: 12),
-                      Expanded(child: Text(doc.title, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500, color: kTextPrimary), overflow: TextOverflow.ellipsis)),
-                    ],
-                  ),
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: ConstrainedBox(
+          constraints: BoxConstraints(minWidth: MediaQuery.of(context).size.width - 64),
+          child: Column(
+            children: [
+              // Header
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                decoration: const BoxDecoration(
+                  border: Border(bottom: BorderSide(color: kBorderColor)),
+                  color: Color(0xFFF8FAFC),
                 ),
-                Expanded(flex: 2, child: Text(doc.uploadedBy, style: const TextStyle(fontSize: 13, color: kTextSecondary))),
-                Expanded(flex: 2, child: Text('${doc.date.month}/${doc.date.day}/${doc.date.year}', style: const TextStyle(fontSize: 13, color: kTextSecondary))),
-                Expanded(flex: 2, child: Align(alignment: Alignment.centerLeft, child: _StatusBadge(status: doc.status))),
-                const SizedBox(width: 40, child: Icon(Icons.more_vert, size: 18, color: kTextSecondary)),
-              ],
-            ),
-          )),
-        ],
+                child: Row(
+                  children: const [
+                    SizedBox(width: 200, child: Text('Name', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: kTextSecondary))),
+                    SizedBox(width: 120, child: Text('Owner', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: kTextSecondary))),
+                    SizedBox(width: 100, child: Text('Date', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: kTextSecondary))),
+                    SizedBox(width: 100, child: Text('Status', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: kTextSecondary))),
+                    SizedBox(width: 40, child: Text('Actions', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: kTextSecondary))),
+                  ],
+                ),
+              ),
+              // Items
+              ...docs.map((doc) => Container(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                decoration: const BoxDecoration(
+                  border: Border(bottom: BorderSide(color: kBorderColor)),
+                ),
+                child: Row(
+                  children: [
+                    SizedBox(
+                      width: 200,
+                      child: Row(
+                        children: [
+                          Icon(_getFileIcon(doc.type), size: 20, color: _getFileColor(doc.type)),
+                          const SizedBox(width: 12),
+                          Expanded(child: Text(doc.title, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500, color: kTextPrimary), overflow: TextOverflow.ellipsis)),
+                        ],
+                      ),
+                    ),
+                    SizedBox(width: 120, child: Text(doc.uploadedBy, style: const TextStyle(fontSize: 13, color: kTextSecondary))),
+                    SizedBox(width: 100, child: Text('${doc.date.month}/${doc.date.day}/${doc.date.year}', style: const TextStyle(fontSize: 13, color: kTextSecondary))),
+                    SizedBox(width: 100, child: _StatusBadge(status: doc.status)),
+                    const SizedBox(width: 40, child: Icon(Icons.more_vert, size: 18, color: kTextSecondary)),
+                  ],
+                ),
+              )),
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -545,8 +813,6 @@ class _DocumentGridCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isVerified = doc.status == 'Verified';
-    
     IconData fileIcon;
     Color iconColor;
     Color iconBg;

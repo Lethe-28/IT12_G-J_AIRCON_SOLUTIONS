@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'data/app_state.dart';
 import 'data/models.dart';
 import 'ui_app_shell.dart';
-import 'shared_header.dart';
+import 'shared/widgets.dart';
 
 class CustomersScreen extends StatefulWidget {
   const CustomersScreen({super.key});
@@ -155,103 +155,339 @@ class _CustomersScreenState extends State<CustomersScreen> {
   @override
   Widget build(BuildContext context) {
     final customers = _filteredCustomers;
-    final fontSize = _isAdmin ? 14.0 : 16.0; // Larger for Service Manager
+    final fontSize = _isAdmin ? 14.0 : 16.0;
+    final isMobileView = isMobile(context);
     
     return AppShell(
       selectedIndex: 5,
-      body: Column(
-        children: [
-          SharedHeader(
-            welcomeText: 'Customer Directory',
-            subtitleText: 'View and manage B2B and B2C relationships.',
-            notificationCount: 0,
-            showGreeting: false,
+      body: Container(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [AppDesignTokens.gray50, Colors.white],
           ),
-          Expanded(
-            child: SingleChildScrollView(
-              padding: EdgeInsets.all(_isAdmin ? 20 : 24),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Text(
-                        'Customer Management',
-                        style: TextStyle(fontSize: _isAdmin ? 24 : 28, fontWeight: FontWeight.w700),
-                      ),
-                      const Spacer(),
-                      if (_isAdmin)
-                        ElevatedButton.icon(
-                          onPressed: () => _onAddOrEdit(),
-                          icon: const Icon(Icons.add),
-                          label: const Text('Add Customer'),
+        ),
+        child: Column(
+          children: [
+            AnimatedCard(
+              delay: const Duration(milliseconds: 100),
+              child: Container(
+                padding: EdgeInsets.all(isMobileView ? 16 : 24),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.05),
+                      blurRadius: 10,
+                      offset: const Offset(0, 2),
+                    ),
+                  ],
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Customer Directory',
+                                style: TextStyle(
+                                  fontSize: isMobileView ? 24 : 28,
+                                  fontWeight: FontWeight.w700,
+                                  color: AppDesignTokens.gray900,
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                'View and manage B2B and B2C relationships.',
+                                style: TextStyle(
+                                  fontSize: 14,
+                                  color: AppDesignTokens.gray500,
+                                ),
+                              ),
+                            ],
+                          ),
                         ),
+                        if (!isMobileView && _isAdmin)
+                          AnimatedButton(
+                            onPressed: () => _onAddOrEdit(),
+                            icon: Icons.add,
+                            backgroundColor: AppDesignTokens.primary,
+                            foregroundColor: Colors.white,
+                            child: const Text('Add Customer'),
+                          ),
+                      ],
+                    ),
+                    if (isMobileView && _isAdmin) ...[
+                      const SizedBox(height: 16),
+                      SizedBox(
+                        width: double.infinity,
+                        child: AnimatedButton(
+                          onPressed: () => _onAddOrEdit(),
+                          icon: Icons.add,
+                          backgroundColor: AppDesignTokens.primary,
+                          foregroundColor: Colors.white,
+                          child: const Text('Add Customer'),
+                        ),
+                      ),
                     ],
-                  ),
-                  const SizedBox(height: 16),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: TextField(
-                          onChanged: (v) => setState(() => _searchQuery = v),
-                          style: TextStyle(fontSize: fontSize),
-                          decoration: InputDecoration(
-                            hintText: 'Search by name, company, contact, or location...',
-                            prefixIcon: const Icon(Icons.search),
-                            filled: true,
-                            fillColor: Colors.white,
-                            border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(10),
-                              borderSide: BorderSide.none,
+                  ],
+                ),
+              ),
+            ),
+            Expanded(
+              child: SingleChildScrollView(
+                padding: EdgeInsets.all(isMobileView ? 16 : 24),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    AnimatedCard(
+                      delay: const Duration(milliseconds: 200),
+                      child: HoverCard(
+                        padding: EdgeInsets.zero,
+                        child: Column(
+                          children: [
+                            if (isMobileView) ...[
+                              TextField(
+                                onChanged: (v) => setState(() => _searchQuery = v),
+                                style: TextStyle(fontSize: fontSize),
+                                decoration: InputDecoration(
+                                  hintText: 'Search by name, company...',
+                                  prefixIcon: const Icon(Icons.search),
+                                  filled: true,
+                                  fillColor: Colors.white,
+                                  border: OutlineInputBorder(
+                                    borderRadius: BorderRadius.circular(12),
+                                    borderSide: BorderSide.none,
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(height: 12),
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 12),
+                                decoration: BoxDecoration(
+                                  color: Colors.white,
+                                  borderRadius: BorderRadius.circular(12),
+                                  border: Border.all(color: const Color(0xFFE2E8F0)),
+                                ),
+                                child: DropdownButton<String>(
+                                  value: _filterType,
+                                  underline: const SizedBox(),
+                                  isExpanded: true,
+                                  items: const [
+                                    DropdownMenuItem(value: 'All', child: Text('All Types')),
+                                    DropdownMenuItem(value: 'B2B', child: Text('B2B')),
+                                    DropdownMenuItem(value: 'B2C', child: Text('B2C')),
+                                  ],
+                                  onChanged: (v) => setState(() => _filterType = v ?? 'All'),
+                                ),
+                              ),
+                            ] else ...[
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: TextField(
+                                      onChanged: (v) => setState(() => _searchQuery = v),
+                                      style: TextStyle(fontSize: fontSize),
+                                      decoration: InputDecoration(
+                                        hintText: 'Search by name, company, contact, or location...',
+                                        prefixIcon: const Icon(Icons.search),
+                                        filled: true,
+                                        fillColor: Colors.white,
+                                        border: OutlineInputBorder(
+                                          borderRadius: BorderRadius.circular(12),
+                                          borderSide: BorderSide.none,
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 12),
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                                    decoration: BoxDecoration(
+                                      color: Colors.white,
+                                      borderRadius: BorderRadius.circular(12),
+                                      border: Border.all(color: const Color(0xFFE2E8F0)),
+                                    ),
+                                    child: DropdownButton<String>(
+                                      value: _filterType,
+                                      underline: const SizedBox(),
+                                      items: const [
+                                        DropdownMenuItem(value: 'All', child: Text('All Types')),
+                                        DropdownMenuItem(value: 'B2B', child: Text('B2B')),
+                                        DropdownMenuItem(value: 'B2C', child: Text('B2C')),
+                                      ],
+                                      onChanged: (v) => setState(() => _filterType = v ?? 'All'),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ],
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    if (customers.isEmpty)
+                      EmptyState(
+                        icon: Icons.people_outline,
+                        title: 'No customers found',
+                        message: 'Add your first customer to get started.',
+                        actionLabel: 'Add Customer',
+                        onAction: _isAdmin ? () => _onAddOrEdit() : null,
+                      )
+                    else if (isMobileView)
+                      ...customers.asMap().entries.map((entry) {
+                        final index = entry.key;
+                        final c = entry.value;
+                        return AnimatedCard(
+                          delay: Duration(milliseconds: 300 + (index * 50)),
+                          child: _buildMobileCard(c),
+                        );
+                      }).toList()
+                    else
+                      AnimatedCard(
+                        delay: const Duration(milliseconds: 300),
+                        child: HoverCard(
+                          padding: EdgeInsets.zero,
+                          child: SingleChildScrollView(
+                            scrollDirection: Axis.horizontal,
+                            child: DataTable(
+                              columns: [
+                                DataColumn(label: Text('NAME / COMPANY', style: TextStyle(fontSize: fontSize, fontWeight: FontWeight.w700))),
+                                DataColumn(label: Text('TYPE', style: TextStyle(fontSize: fontSize, fontWeight: FontWeight.w700))),
+                                DataColumn(label: Text('CONTACT', style: TextStyle(fontSize: fontSize, fontWeight: FontWeight.w700))),
+                                DataColumn(label: Text('ADDRESS', style: TextStyle(fontSize: fontSize, fontWeight: FontWeight.w700))),
+                                DataColumn(label: Text('ACTIONS', style: TextStyle(fontSize: fontSize, fontWeight: FontWeight.w700))),
+                              ],
+                              rows: customers.map((c) => _dataRow(c)).toList(),
                             ),
                           ),
                         ),
                       ),
-                      const SizedBox(width: 12),
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 12),
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(10),
-                          border: Border.all(color: const Color(0xFFE2E8F0)),
-                        ),
-                        child: DropdownButton<String>(
-                          value: _filterType,
-                          underline: const SizedBox(),
-                          items: const [
-                            DropdownMenuItem(value: 'All', child: Text('All Types')),
-                            DropdownMenuItem(value: 'B2B', child: Text('B2B')),
-                            DropdownMenuItem(value: 'B2C', child: Text('B2C')),
-                          ],
-                          onChanged: (v) => setState(() => _filterType = v ?? 'All'),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 16),
-                  Container(
-                    decoration: _cardDeco(),
-                    child: SingleChildScrollView(
-                      scrollDirection: Axis.horizontal,
-                      child: ConstrainedBox(
-                        constraints: const BoxConstraints(minWidth: 1000),
-                        child: DataTable(
-                          columns: [
-                            DataColumn(label: Text('NAME / COMPANY', style: TextStyle(fontSize: fontSize, fontWeight: FontWeight.w700))),
-                            DataColumn(label: Text('TYPE', style: TextStyle(fontSize: fontSize, fontWeight: FontWeight.w700))),
-                            DataColumn(label: Text('CONTACT', style: TextStyle(fontSize: fontSize, fontWeight: FontWeight.w700))),
-                            DataColumn(label: Text('ADDRESS', style: TextStyle(fontSize: fontSize, fontWeight: FontWeight.w700))),
-                            DataColumn(label: Text('ACTIONS', style: TextStyle(fontSize: fontSize, fontWeight: FontWeight.w700))),
-                          ],
-                          rows: customers.map((c) => _dataRow(c)).toList(),
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
+                  ],
+                ),
               ),
             ),
+          ],
+        ),
+      ),
+    );
+  }
+  
+  Widget _buildMobileCard(CustomerData c) {
+    final typeLabel = c.customerType.type == CustomerTypeKind.b2b ? 'B2B' : 'B2C';
+    final typeColor = c.customerType.type == CustomerTypeKind.b2b ? Colors.blue : Colors.green;
+    
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.05),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
           ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      _getCustomerDisplayName(c),
+                      style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
+                    ),
+                    if (c.companyName.isNotEmpty && (c.firstName.isNotEmpty || c.lastName.isNotEmpty))
+                      Text(
+                        '${c.firstName} ${c.lastName}',
+                        style: const TextStyle(fontSize: 14, color: Colors.black54),
+                      ),
+                  ],
+                ),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                decoration: BoxDecoration(
+                  color: typeColor.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(999),
+                ),
+                child: Text(
+                  typeLabel,
+                  style: TextStyle(fontSize: 12, color: typeColor, fontWeight: FontWeight.w600),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              const Icon(Icons.phone, size: 16, color: Colors.black54),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  c.contactNumber,
+                  style: const TextStyle(fontSize: 14),
+                ),
+              ),
+            ],
+          ),
+          if (c.jobPosition.isNotEmpty) ...[
+            const SizedBox(height: 4),
+            Text(
+              c.jobPosition,
+              style: const TextStyle(fontSize: 12, color: Colors.black54),
+            ),
+          ],
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              const Icon(Icons.location_on, size: 16, color: Colors.black54),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  _getFullAddress(c),
+                  style: const TextStyle(fontSize: 12, color: Colors.black54),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            ],
+          ),
+          if (_isAdmin) ...[
+            const SizedBox(height: 12),
+            const Divider(),
+            const SizedBox(height: 8),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.end,
+              children: [
+                TextButton.icon(
+                  onPressed: () => _onAddOrEdit(existing: c),
+                  icon: const Icon(Icons.edit_outlined, size: 18),
+                  label: const Text('Edit'),
+                ),
+                const SizedBox(width: 8),
+                TextButton.icon(
+                  onPressed: () => _onDelete(c),
+                  icon: const Icon(Icons.delete_outline, size: 18, color: Colors.red),
+                  label: const Text('Delete', style: TextStyle(color: Colors.red)),
+                ),
+              ],
+            ),
+          ],
         ],
       ),
     );
@@ -334,11 +570,6 @@ class _CustomersScreenState extends State<CustomersScreen> {
     );
   }
 
-  BoxDecoration _cardDeco() => BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: const Color(0xFFE2E8F0)),
-      );
 }
 
 class _CustomerDialog extends StatefulWidget {

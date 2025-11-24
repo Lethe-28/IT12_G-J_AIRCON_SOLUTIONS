@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'data/app_state.dart';
 import 'ui_app_shell.dart';
+import 'shared/widgets.dart' show LoadingOverlay, LoadingButton, EmptyState, FilterChipGroup, showConfirmDialog, showUndoSnackBar, AppDesignTokens, isMobile;
 
 // --- Data Models ---
 
@@ -40,6 +41,11 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
   String _searchQuery = '';
   DateTime? _dateFilterStart;
   DateTime? _dateFilterEnd;
+  String? _categoryFilter;
+  String? _statusFilter;
+  bool _isLoading = false;
+  ExpenseEntry? _lastDeletedExpense;
+  int? _lastDeletedIndex;
   
   // Design Constants
   static const Color kPrimaryColor = Color(0xFFDC2626);
@@ -105,6 +111,14 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
           .toList();
     }
     
+    if (_categoryFilter != null && _categoryFilter!.isNotEmpty && _categoryFilter != 'All') {
+      result = result.where((e) => e.category == _categoryFilter).toList();
+    }
+    
+    if (_statusFilter != null && _statusFilter!.isNotEmpty && _statusFilter != 'All') {
+      result = result.where((e) => e.status.toLowerCase() == _statusFilter!.toLowerCase()).toList();
+    }
+    
     if (_dateFilterStart != null || _dateFilterEnd != null) {
       final start = _dateFilterStart ?? DateTime(2000);
       final end = (_dateFilterEnd ?? DateTime.now()).add(const Duration(days: 1));
@@ -161,7 +175,6 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
 
     setState(() {
       if (existing == null) {
-        final newId = _expenses.isNotEmpty ? _expenses.last.id + 1 : 1;
         _expenses.add(result);
       } else {
         final index = _expenses.indexWhere((e) => e.id == existing.id);
@@ -173,25 +186,40 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
   }
 
   void _onDelete(ExpenseEntry entry) async {
-    final confirmed = await showDialog<bool>(
+    final confirmed = await showConfirmDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Archive Expense'),
-        content: Text('Archive expense "${entry.description}"?'),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
-          TextButton(
-            onPressed: () => Navigator.pop(context, true), 
-            style: TextButton.styleFrom(foregroundColor: Colors.orange),
-            child: const Text('Archive')
-          ),
-        ],
-      ),
+      title: 'Archive Expense',
+      message: 'Archive expense "${entry.description}"? This action can be undone.',
+      confirmLabel: 'Archive',
+      cancelLabel: 'Cancel',
+      isDestructive: false,
     );
     if (confirmed != true) return;
+    
     setState(() {
-      _expenses.removeWhere((e) => e.id == entry.id);
+      final index = _expenses.indexWhere((e) => e.id == entry.id);
+      if (index != -1) {
+        _lastDeletedExpense = entry;
+        _lastDeletedIndex = index;
+        _expenses.removeAt(index);
+      }
     });
+    
+    if (mounted && _lastDeletedExpense != null) {
+      showUndoSnackBar(
+        context: context,
+        message: 'Expense "${entry.description}" has been archived',
+        onUndo: () {
+          if (_lastDeletedExpense != null && _lastDeletedIndex != null) {
+            setState(() {
+              _expenses.insert(_lastDeletedIndex!, _lastDeletedExpense!);
+              _lastDeletedExpense = null;
+              _lastDeletedIndex = null;
+            });
+          }
+        },
+      );
+    }
   }
 
   String _formatAmount(double v) => '₱${v.toStringAsFixed(2)}';
@@ -202,60 +230,126 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
   @override
   Widget build(BuildContext context) {
     final records = _filteredExpenses;
+    final isMobileView = isMobile(context);
 
     return AppShell(
       selectedIndex: 2,
-      body: Container(
-        color: const Color(0xFFF8FAFC),
-        child: Column(
-          children: [
-            // Header
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 24),
-              color: Colors.white,
-              width: double.infinity,
-              child: Row(
-                children: [
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text(
-                        'Expense Tracking (Cash-out)',
-                        style: TextStyle(fontSize: 24, fontWeight: FontWeight.w700, color: kTextPrimary, letterSpacing: -0.5),
-                      ),
-                      const SizedBox(height: 6),
-                      Text(
-                        'Monitor spending, reimbursements, and job costs.',
-                        style: TextStyle(fontSize: 14, color: kTextSecondary),
-                      ),
-                    ],
-                  ),
-                  const Spacer(),
-                  _ActionButton(
-                    label: 'Date Filter',
-                    icon: Icons.calendar_today_outlined,
-                    onPressed: _showDateRangePicker,
-                  ),
-                  const SizedBox(width: 12),
-                  if (_isServiceManager)
-                    _ActionButton(
-                      label: 'Add Expense',
-                      icon: Icons.add,
-                      isPrimary: true,
-                      onPressed: () => _onAddOrEdit(),
-                    ),
-                ],
-              ),
-            ),
-            const Divider(height: 1, color: kBorderColor),
-
-            // Scrollable Body
-            Expanded(
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.all(32),
+      body: LoadingOverlay(
+        isLoading: _isLoading,
+        child: Container(
+          color: const Color(0xFFF8FAFC),
+          child: Column(
+            children: [
+              // Header - Responsive
+              Container(
+                padding: EdgeInsets.symmetric(
+                  horizontal: isMobileView ? 16 : 32,
+                  vertical: isMobileView ? 16 : 24,
+                ),
+                color: Colors.white,
+                width: double.infinity,
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
+                    Text(
+                      'Expense Tracking (Cash-out)',
+                      style: TextStyle(
+                        fontSize: isMobileView ? 20 : 24,
+                        fontWeight: FontWeight.w700,
+                        color: kTextPrimary,
+                        letterSpacing: -0.5,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      'Monitor spending, reimbursements, and job costs.',
+                      style: TextStyle(
+                        fontSize: isMobileView ? 12 : 14,
+                        color: kTextSecondary,
+                      ),
+                    ),
+                    if (isMobileView) ...[
+                      const SizedBox(height: 12),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: _ActionButton(
+                              label: 'Date Filter',
+                              icon: Icons.calendar_today_outlined,
+                              onPressed: _showDateRangePicker,
+                            ),
+                          ),
+                          if (_isServiceManager) ...[
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: _ActionButton(
+                                label: 'Add',
+                                icon: Icons.add,
+                                isPrimary: true,
+                                onPressed: () => _onAddOrEdit(),
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
+                    ] else ...[
+                      const SizedBox(height: 12),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.end,
+                        children: [
+                          _ActionButton(
+                            label: 'Date Filter',
+                            icon: Icons.calendar_today_outlined,
+                            onPressed: _showDateRangePicker,
+                          ),
+                          const SizedBox(width: 12),
+                          if (_isServiceManager)
+                            _ActionButton(
+                              label: 'Add Expense',
+                              icon: Icons.add,
+                              isPrimary: true,
+                              onPressed: () => _onAddOrEdit(),
+                            ),
+                        ],
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+              const Divider(height: 1, color: kBorderColor),
+              
+              // Scrollable Body
+              Expanded(
+                child: SingleChildScrollView(
+                padding: EdgeInsets.all(isMobileView ? 16 : 32),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // Filter chips
+                    if (!isMobileView) ...[
+                      FilterChipGroup(
+                        label: 'Category',
+                        options: ['All', 'Fuel', 'Materials', 'Food', 'Transportation', 'Toll', 'Other'],
+                        selected: _categoryFilter ?? 'All',
+                        onSelected: (value) {
+                          setState(() {
+                            _categoryFilter = value == 'All' ? null : value;
+                          });
+                        },
+                      ),
+                      const SizedBox(height: 8),
+                      FilterChipGroup(
+                        label: 'Status',
+                        options: ['All', 'Pending', 'Verified'],
+                        selected: _statusFilter ?? 'All',
+                        onSelected: (value) {
+                          setState(() {
+                            _statusFilter = value == 'All' ? null : value;
+                          });
+                        },
+                      ),
+                      const SizedBox(height: 24),
+                    ],
                     // 1. Chart Section (Top)
                     _buildSpendingChart(),
                     const SizedBox(height: 24),
@@ -265,7 +359,9 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
                     const SizedBox(height: 24),
                     
                     // 3. Table Section (Bottom)
-                    _buildRecordsTable(records),
+                    records.isEmpty
+                        ? _buildEmptyState()
+                        : _buildRecordsTable(records),
                   ],
                 ),
               ),
@@ -273,25 +369,39 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
           ],
         ),
       ),
+      ),
     );
   }
 
+  Widget _buildEmptyState() {
+    return EmptyState(
+      icon: Icons.receipt_long_outlined,
+      title: 'No Expenses Found',
+      message: _searchQuery.isNotEmpty || _categoryFilter != null || _statusFilter != null
+          ? 'Try adjusting your search or filters to find what you\'re looking for.'
+          : 'Start tracking expenses by adding your first expense entry.',
+      actionLabel: _isServiceManager ? 'Add Expense' : null,
+      onAction: _isServiceManager ? () => _onAddOrEdit() : null,
+      iconColor: kPrimaryColor,
+    );
+  }
+  
   Widget _buildStatsGrid() {
-    // Using LayoutBuilder to create a grid that is aware of screen width
-    // But utilizing IntrinsicHeight or explicit AspectRatio logic in cards for alignment
     return LayoutBuilder(
       builder: (context, constraints) {
         final width = constraints.maxWidth;
-        // 4 columns on large, 2 on medium, 1 on small
+        final isMobileView = width < 600;
+        final isTabletView = width >= 600 && width < 1024;
+        
+        // 4 columns on large, 2 on medium/tablet, 1 on mobile
         int crossAxisCount = 4;
-        if (width < 1200) crossAxisCount = 2;
-        if (width < 600) crossAxisCount = 1;
+        if (isTabletView) crossAxisCount = 2;
+        if (isMobileView) crossAxisCount = 1;
         
-        final gap = 24.0;
+        final gap = isMobileView ? 12.0 : 24.0;
         final totalGap = gap * (crossAxisCount - 1);
-        final cardWidth = (width - totalGap) / crossAxisCount;
+        final cardWidth = isMobileView ? width : (width - totalGap) / crossAxisCount;
         
-        // Ensure all cards including "Total Expenses" look uniform
         return Wrap(
           spacing: gap,
           runSpacing: gap,
@@ -301,29 +411,29 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
               value: _formatAmount(_todayTotal),
               icon: Icons.trending_up,
               color: Colors.blue,
-              width: cardWidth,
+              width: isMobileView ? double.infinity : cardWidth,
             ),
             _StatCard(
               title: "Last 7 Days",
               value: _formatAmount(_weekTotal),
               icon: Icons.calendar_today,
               color: Colors.green,
-              width: cardWidth,
+              width: isMobileView ? double.infinity : cardWidth,
             ),
             _StatCard(
               title: "This Month",
               value: _formatAmount(_monthTotal),
               icon: Icons.bar_chart,
               color: Colors.purple,
-              width: cardWidth,
+              width: isMobileView ? double.infinity : cardWidth,
             ),
             _StatCard(
               title: "Total Expenses",
               value: _formatAmount(_totalExpenses),
               icon: Icons.account_balance_wallet,
               color: kPrimaryColor,
-              width: cardWidth,
-              isHighlight: true, // Special styling for Total
+              width: isMobileView ? double.infinity : cardWidth,
+              isHighlight: true,
             ),
           ],
         );
@@ -398,17 +508,31 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
       clipBehavior: Clip.antiAlias,
       child: Column(
         children: [
-          // Table Toolbar - Aligned nicely
+          // Table Toolbar - Responsive
           Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
-            child: Row(
+            padding: EdgeInsets.symmetric(
+              horizontal: isMobile(context) ? 16 : 24,
+              vertical: 16,
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text('Expense Records', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: kTextPrimary)),
-                const Spacer(),
-                SizedBox(
-                  width: 280,
-                  height: 38,
-                  child: TextField(
+                Row(
+                  children: [
+                    Text(
+                      'Expense Records',
+                      style: TextStyle(
+                        fontSize: isMobile(context) ? 14 : 16,
+                        fontWeight: FontWeight.w700,
+                        color: kTextPrimary,
+                      ),
+                    ),
+                    if (!isMobile(context)) const Spacer(),
+                  ],
+                ),
+                if (isMobile(context)) ...[
+                  const SizedBox(height: 12),
+                  TextField(
                     onChanged: (v) => setState(() => _searchQuery = v),
                     style: const TextStyle(fontSize: 14),
                     decoration: InputDecoration(
@@ -421,10 +545,66 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
                         borderRadius: BorderRadius.circular(8),
                         borderSide: BorderSide.none,
                       ),
-                      contentPadding: const EdgeInsets.symmetric(vertical: 0),
+                      contentPadding: const EdgeInsets.symmetric(vertical: 12),
                     ),
                   ),
-                ),
+                  const SizedBox(height: 12),
+                  SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    child: Row(
+                      children: [
+                        FilterChipGroup(
+                          label: 'Category',
+                          options: ['All', 'Fuel', 'Materials', 'Food', 'Transportation', 'Toll', 'Other'],
+                          selected: _categoryFilter ?? 'All',
+                          onSelected: (value) {
+                            setState(() {
+                              _categoryFilter = value == 'All' ? null : value;
+                            });
+                          },
+                        ),
+                        const SizedBox(width: 8),
+                        FilterChipGroup(
+                          label: 'Status',
+                          options: ['All', 'Pending', 'Verified'],
+                          selected: _statusFilter ?? 'All',
+                          onSelected: (value) {
+                            setState(() {
+                              _statusFilter = value == 'All' ? null : value;
+                            });
+                          },
+                        ),
+                      ],
+                    ),
+                  ),
+                ] else ...[
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      const Spacer(),
+                      SizedBox(
+                        width: 280,
+                        height: 38,
+                        child: TextField(
+                          onChanged: (v) => setState(() => _searchQuery = v),
+                          style: const TextStyle(fontSize: 14),
+                          decoration: InputDecoration(
+                            hintText: 'Search expenses...',
+                            hintStyle: TextStyle(color: kTextSecondary, fontSize: 13),
+                            prefixIcon: Icon(Icons.search, color: kTextSecondary, size: 18),
+                            filled: true,
+                            fillColor: const Color(0xFFF8FAFC),
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(8),
+                              borderSide: BorderSide.none,
+                            ),
+                            contentPadding: const EdgeInsets.symmetric(vertical: 0),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
               ],
             ),
           ),
@@ -509,11 +689,6 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
               );
             }
           ),
-          if (records.isEmpty)
-            Padding(
-              padding: const EdgeInsets.all(32),
-              child: Center(child: Text("No expense records found.", style: TextStyle(color: kTextSecondary))),
-            ),
         ],
       ),
     );
@@ -552,13 +727,7 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
 
 // --- Custom Widgets ---
 
-class _StatData {
-  final String title;
-  final String value;
-  final IconData icon;
-  final Color color;
-  _StatData(this.title, this.value, this.icon, this.color);
-}
+// Removed unused _StatData class
 
 class _StatCard extends StatelessWidget {
   final String title;
@@ -704,6 +873,9 @@ class _ExpenseDialogState extends State<_ExpenseDialog> {
   String _status = 'Pending';
   bool _isCustomerFunded = false;
   DateTime _date = DateTime.now();
+  bool _isSubmitting = false;
+  String? _amountError;
+  String? _descriptionError;
 
   @override
   void initState() {
@@ -756,10 +928,48 @@ class _ExpenseDialogState extends State<_ExpenseDialog> {
     if (date != null) setState(() => _date = date);
   }
 
-  void _submit() {
-    if (_amountController.text.trim().isEmpty) return;
+  void _validateForm() {
+    setState(() {
+      _amountError = null;
+      _descriptionError = null;
+      
+      if (_amountController.text.trim().isEmpty) {
+        _amountError = 'Amount is required';
+      } else {
+        final amount = double.tryParse(_amountController.text.trim());
+        if (amount == null || amount <= 0) {
+          _amountError = 'Please enter a valid amount greater than 0';
+        }
+      }
+      
+      if (_descriptionController.text.trim().isEmpty) {
+        _descriptionError = 'Description is required';
+      }
+    });
+  }
+  
+  bool get _isFormValid {
+    if (_amountController.text.trim().isEmpty) return false;
+    final amount = double.tryParse(_amountController.text.trim());
+    if (amount == null || amount <= 0) return false;
+    if (_descriptionController.text.trim().isEmpty) return false;
+    return true;
+  }
+  
+  Future<void> _submit() async {
+    _validateForm();
+    if (!_isFormValid) {
+      return;
+    }
+    
+    setState(() => _isSubmitting = true);
+    
+    // Simulate async operation
+    await Future.delayed(const Duration(milliseconds: 500));
+    
+    if (!mounted) return;
+    
     final amount = double.tryParse(_amountController.text.trim()) ?? 0;
-
     final entry = ExpenseEntry(
       id: widget.entry?.id ?? 0,
       category: _categoryController.text.trim(),
@@ -770,7 +980,10 @@ class _ExpenseDialogState extends State<_ExpenseDialog> {
       status: _status,
       isCustomerFunded: _isCustomerFunded,
     );
-    Navigator.of(context).pop(entry);
+    
+    if (mounted) {
+      Navigator.of(context).pop(entry);
+    }
   }
 
   @override
@@ -800,12 +1013,46 @@ class _ExpenseDialogState extends State<_ExpenseDialog> {
                   ),
                 ),
                 const SizedBox(width: 16),
-                Expanded(child: TextField(controller: _amountController, decoration: _inputDecor('Amount (₱)'), keyboardType: TextInputType.number)),
+                Expanded(
+                  child: TextField(
+                    controller: _amountController,
+                    decoration: _inputDecor('Amount (₱)').copyWith(
+                      errorText: _amountError,
+                      suffixIcon: _amountController.text.trim().isNotEmpty &&
+                              _amountError == null &&
+                              (double.tryParse(_amountController.text.trim()) ?? 0) > 0
+                          ? const Icon(Icons.check_circle, color: AppDesignTokens.success, size: 20)
+                          : null,
+                    ),
+                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                    onChanged: (v) {
+                      if (v.trim().isNotEmpty) {
+                        final amount = double.tryParse(v.trim());
+                        if (amount != null && amount > 0) {
+                          setState(() => _amountError = null);
+                        }
+                      }
+                    },
+                  ),
+                ),
               ]),
               const SizedBox(height: 16),
               TextField(controller: _joController, decoration: _inputDecor('Linked Job Order (Optional)')),
               const SizedBox(height: 16),
-              TextField(controller: _descriptionController, decoration: _inputDecor('Description')),
+              TextField(
+                controller: _descriptionController,
+                decoration: _inputDecor('Description').copyWith(
+                  errorText: _descriptionError,
+                  suffixIcon: _descriptionController.text.trim().isNotEmpty && _descriptionError == null
+                      ? const Icon(Icons.check_circle, color: AppDesignTokens.success, size: 20)
+                      : null,
+                ),
+                onChanged: (v) {
+                  if (v.trim().isNotEmpty) {
+                    setState(() => _descriptionError = null);
+                  }
+                },
+              ),
               const SizedBox(height: 16),
               InkWell(
                 onTap: _pickDate,
@@ -837,20 +1084,16 @@ class _ExpenseDialogState extends State<_ExpenseDialog> {
                 mainAxisAlignment: MainAxisAlignment.end,
                 children: [
                   TextButton(
-                    onPressed: () => Navigator.pop(context),
+                    onPressed: _isSubmitting ? null : () => Navigator.pop(context),
                     style: TextButton.styleFrom(foregroundColor: const Color(0xFF64748B)),
                     child: const Text('Cancel'),
                   ),
                   const SizedBox(width: 8),
-                  ElevatedButton(
-                    onPressed: _submit,
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFF2563EB),
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                    ),
-                    child: const Text('Save'),
+                  LoadingButton(
+                    onPressed: _isSubmitting ? null : _submit,
+                    label: 'Save',
+                    isLoading: _isSubmitting,
+                    isPrimary: true,
                   ),
                 ],
               ),
