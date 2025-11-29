@@ -3,45 +3,36 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'data/app_state.dart';
 import 'data/models.dart';
 import 'ui_app_shell.dart';
-import 'shared/widgets.dart' show LoadingOverlay, AppDesignTokens;
+import 'shared/widgets.dart'
+    show
+        LoadingOverlay,
+        LoadingButton,
+        EmptyState,
+        FilterChipGroup,
+        SortableColumnHeader,
+        showConfirmDialog,
+        showUndoSnackBar,
+        AppDesignTokens;
 
-// --- Data Classes (Unchanged) ---
-class JobOrderTechnician {
-  final TechnicianData technician;
-  final String role;
-  JobOrderTechnician({required this.technician, this.role = 'Technician'});
-}
-
-class JobOrderAircon {
-  final AirconData aircon;
-  JobOrderAircon({required this.aircon});
-}
-
-class JobOrderServiceItem {
-  final ServiceItemData serviceItem;
-  final int quantity;
-  final double actualPrice;
-  JobOrderServiceItem({
-    required this.serviceItem,
-    required this.quantity,
-    required this.actualPrice,
-  });
-}
-
+// --- Data Classes ---
 class JobOrder {
-  final String id;
+  final int dbId; // Actual Database Primary Key
+  final String displayId; // JO-2025-XXX
   String clientName;
   String jobType;
-  DateTime dateTime;
+  DateTime startDateTime;
+  DateTime? endDateTime; // For multi-day jobs
   String location;
   String status;
   String? notes;
 
   JobOrder({
-    required this.id,
+    required this.dbId,
+    required this.displayId,
     required this.clientName,
     required this.jobType,
-    required this.dateTime,
+    required this.startDateTime,
+    this.endDateTime,
     required this.location,
     required this.status,
     this.notes,
@@ -62,8 +53,8 @@ class _SchedulingScreenState extends State<SchedulingScreen> {
   bool _isLoading = true;
 
   // Calendar State
-  DateTime _focusedDate = DateTime.now(); // The month currently being viewed
-  DateTime _selectedDate = DateTime.now(); // The specific day selected
+  DateTime _focusedDate = DateTime.now();
+  DateTime _selectedDate = DateTime.now();
 
   @override
   void initState() {
@@ -97,19 +88,27 @@ class _SchedulingScreenState extends State<SchedulingScreen> {
           }
         }
 
-        DateTime date = DateTime.now();
+        DateTime start = DateTime.now();
         if (row['date_scheduled'] != null) {
-          date = DateTime.parse(row['date_scheduled']);
+          start = DateTime.parse(row['date_scheduled']);
+        }
+
+        DateTime? end;
+        if (row['date_completed'] != null) {
+          end = DateTime.parse(row['date_completed']);
         }
 
         loaded.add(
           JobOrder(
-            id: row['client_jo_number'] ?? 'JO-${row['id']}',
+            dbId: row['id'],
+            displayId: row['client_jo_number'] ?? 'JO-${row['id']}',
             clientName: clientName,
             jobType: row['job_types']?['job_type_name'] ?? 'Service',
-            dateTime: date,
+            startDateTime: start,
+            endDateTime: end,
             location: 'View Details',
             status: row['status'] ?? 'Pending',
+            notes: row['notes'],
           ),
         );
       }
@@ -125,8 +124,9 @@ class _SchedulingScreenState extends State<SchedulingScreen> {
     }
   }
 
+  // --- ACTIONS ---
+
   void _onAddOrEdit() async {
-    // Pass the currently selected date to the dialog
     final result = await showDialog(
       context: context,
       builder: (context) => _JobOrderDialog(initialDate: _selectedDate),
@@ -137,13 +137,106 @@ class _SchedulingScreenState extends State<SchedulingScreen> {
     }
   }
 
+  void _showJobDetails(JobOrder job) {
+    showDialog(
+      context: context,
+      builder: (context) => _JobDetailDialog(
+        job: job,
+        onEdit: () {
+          Navigator.pop(context);
+          _onAddOrEdit();
+        },
+        onDelete: () async {
+          final confirm = await showConfirmDialog(
+            context: context,
+            title: "Delete Job?",
+            message: "This will permanently remove this job and its links.",
+            confirmLabel: "Delete Forever",
+            isDestructive: true,
+          );
+
+          if (confirm == true) {
+            try {
+              // Try to delete
+              await Supabase.instance.client
+                  .from('job_orders')
+                  .delete()
+                  .eq('id', job.dbId);
+
+              if (mounted) {
+                Navigator.pop(context);
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Job deleted successfully')),
+                );
+                _fetchJobOrders();
+              }
+            } catch (e) {
+              // If it fails (likely DB constraint), tell the user
+              if (mounted) {
+                Navigator.pop(context);
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text(
+                      'Delete failed. Please run the SQL Fix script. Error: $e',
+                    ),
+                    backgroundColor: Colors.red,
+                    duration: const Duration(seconds: 5),
+                  ),
+                );
+              }
+            }
+          }
+        },
+        onReschedule: (newDate) async {
+          await Supabase.instance.client
+              .from('job_orders')
+              .update({'date_scheduled': newDate.toIso8601String()})
+              .eq('id', job.dbId);
+          if (mounted) {
+            Navigator.pop(context);
+            _fetchJobOrders();
+          }
+        },
+        onExtend: (newEndDate) async {
+          await Supabase.instance.client
+              .from('job_orders')
+              .update({'date_completed': newEndDate.toIso8601String()})
+              .eq('id', job.dbId);
+          if (mounted) {
+            Navigator.pop(context);
+            _fetchJobOrders();
+          }
+        },
+      ),
+    );
+  }
+
   // --- Calendar Logic Helpers ---
 
   List<JobOrder> _getJobsForDay(DateTime day) {
     return _orders.where((o) {
-      return o.dateTime.year == day.year &&
-          o.dateTime.month == day.month &&
-          o.dateTime.day == day.day;
+      // 1. Check if it starts on this day
+      final start = DateTime(
+        o.startDateTime.year,
+        o.startDateTime.month,
+        o.startDateTime.day,
+      );
+      final check = DateTime(day.year, day.month, day.day);
+
+      // 2. Check if it's a multi-day job and this day is in between
+      if (o.endDateTime != null) {
+        final end = DateTime(
+          o.endDateTime!.year,
+          o.endDateTime!.month,
+          o.endDateTime!.day,
+        );
+        // Is day >= start AND day <= end?
+        return (check.isAfter(start) || check.isAtSameMomentAs(start)) &&
+            (check.isBefore(end) || check.isAtSameMomentAs(end));
+      }
+
+      // Single day check
+      return DateUtils.isSameDay(start, check);
     }).toList();
   }
 
@@ -159,8 +252,6 @@ class _SchedulingScreenState extends State<SchedulingScreen> {
   @override
   Widget build(BuildContext context) {
     final isMobileView = MediaQuery.of(context).size.width < 600;
-
-    // Get jobs for the currently selected day to display in the list
     final selectedDayJobs = _getJobsForDay(_selectedDate);
 
     return AppShell(
@@ -171,7 +262,7 @@ class _SchedulingScreenState extends State<SchedulingScreen> {
           color: const Color(0xFFF8FAFC),
           child: Column(
             children: [
-              // 1. Calendar Header (Month Name & Controls)
+              // 1. Calendar Header
               Container(
                 padding: EdgeInsets.symmetric(
                   horizontal: isMobileView ? 16 : 32,
@@ -216,9 +307,7 @@ class _SchedulingScreenState extends State<SchedulingScreen> {
                       ),
                       icon: const Icon(Icons.add, size: 18),
                       label: Text(
-                        isMobileView
-                            ? 'Add'
-                            : 'Add Job on ${_selectedDate.day}',
+                        isMobileView ? 'Add' : 'Add Job',
                         style: const TextStyle(fontWeight: FontWeight.w700),
                       ),
                     ),
@@ -227,7 +316,7 @@ class _SchedulingScreenState extends State<SchedulingScreen> {
               ),
               const Divider(height: 1),
 
-              // 2. The Content Area (Split View)
+              // 2. The Content Area
               Expanded(
                 child: SingleChildScrollView(
                   child: Column(
@@ -265,7 +354,7 @@ class _SchedulingScreenState extends State<SchedulingScreen> {
                                   child: Column(
                                     children: [
                                       Icon(
-                                        Icons.event_busy,
+                                        Icons.event_available,
                                         size: 48,
                                         color: Colors.grey[300],
                                       ),
@@ -273,10 +362,6 @@ class _SchedulingScreenState extends State<SchedulingScreen> {
                                       const Text(
                                         "No jobs scheduled for this day.",
                                         style: TextStyle(color: Colors.grey),
-                                      ),
-                                      TextButton(
-                                        onPressed: _onAddOrEdit,
-                                        child: const Text("Create a Job"),
                                       ),
                                     ],
                                   ),
@@ -289,8 +374,11 @@ class _SchedulingScreenState extends State<SchedulingScreen> {
                                 itemCount: selectedDayJobs.length,
                                 separatorBuilder: (ctx, i) =>
                                     const SizedBox(height: 12),
-                                itemBuilder: (ctx, i) =>
-                                    _JobCard(order: selectedDayJobs[i]),
+                                itemBuilder: (ctx, i) => GestureDetector(
+                                  onTap: () =>
+                                      _showJobDetails(selectedDayJobs[i]),
+                                  child: _JobCard(order: selectedDayJobs[i]),
+                                ),
                               ),
                           ],
                         ),
@@ -314,13 +402,10 @@ class _SchedulingScreenState extends State<SchedulingScreen> {
       _focusedDate.month,
     );
     final firstDayOfMonth = DateTime(_focusedDate.year, _focusedDate.month, 1);
-    // Determine the offset (e.g. if Month starts on Wednesday, we need empty slots for Mon/Tue)
-    // weekday 1=Mon, 7=Sun. We want Sun=0 or Sun=Start. Let's assume standard Sun start.
     final int firstWeekday = firstDayOfMonth.weekday % 7;
 
     return Column(
       children: [
-        // Weekday Headers
         Padding(
           padding: const EdgeInsets.symmetric(vertical: 12),
           child: Row(
@@ -343,19 +428,16 @@ class _SchedulingScreenState extends State<SchedulingScreen> {
                 .toList(),
           ),
         ),
-        // Days Grid
         GridView.builder(
           shrinkWrap: true,
           physics: const NeverScrollableScrollPhysics(),
           itemCount: daysInMonth + firstWeekday,
           gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
             crossAxisCount: 7,
-            childAspectRatio: 1.2, // Adjust height of cells
+            childAspectRatio: 1.2,
           ),
           itemBuilder: (context, index) {
-            if (index < firstWeekday) {
-              return const SizedBox(); // Empty slots before 1st of month
-            }
+            if (index < firstWeekday) return const SizedBox();
 
             final dayInt = index - firstWeekday + 1;
             final currentDay = DateTime(
@@ -394,7 +476,6 @@ class _SchedulingScreenState extends State<SchedulingScreen> {
                       ),
                     ),
                     const SizedBox(height: 4),
-                    // VISUAL INDICATOR (DOT)
                     if (hasJobs)
                       Container(
                         width: 6,
@@ -435,6 +516,204 @@ class _SchedulingScreenState extends State<SchedulingScreen> {
   }
 }
 
+// --- JOB DETAIL DIALOG (NEW) ---
+
+class _JobDetailDialog extends StatelessWidget {
+  final JobOrder job;
+  final VoidCallback onEdit;
+  final VoidCallback onDelete;
+  final Function(DateTime) onReschedule;
+  final Function(DateTime) onExtend;
+
+  const _JobDetailDialog({
+    required this.job,
+    required this.onEdit,
+    required this.onDelete,
+    required this.onReschedule,
+    required this.onExtend,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Dialog(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      child: Container(
+        padding: const EdgeInsets.all(24),
+        constraints: const BoxConstraints(maxWidth: 400),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    job.clientName,
+                    style: const TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+                IconButton(
+                  onPressed: () => Navigator.pop(context),
+                  icon: const Icon(Icons.close),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Text(
+              job.jobType,
+              style: const TextStyle(
+                fontSize: 16,
+                color: Colors.blue,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            const SizedBox(height: 16),
+            _infoRow(
+              Icons.calendar_today,
+              "${job.startDateTime.month}/${job.startDateTime.day} ${job.startDateTime.hour}:${job.startDateTime.minute.toString().padLeft(2, '0')}",
+            ),
+            if (job.endDateTime != null)
+              _infoRow(
+                Icons.event_repeat,
+                "Ends: ${job.endDateTime!.month}/${job.endDateTime!.day}",
+              ),
+            const SizedBox(height: 8),
+            _infoRow(Icons.numbers, job.displayId),
+
+            const SizedBox(height: 24),
+            const Divider(),
+            const SizedBox(height: 16),
+            const Text(
+              "Actions",
+              style: TextStyle(
+                fontSize: 14,
+                color: Colors.grey,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            const SizedBox(height: 12),
+
+            // ACTION BUTTONS GRID
+            Wrap(
+              spacing: 12,
+              runSpacing: 12,
+              children: [
+                _ActionButton(
+                  icon: Icons.edit,
+                  label: "Edit",
+                  color: Colors.blue,
+                  onTap: onEdit,
+                ),
+                _ActionButton(
+                  icon: Icons.calendar_month,
+                  label: "Reschedule",
+                  color: Colors.orange,
+                  onTap: () async {
+                    final d = await showDatePicker(
+                      context: context,
+                      initialDate: job.startDateTime,
+                      // FIX: Allow past dates (starting from 2020) so the picker doesn't crash on old jobs
+                      firstDate: DateTime(2020),
+                      lastDate: DateTime(2030),
+                    );
+                    if (d != null) onReschedule(d);
+                  },
+                ),
+                _ActionButton(
+                  icon: Icons.update,
+                  label: "Extend",
+                  color: Colors.purple,
+                  onTap: () async {
+                    final d = await showDatePicker(
+                      context: context,
+                      initialDate: job.endDateTime ?? job.startDateTime,
+                      firstDate: job.startDateTime,
+                      lastDate: DateTime(2030),
+                      helpText: "Select End Date",
+                    );
+                    if (d != null) onExtend(d);
+                  },
+                ),
+                _ActionButton(
+                  icon: Icons.delete,
+                  label: "Delete",
+                  color: Colors.red,
+                  onTap:
+                      onDelete, // FIX: The error logic was actually in the parent call, fixed below
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _infoRow(IconData icon, String text) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        children: [
+          Icon(icon, size: 16, color: Colors.grey),
+          const SizedBox(width: 8),
+          Text(
+            text,
+            style: const TextStyle(fontSize: 14, color: Colors.black87),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ActionButton extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final Color color;
+  final VoidCallback onTap;
+
+  const _ActionButton({
+    required this.icon,
+    required this.label,
+    required this.color,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(8),
+      child: Container(
+        width: 100, // Compact width for grid
+        padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
+        decoration: BoxDecoration(
+          color: color.withOpacity(0.1),
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: color.withOpacity(0.3)),
+        ),
+        child: Column(
+          children: [
+            Icon(icon, color: color, size: 20),
+            const SizedBox(height: 4),
+            Text(
+              label,
+              style: TextStyle(
+                color: color,
+                fontWeight: FontWeight.w600,
+                fontSize: 12,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 // --- VISUAL WIZARD DIALOG ---
 
 class _JobOrderDialog extends StatefulWidget {
@@ -448,27 +727,20 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
   int _currentStep = 0;
   bool _isSubmitting = false;
   final _supabase = Supabase.instance.client;
-
-  // FORM KEY FOR VALIDATION
   final _formKey = GlobalKey<FormState>();
 
-  // STEP 1 DATA
+  // Data
   String _jobTypeName = 'Installation';
   int? _jobTypeId;
-
-  // STEP 2 DATA
   bool _isNewClient = false;
-
-  // Lookup Data
   List<Map<String, dynamic>> _existingClients = [];
   List<String> _brandOptions = [];
   List<Map<String, dynamic>> _airconTypes = [];
-
   int? _selectedClientId;
   List<Map<String, dynamic>> _clientAircons = [];
   final List<int> _selectedAirconIds = [];
 
-  // New Client Data
+  // Controllers
   final _firstNameController = TextEditingController();
   final _middleNameController = TextEditingController();
   final _lastNameController = TextEditingController();
@@ -476,8 +748,6 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
   final _jobPositionController = TextEditingController();
   final _phoneController = TextEditingController();
   final _emailController = TextEditingController();
-
-  // Detailed Address Fields
   final _unitController = TextEditingController();
   final _streetController = TextEditingController();
   final _villageController = TextEditingController();
@@ -485,12 +755,10 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
   final _cityController = TextEditingController();
   final _landmarkController = TextEditingController();
 
-  // New Unit Data
   String _selectedBrandName = '';
   int? _selectedAirconTypeId;
   final _unitRemarkController = TextEditingController();
 
-  // STEP 3 DATA
   late DateTime _scheduleDate;
   TimeOfDay _scheduleTime = const TimeOfDay(hour: 9, minute: 0);
   final _notesController = TextEditingController();
@@ -498,7 +766,6 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
   @override
   void initState() {
     super.initState();
-    // Initialize date from calendar selection or today
     _scheduleDate = widget.initialDate ?? DateTime.now();
     _fetchInitialData();
   }
@@ -563,13 +830,11 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
 
   String? _validateEmail(String? value) {
     if (value == null || value.isEmpty) return null;
-    if (!value.contains('@') || !value.contains('.')) {
-      return 'Invalid email';
-    }
+    if (!value.contains('@') || !value.contains('.')) return 'Invalid email';
     return null;
   }
 
-  // --- SUBMIT LOGIC ---
+  // --- SUBMIT ---
   Future<void> _submit() async {
     if (_isNewClient) {
       if (!_formKey.currentState!.validate()) {
@@ -614,7 +879,6 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
           'landmark': _landmarkController.text,
           'customer_type_id': _companyController.text.isNotEmpty ? 1 : 2,
         };
-
         final custRes = await _supabase
             .from('customers')
             .insert(newCustomerData)
@@ -629,7 +893,6 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
       if (_isNewClient && _selectedBrandName.isNotEmpty) {
         final brandName = _selectedBrandName.trim();
         int brandId;
-
         final brandCheck = await _supabase
             .from('brands')
             .select('id')
@@ -658,17 +921,16 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
             })
             .select('id')
             .single();
-
         _selectedAirconIds.add(newAircon['id']);
       }
 
-      // 3. CREATE JOB ORDER
+      // 3. CREATE JOB
       final typeRes = await _supabase
           .from('job_types')
           .select('id')
           .eq('job_type_name', _jobTypeName)
-          .single();
-      final correctTypeId = typeRes['id'];
+          .maybeSingle();
+      final correctTypeId = typeRes != null ? typeRes['id'] : _jobTypeId;
 
       final scheduleDateTime = DateTime(
         _scheduleDate.year,
@@ -704,9 +966,9 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
 
       if (mounted) {
         Navigator.pop(context, true);
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text("Job Order Created Successfully!")),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text("Job Order Created!")));
       }
     } catch (e) {
       if (mounted)
@@ -959,7 +1221,9 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
                     ),
                   ),
                   const SizedBox(height: 12),
+                  // FIX: Layout to prevent overflow
                   Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Expanded(
                         child: _SimpleInput(
@@ -978,16 +1242,14 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
                           textCapitalization: TextCapitalization.words,
                         ),
                       ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: _SimpleInput(
-                          controller: _lastNameController,
-                          hint: "Last Name",
-                          isRequired: true,
-                          textCapitalization: TextCapitalization.words,
-                        ),
-                      ),
                     ],
+                  ),
+                  const SizedBox(height: 12),
+                  _SimpleInput(
+                    controller: _lastNameController,
+                    hint: "Last Name",
+                    isRequired: true,
+                    textCapitalization: TextCapitalization.words,
                   ),
                   const SizedBox(height: 12),
                   _SimpleInput(
@@ -1005,6 +1267,7 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
                   ),
                   const SizedBox(height: 12),
                   Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Expanded(
                         child: _SimpleInput(
@@ -1039,6 +1302,7 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
                   ),
                   const SizedBox(height: 12),
                   Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Expanded(
                         child: _SimpleInput(
@@ -1065,6 +1329,7 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
                   ),
                   const SizedBox(height: 12),
                   Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Expanded(
                         child: _SimpleInput(
@@ -1104,6 +1369,7 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
                   ),
                   const SizedBox(height: 12),
                   Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Expanded(
                         child: LayoutBuilder(
@@ -1374,6 +1640,7 @@ class _ToggleOption extends StatelessWidget {
   }
 }
 
+// UPDATED: Now uses TextFormField for Validation
 class _SimpleInput extends StatelessWidget {
   final TextEditingController controller;
   final IconData? icon;
@@ -1441,6 +1708,15 @@ class _JobCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // If job spans multiple days, show range
+    String dateText = "${order.startDateTime.month}/${order.startDateTime.day}";
+    if (order.endDateTime != null) {
+      dateText += " - ${order.endDateTime!.month}/${order.endDateTime!.day}";
+    } else {
+      dateText +=
+          " ${order.startDateTime.hour}:${order.startDateTime.minute.toString().padLeft(2, '0')}";
+    }
+
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(16),
@@ -1497,7 +1773,7 @@ class _JobCard extends StatelessWidget {
               const Icon(Icons.calendar_today, size: 12, color: Colors.grey),
               const SizedBox(width: 4),
               Text(
-                "${order.dateTime.month}/${order.dateTime.day} ${order.dateTime.hour}:${order.dateTime.minute.toString().padLeft(2, '0')}",
+                dateText,
                 style: const TextStyle(fontSize: 13, color: Colors.grey),
               ),
             ],
