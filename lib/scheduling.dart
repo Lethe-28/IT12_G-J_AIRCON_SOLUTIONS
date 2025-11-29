@@ -836,18 +836,6 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
 
   // --- SUBMIT ---
   Future<void> _submit() async {
-    if (_isNewClient) {
-      if (!_formKey.currentState!.validate()) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text("Please fix errors in red"),
-            backgroundColor: Colors.red,
-          ),
-        );
-        return;
-      }
-    }
-
     setState(() => _isSubmitting = true);
 
     try {
@@ -1039,12 +1027,36 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
               child: SizedBox(
                 width: double.infinity,
                 height: 50,
-                child: ElevatedButton(
+                child: // In build method, scroll down to the ElevatedButton
+                ElevatedButton(
+                  // UPDATE THIS ONPRESSED LOGIC
                   onPressed: _isSubmitting
                       ? null
-                      : (_currentStep == 2
-                            ? _submit
-                            : () => setState(() => _currentStep++)),
+                      : () {
+                          // Logic for Step 2 (Customer Info) -> Step 3
+                          if (_currentStep == 1 && _isNewClient) {
+                            // Validate the form NOW while it is still on screen
+                            if (_formKey.currentState!.validate()) {
+                              setState(() => _currentStep++);
+                            } else {
+                              // Show error if validation fails
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                  content: Text("Please fix errors in red"),
+                                  backgroundColor: Colors.red,
+                                ),
+                              );
+                            }
+                          }
+                          // Logic for Final Step (Submit)
+                          else if (_currentStep == 2) {
+                            _submit();
+                          }
+                          // Logic for Step 1 -> Step 2
+                          else {
+                            setState(() => _currentStep++);
+                          }
+                        },
                   style: ElevatedButton.styleFrom(
                     backgroundColor: const Color(0xFF2563EB),
                     shape: RoundedRectangleBorder(
