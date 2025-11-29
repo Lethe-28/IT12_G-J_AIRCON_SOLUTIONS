@@ -1,96 +1,42 @@
 import 'package:flutter/material.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import 'data/app_state.dart';
 import 'data/models.dart';
 import 'ui_app_shell.dart';
-import 'calendar_view.dart';
-import 'shared/widgets.dart' show LoadingOverlay, LoadingButton, EmptyState, FilterChipGroup, SortableColumnHeader, showConfirmDialog, showUndoSnackBar, AppDesignTokens;
+import 'shared/widgets.dart'
+    show
+        LoadingOverlay,
+        LoadingButton,
+        EmptyState,
+        FilterChipGroup,
+        SortableColumnHeader,
+        showConfirmDialog,
+        showUndoSnackBar,
+        AppDesignTokens;
 
 // --- Data Classes ---
-
-class JobOrderTechnician {
-  final TechnicianData technician;
-  final String role;
-
-  JobOrderTechnician({required this.technician, this.role = 'Technician'});
-}
-
-class JobOrderAircon {
-  final AirconData aircon;
-  JobOrderAircon({required this.aircon});
-}
-
-class JobOrderServiceItem {
-  final ServiceItemData serviceItem;
-  final int quantity;
-  final double actualPrice;
-
-  JobOrderServiceItem({
-    required this.serviceItem,
-    required this.quantity,
-    required this.actualPrice,
-  });
-}
-
 class JobOrder {
-  final String id;
+  final int dbId; // Actual Database Primary Key
+  final String displayId; // JO-2025-XXX
   String clientName;
   String jobType;
-  String technician;
-  DateTime dateTime;
-  DateTime? dateStarted;
-  DateTime? dateCompleted;
-  String duration;
+  DateTime startDateTime;
+  DateTime? endDateTime; // For multi-day jobs
   String location;
   String status;
-  String workType;
-  String customerType;
-  String segment;
-  String customerStatus;
-  int numberOfUnits;
-  String unitDescription;
-  String customerAddress;
-  String customerContact;
-  String brand;
-  String unitLocation;
-  String installationDetails;
-  String workNotes;
-  String followUpSchedule;
-  
-  List<JobOrderTechnician> technicians = [];
-  List<JobOrderAircon> aircons = [];
-  List<JobOrderServiceItem> serviceItems = [];
+  String? notes;
 
   JobOrder({
-    required this.id,
+    required this.dbId,
+    required this.displayId,
     required this.clientName,
     required this.jobType,
-    required this.technician,
-    required this.dateTime,
-    DateTime? dateStarted,
-    this.dateCompleted,
-    required this.duration,
+    required this.startDateTime,
+    this.endDateTime,
     required this.location,
     required this.status,
-    this.workType = '',
-    this.customerType = '',
-    this.segment = '',
-    this.customerStatus = '',
-    this.numberOfUnits = 0,
-    this.unitDescription = '',
-    this.customerAddress = '',
-    this.customerContact = '',
-    this.brand = '',
-    this.unitLocation = '',
-    this.installationDetails = '',
-    this.workNotes = '',
-    this.followUpSchedule = '',
-    List<JobOrderTechnician>? technicians,
-    List<JobOrderAircon>? aircons,
-    List<JobOrderServiceItem>? serviceItems,
-  }) : technicians = technicians ?? [],
-       aircons = aircons ?? [],
-       serviceItems = serviceItems ?? [],
-       dateStarted = dateStarted ?? dateTime;
+    this.notes,
+  });
 }
 
 // --- Main Screen ---
@@ -103,872 +49,1666 @@ class SchedulingScreen extends StatefulWidget {
 }
 
 class _SchedulingScreenState extends State<SchedulingScreen> {
-  String _searchQuery = '';
-  final Set<String> _selectedOrderIds = {};
-  bool _isTableView = true; 
-  bool _isLoading = false;
-  String? _statusFilter;
-  String? _sortColumn;
-  bool _sortAscending = true;
-  JobOrder? _lastDeletedOrder;
-  int? _lastDeletedIndex;
+  List<JobOrder> _orders = [];
+  bool _isLoading = true;
 
-  // Design Constants
-  static const Color kPrimaryColor = Color(0xFF2563EB);
-  static const Color kTextPrimary = Color(0xFF1E293B);
-  static const Color kTextSecondary = Color(0xFF64748B);
-  static const Color kBorderColor = Color(0xFFE2E8F0);
-
-  List<JobOrder> get _orders {
-    try {
-      final shared = AppState.sharedJobOrders;
-      if (shared.isEmpty) return [];
-      return shared.map((o) {
-        try {
-          return o as JobOrder;
-        } catch (e) {
-          return null;
-        }
-      }).whereType<JobOrder>().toList();
-    } catch (e) {
-      return [];
-    }
-  }
+  // Calendar State
+  DateTime _focusedDate = DateTime.now();
+  DateTime _selectedDate = DateTime.now();
 
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _seedData();
-    });
+    _fetchJobOrders();
   }
 
-  void _seedData() {
-    if (!AppState.jobOrdersSeeded && AppState.sharedJobOrders.isEmpty) {
-      final seedOrders = [
-        JobOrder(
-          id: 'JO-2025-001',
-          clientName: 'ABC Corporation',
-          jobType: 'Installation',
-          technician: 'John Doe',
-          dateTime: DateTime(2025, 11, 10, 9, 0),
-          dateStarted: DateTime(2025, 11, 1),
-          dateCompleted: DateTime(2025, 11, 6),
-          duration: '2 hours',
-          location: 'Makati City',
-          status: 'In progress',
-          workType: 'Installation',
-          followUpSchedule: 'February',
-          brand: 'Daikin',
-          segment: 'B2B',
-        ),
-        JobOrder(
-          id: 'JO-2025-002',
-          clientName: 'XYZ Retail Store',
-          jobType: 'Maintenance',
-          technician: 'Jane Smith',
-          dateTime: DateTime(2025, 11, 10, 11, 30),
-          dateStarted: DateTime(2025, 11, 3),
-          dateCompleted: DateTime(2025, 11, 3),
-          duration: '1.5 hours',
-          location: 'Quezon City',
-          status: 'Pending',
-          workType: 'PM',
-          customerAddress: '123 Main St.',
-          segment: 'B2C',
-        ),
-      ];
-      AppState.sharedJobOrders.addAll(seedOrders);
-      AppState.setJobOrdersSeeded(true);
-      if (mounted) setState(() {});
+  Future<void> _fetchJobOrders() async {
+    setState(() => _isLoading = true);
+    final supabase = Supabase.instance.client;
+
+    try {
+      final response = await supabase
+          .from('job_orders')
+          .select(
+            '*, customers(first_name, last_name, company_name), job_types(job_type_name)',
+          )
+          .order('date_scheduled', ascending: false);
+
+      final List<JobOrder> loaded = [];
+
+      for (var row in response) {
+        final customer = row['customers'];
+        String clientName = 'Unknown';
+        if (customer != null) {
+          if (customer['company_name'] != null &&
+              customer['company_name'].toString().isNotEmpty) {
+            clientName = customer['company_name'];
+          } else {
+            clientName = '${customer['first_name']} ${customer['last_name']}';
+          }
+        }
+
+        DateTime start = DateTime.now();
+        if (row['date_scheduled'] != null) {
+          start = DateTime.parse(row['date_scheduled']);
+        }
+
+        DateTime? end;
+        if (row['date_completed'] != null) {
+          end = DateTime.parse(row['date_completed']);
+        }
+
+        loaded.add(
+          JobOrder(
+            dbId: row['id'],
+            displayId: row['client_jo_number'] ?? 'JO-${row['id']}',
+            clientName: clientName,
+            jobType: row['job_types']?['job_type_name'] ?? 'Service',
+            startDateTime: start,
+            endDateTime: end,
+            location: 'View Details',
+            status: row['status'] ?? 'Pending',
+            notes: row['notes'],
+          ),
+        );
+      }
+
+      if (mounted) setState(() => _orders = loaded);
+    } catch (e) {
+      if (mounted)
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Error loading jobs: $e')));
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 
-  void _onAddOrEdit({JobOrder? existing}) async {
-    final JobOrder? result = await showDialog<JobOrder>(
-      context: context,
-      builder: (context) => _JobOrderDialog(order: existing),
-    );
-    if (result == null) return;
+  // --- ACTIONS ---
 
-    setState(() {
-      if (existing == null) {
-        AppState.sharedJobOrders.add(result);
-      } else {
-        final index = AppState.sharedJobOrders.indexWhere((o) => (o as JobOrder).id == existing.id);
-        if (index != -1) {
-          AppState.sharedJobOrders[index] = result;
-        }
-      }
-    });
+  void _onAddOrEdit() async {
+    final result = await showDialog(
+      context: context,
+      builder: (context) => _JobOrderDialog(initialDate: _selectedDate),
+    );
+
+    if (result == true) {
+      _fetchJobOrders();
+    }
   }
 
-  void _onViewDetails(JobOrder order) {
+  void _showJobDetails(JobOrder job) {
     showDialog(
       context: context,
-      builder: (context) => _JobOrderDetailsDialog(order: order),
-    );
-  }
+      builder: (context) => _JobDetailDialog(
+        job: job,
+        onEdit: () {
+          Navigator.pop(context);
+          _onAddOrEdit();
+        },
+        onDelete: () async {
+          final confirm = await showConfirmDialog(
+            context: context,
+            title: "Delete Job?",
+            message: "This will permanently remove this job and its links.",
+            confirmLabel: "Delete Forever",
+            isDestructive: true,
+          );
 
-  void _onArchive(JobOrder order) async {
-    final confirmed = await showConfirmDialog(
-      context: context,
-      title: 'Archive Job Order',
-      message: 'Are you sure you want to archive ${order.id}? This action can be undone.',
-      confirmLabel: 'Archive',
-      cancelLabel: 'Cancel',
-      isDestructive: false,
-    );
-    if (confirmed != true) return;
-    
-    setState(() {
-      final index = AppState.sharedJobOrders.indexWhere((o) => (o as JobOrder).id == order.id);
-      if (index != -1) {
-        _lastDeletedOrder = order;
-        _lastDeletedIndex = index;
-        AppState.sharedJobOrders.removeAt(index);
-      _selectedOrderIds.remove(order.id);
-      }
-    });
-    
-    if (mounted && _lastDeletedOrder != null) {
-      showUndoSnackBar(
-        context: context,
-        message: '${order.id} has been archived',
-        onUndo: () {
-          if (_lastDeletedOrder != null && _lastDeletedIndex != null) {
-            setState(() {
-              AppState.sharedJobOrders.insert(_lastDeletedIndex!, _lastDeletedOrder!);
-              _lastDeletedOrder = null;
-              _lastDeletedIndex = null;
-            });
+          if (confirm == true) {
+            try {
+              // Try to delete
+              await Supabase.instance.client
+                  .from('job_orders')
+                  .delete()
+                  .eq('id', job.dbId);
+
+              if (mounted) {
+                Navigator.pop(context);
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Job deleted successfully')),
+                );
+                _fetchJobOrders();
+              }
+            } catch (e) {
+              // If it fails (likely DB constraint), tell the user
+              if (mounted) {
+                Navigator.pop(context);
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text(
+                      'Delete failed. Please run the SQL Fix script. Error: $e',
+                    ),
+                    backgroundColor: Colors.red,
+                    duration: const Duration(seconds: 5),
+                  ),
+                );
+              }
+            }
           }
         },
-      );
-    }
-  }
-
-  void _onCheckboxToggle(String joNumber, bool selected) {
-    ScaffoldMessenger.of(context).hideCurrentSnackBar();
-    if (_selectedOrderIds.isEmpty) return;
-
-    final isSingleSelection = _selectedOrderIds.length == 1;
-    final lastSelectedId = _selectedOrderIds.last;
-    final jobOrder = _orders.firstWhere((o) => o.id == lastSelectedId);
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Row(
-          children: [
-            Text(isSingleSelection 
-              ? 'JO $lastSelectedId selected' 
-              : '${_selectedOrderIds.length} items selected'),
-            const Spacer(),
-            if (isSingleSelection)
-              TextButton(
-                onPressed: () {
-                  ScaffoldMessenger.of(context).hideCurrentSnackBar();
-                  _onAddOrEdit(existing: jobOrder);
-                },
-                child: const Text('Edit', style: TextStyle(color: Colors.blueAccent, fontWeight: FontWeight.bold)),
-              ),
-            const SizedBox(width: 8),
-            TextButton(
-              onPressed: () {
-                ScaffoldMessenger.of(context).hideCurrentSnackBar();
-                _onArchive(jobOrder); 
-              },
-              child: Text(isSingleSelection ? 'Archive' : 'Archive All', 
-                style: const TextStyle(color: Colors.orangeAccent, fontWeight: FontWeight.bold)),
-            ),
-          ],
-        ),
-        behavior: SnackBarBehavior.floating,
-        width: 450,
-        backgroundColor: const Color(0xFF1E293B),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-        duration: const Duration(seconds: 6),
+        onReschedule: (newDate) async {
+          await Supabase.instance.client
+              .from('job_orders')
+              .update({'date_scheduled': newDate.toIso8601String()})
+              .eq('id', job.dbId);
+          if (mounted) {
+            Navigator.pop(context);
+            _fetchJobOrders();
+          }
+        },
+        onExtend: (newEndDate) async {
+          await Supabase.instance.client
+              .from('job_orders')
+              .update({'date_completed': newEndDate.toIso8601String()})
+              .eq('id', job.dbId);
+          if (mounted) {
+            Navigator.pop(context);
+            _fetchJobOrders();
+          }
+        },
       ),
     );
   }
 
-  List<JobOrder> get _filteredOrders {
-    var filtered = _orders;
-    
-    // Search filter
-    if (_searchQuery.isNotEmpty) {
-    final q = _searchQuery.toLowerCase();
-      filtered = filtered
-        .where((o) =>
-            o.clientName.toLowerCase().contains(q) ||
-            o.technician.toLowerCase().contains(q) ||
-              o.id.toLowerCase().contains(q) ||
-              o.location.toLowerCase().contains(q) ||
-              o.jobType.toLowerCase().contains(q))
-        .toList();
-    }
-    
-    // Status filter
-    if (_statusFilter != null && _statusFilter!.isNotEmpty && _statusFilter != 'All') {
-      filtered = filtered
-          .where((o) => o.status.toLowerCase() == _statusFilter!.toLowerCase())
-          .toList();
-    }
-    
-    // Sorting
-    if (_sortColumn != null) {
-      filtered.sort((a, b) {
-        int comparison = 0;
-        switch (_sortColumn) {
-          case 'id':
-            comparison = a.id.compareTo(b.id);
-            break;
-          case 'client':
-            comparison = a.clientName.compareTo(b.clientName);
-            break;
-          case 'date':
-            comparison = a.dateTime.compareTo(b.dateTime);
-            break;
-          case 'status':
-            comparison = a.status.compareTo(b.status);
-            break;
-          case 'location':
-            comparison = a.location.compareTo(b.location);
-            break;
-        }
-        return _sortAscending ? comparison : -comparison;
-      });
-    }
-    
-    return filtered;
+  // --- Calendar Logic Helpers ---
+
+  List<JobOrder> _getJobsForDay(DateTime day) {
+    return _orders.where((o) {
+      // 1. Check if it starts on this day
+      final start = DateTime(
+        o.startDateTime.year,
+        o.startDateTime.month,
+        o.startDateTime.day,
+      );
+      final check = DateTime(day.year, day.month, day.day);
+
+      // 2. Check if it's a multi-day job and this day is in between
+      if (o.endDateTime != null) {
+        final end = DateTime(
+          o.endDateTime!.year,
+          o.endDateTime!.month,
+          o.endDateTime!.day,
+        );
+        // Is day >= start AND day <= end?
+        return (check.isAfter(start) || check.isAtSameMomentAs(start)) &&
+            (check.isBefore(end) || check.isAtSameMomentAs(end));
+      }
+
+      // Single day check
+      return DateUtils.isSameDay(start, check);
+    }).toList();
   }
 
-  String _formatDate(DateTime? dt) {
-    if (dt == null) return '-';
-    return '${dt.month.toString().padLeft(2,'0')}/${dt.day.toString().padLeft(2,'0')}/${dt.year}';
-  }
-
-  String _formatDateRange(DateTime? start, DateTime? end) {
-    final s = _formatDate(start);
-    final e = end != null ? _formatDate(end) : 'Ongoing';
-    return '$s - $e';
+  void _changeMonth(int increment) {
+    setState(() {
+      _focusedDate = DateTime(
+        _focusedDate.year,
+        _focusedDate.month + increment,
+      );
+    });
   }
 
   @override
   Widget build(BuildContext context) {
-    final filtered = _filteredOrders;
     final isMobileView = MediaQuery.of(context).size.width < 600;
+    final selectedDayJobs = _getJobsForDay(_selectedDate);
 
     return AppShell(
       selectedIndex: 1,
       body: LoadingOverlay(
         isLoading: _isLoading,
         child: Container(
-        color: const Color(0xFFF8FAFC),
-        child: Column(
-          children: [
-              // Header - Responsive
-            Container(
+          color: const Color(0xFFF8FAFC),
+          child: Column(
+            children: [
+              // 1. Calendar Header
+              Container(
                 padding: EdgeInsets.symmetric(
                   horizontal: isMobileView ? 16 : 32,
-                  vertical: isMobileView ? 16 : 24,
+                  vertical: 16,
                 ),
-              color: Colors.white,
-              width: double.infinity,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                    Text(
-                    'Job Orders & Scheduling',
-                      style: TextStyle(
-                        fontSize: isMobileView ? 20 : 24,
-                        fontWeight: FontWeight.w700,
-                        color: kTextPrimary,
-                        letterSpacing: -0.5,
-                      ),
-                  ),
-                  const SizedBox(height: 6),
-                  Text(
-                    'Manage deployments, track progress, and view schedule.',
-                      style: TextStyle(
-                        fontSize: isMobileView ? 12 : 14,
-                        color: kTextSecondary,
-                      ),
-                  ),
-                ],
-              ),
-            ),
-            const Divider(height: 1, color: kBorderColor),
-            
-              // Content - Responsive padding
-            Expanded(
-              child: SingleChildScrollView(
-                  padding: EdgeInsets.all(isMobileView ? 16 : 32),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+                color: Colors.white,
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    _buildStatsCards(),
-                      SizedBox(height: isMobileView ? 16 : 32),
-                    _buildToolbar(),
-                    const SizedBox(height: 16),
-                      filtered.isEmpty
-                          ? _buildEmptyState()
-                          : (_isTableView && !isMobileView)
-                      ? _buildJobTable(filtered)
-                      : _buildJobCards(filtered),
+                    Row(
+                      children: [
+                        IconButton(
+                          icon: const Icon(Icons.chevron_left),
+                          onPressed: () => _changeMonth(-1),
+                        ),
+                        Text(
+                          "${_monthName(_focusedDate.month)} ${_focusedDate.year}",
+                          style: const TextStyle(
+                            fontSize: 20,
+                            fontWeight: FontWeight.w800,
+                            color: Color(0xFF1E293B),
+                          ),
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.chevron_right),
+                          onPressed: () => _changeMonth(1),
+                        ),
+                      ],
+                    ),
+                    ElevatedButton.icon(
+                      onPressed: _onAddOrEdit,
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFF2563EB),
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 16,
+                          vertical: 12,
+                        ),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                      icon: const Icon(Icons.add, size: 18),
+                      label: Text(
+                        isMobileView ? 'Add' : 'Add Job',
+                        style: const TextStyle(fontWeight: FontWeight.w700),
+                      ),
+                    ),
                   ],
                 ),
               ),
-            ),
-          ],
-          ),
-        ),
-      ),
-    );
-  }
-  
-  Widget _buildEmptyState() {
-    return EmptyState(
-      icon: Icons.assignment_outlined,
-      title: 'No Job Orders Found',
-      message: _searchQuery.isNotEmpty || _statusFilter != null
-          ? 'Try adjusting your search or filters to find what you\'re looking for.'
-          : 'Get started by creating your first job order.',
-      actionLabel: 'Add Job Order',
-      onAction: () => _onAddOrEdit(),
-      iconColor: kPrimaryColor,
-    );
-  }
+              const Divider(height: 1),
 
-  Widget _buildStatsCards() {
-    final pending = _orders.where((o) => o.status.toLowerCase() == 'pending').length;
-    final inProgress = _orders.where((o) => o.status.toLowerCase() == 'in progress').length;
-    final completed = _orders.where((o) => o.status.toLowerCase() == 'completed').length;
-
-    return LayoutBuilder(builder: (context, constraints) {
-      final isMobile = constraints.maxWidth < 600;
-      final isTablet = constraints.maxWidth >= 600 && constraints.maxWidth < 1024;
-      final cardWidth = isMobile
-          ? constraints.maxWidth
-          : isTablet
-              ? (constraints.maxWidth - 32) / 2
-              : (constraints.maxWidth - 48) / 3;
-
-      return Wrap(
-        spacing: isMobile ? 12 : 24,
-        runSpacing: isMobile ? 12 : 16,
-        children: [
-          _StatCard(
-            title: 'Open Jobs',
-            value: pending.toString(),
-            icon: Icons.pending_actions_rounded,
-            color: Colors.orange,
-            width: isMobile ? double.infinity : cardWidth,
-          ),
-          _StatCard(
-            title: 'In Progress',
-            value: inProgress.toString(),
-            icon: Icons.engineering_rounded,
-            color: kPrimaryColor,
-            width: isMobile ? double.infinity : cardWidth,
-          ),
-          _StatCard(
-            title: 'Completed (30d)',
-            value: completed.toString(),
-            icon: Icons.verified_rounded,
-            color: Colors.green,
-            width: isMobile ? double.infinity : cardWidth,
-          ),
-        ],
-      );
-    });
-  }
-
-  Widget _buildToolbar() {
-    final isMobile = MediaQuery.of(context).size.width < 600;
-    
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        // Search and filters row
-        Row(
-            children: [
-        Expanded(
-          child: Container(
-                height: isMobile ? 44 : 40,
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(8),
-              border: Border.all(color: kBorderColor),
-            ),
-            child: TextField(
-              onChanged: (v) => setState(() => _searchQuery = v),
-                  style: TextStyle(fontSize: isMobile ? 14 : 14),
-                  decoration: InputDecoration(
-                    hintText: 'Search client, JO number, location...',
-                    hintStyle: const TextStyle(color: kTextSecondary, fontSize: 13),
-                    prefixIcon: const Icon(Icons.search, color: kTextSecondary, size: 18),
-                border: InputBorder.none,
-                    contentPadding: EdgeInsets.symmetric(
-                      vertical: isMobile ? 12 : 10,
-                      horizontal: 12,
-              ),
-            ),
-          ),
-        ),
-            ),
-            if (!isMobile) ...[
-              const SizedBox(width: 12),
-        _ActionButton(
-          label: 'Calendar',
-          icon: Icons.calendar_month,
-          onPressed: () {
-             showDialog(
-                context: context,
-                builder: (context) => CalendarViewScreen(jobOrders: _orders),
-              );
-          },
-        ),
-        const SizedBox(width: 8),
-            ],
-        _ActionButton(
-              label: isMobile ? 'Add' : 'Add Job Order',
-          icon: Icons.add,
-          isPrimary: true,
-          onPressed: () => _onAddOrEdit(),
-            ),
-          ],
-        ),
-        const SizedBox(height: 12),
-        // Filter chips and view toggle
-        Row(
-          children: [
-            Expanded(
-              child: SingleChildScrollView(
-                scrollDirection: Axis.horizontal,
-                child: Row(
-                  children: [
-                    FilterChipGroup(
-                      label: 'Status',
-                      options: ['All', 'Pending', 'In progress', 'Completed'],
-                      selected: _statusFilter ?? 'All',
-                      onSelected: (value) {
-                        setState(() {
-                          _statusFilter = value == 'All' ? null : value;
-                        });
-                      },
-                    ),
-                    if (!isMobile) ...[
-                      const SizedBox(width: 16),
+              // 2. The Content Area
+              Expanded(
+                child: SingleChildScrollView(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      // A. Calendar Grid
                       Container(
-                        decoration: BoxDecoration(
-                          color: const Color(0xFFE2E8F0),
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        padding: const EdgeInsets.all(2),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
+                        color: Colors.white,
+                        padding: const EdgeInsets.only(bottom: 16),
+                        child: _buildCalendarGrid(),
+                      ),
+
+                      const Divider(height: 1),
+
+                      // B. Selected Day Details
+                      Padding(
+                        padding: const EdgeInsets.all(20),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            _ViewToggleButton(
-                              label: 'Table',
-                              icon: Icons.table_chart_outlined,
-                              isSelected: _isTableView,
-                              onTap: () => setState(() => _isTableView = true),
+                            Text(
+                              "Schedule for ${_monthName(_selectedDate.month)} ${_selectedDate.day}",
+                              style: const TextStyle(
+                                fontSize: 18,
+                                fontWeight: FontWeight.w700,
+                                color: Color(0xFF64748B),
+                              ),
                             ),
-                            _ViewToggleButton(
-                              label: 'Cards',
-                              icon: Icons.grid_view_outlined,
-                              isSelected: !_isTableView,
-                              onTap: () => setState(() => _isTableView = false),
-                            ),
+                            const SizedBox(height: 16),
+
+                            if (selectedDayJobs.isEmpty)
+                              Center(
+                                child: Padding(
+                                  padding: const EdgeInsets.all(32.0),
+                                  child: Column(
+                                    children: [
+                                      Icon(
+                                        Icons.event_available,
+                                        size: 48,
+                                        color: Colors.grey[300],
+                                      ),
+                                      const SizedBox(height: 12),
+                                      const Text(
+                                        "No jobs scheduled for this day.",
+                                        style: TextStyle(color: Colors.grey),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              )
+                            else
+                              ListView.separated(
+                                shrinkWrap: true,
+                                physics: const NeverScrollableScrollPhysics(),
+                                itemCount: selectedDayJobs.length,
+                                separatorBuilder: (ctx, i) =>
+                                    const SizedBox(height: 12),
+                                itemBuilder: (ctx, i) => GestureDetector(
+                                  onTap: () =>
+                                      _showJobDetails(selectedDayJobs[i]),
+                                  child: _JobCard(order: selectedDayJobs[i]),
+                                ),
+                              ),
                           ],
                         ),
                       ),
                     ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  // --- Calendar Builders ---
+
+  Widget _buildCalendarGrid() {
+    final daysInMonth = DateUtils.getDaysInMonth(
+      _focusedDate.year,
+      _focusedDate.month,
+    );
+    final firstDayOfMonth = DateTime(_focusedDate.year, _focusedDate.month, 1);
+    final int firstWeekday = firstDayOfMonth.weekday % 7;
+
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.symmetric(vertical: 12),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceAround,
+            children: ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
+                .map(
+                  (day) => Expanded(
+                    child: Center(
+                      child: Text(
+                        day,
+                        style: const TextStyle(
+                          color: Colors.grey,
+                          fontSize: 12,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                  ),
+                )
+                .toList(),
+          ),
+        ),
+        GridView.builder(
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          itemCount: daysInMonth + firstWeekday,
+          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: 7,
+            childAspectRatio: 1.2,
+          ),
+          itemBuilder: (context, index) {
+            if (index < firstWeekday) return const SizedBox();
+
+            final dayInt = index - firstWeekday + 1;
+            final currentDay = DateTime(
+              _focusedDate.year,
+              _focusedDate.month,
+              dayInt,
+            );
+
+            final isSelected = DateUtils.isSameDay(currentDay, _selectedDate);
+            final isToday = DateUtils.isSameDay(currentDay, DateTime.now());
+            final hasJobs = _getJobsForDay(currentDay).isNotEmpty;
+
+            return GestureDetector(
+              onTap: () => setState(() => _selectedDate = currentDay),
+              child: Container(
+                margin: const EdgeInsets.all(4),
+                decoration: BoxDecoration(
+                  color: isSelected
+                      ? const Color(0xFF2563EB)
+                      : (isToday
+                            ? const Color(0xFFEFF6FF)
+                            : Colors.transparent),
+                  borderRadius: BorderRadius.circular(8),
+                  border: isToday && !isSelected
+                      ? Border.all(color: const Color(0xFF2563EB))
+                      : null,
+                ),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Text(
+                      "$dayInt",
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        color: isSelected ? Colors.white : Colors.black87,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    if (hasJobs)
+                      Container(
+                        width: 6,
+                        height: 6,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: isSelected ? Colors.white : Colors.orange,
+                        ),
+                      )
+                    else
+                      const SizedBox(height: 6),
                   ],
                 ),
               ),
-            ),
-          ],
+            );
+          },
         ),
       ],
     );
   }
 
-  Widget _buildJobTable(List<JobOrder> orders) {
-    return Container(
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: kBorderColor),
-        boxShadow: [
-          BoxShadow(color: Colors.black.withOpacity(0.02), blurRadius: 8, offset: const Offset(0, 4)),
-        ],
-      ),
-      clipBehavior: Clip.antiAlias,
-      child: SingleChildScrollView(
-        scrollDirection: Axis.horizontal,
-        child: ConstrainedBox(
-          constraints: BoxConstraints(
-            minWidth: MediaQuery.of(context).size.width - 64,
-          ),
-          child: Theme(
-            data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
-            child: DataTable(
-              headingRowColor: MaterialStateProperty.all(const Color(0xFFF8FAFC)),
-              headingRowHeight: 48,
-              dataRowMinHeight: 60,
-              dataRowMaxHeight: 68,
-              horizontalMargin: 24,
-              columnSpacing: 24,
-              columns: [
-                const DataColumn(label: Text('CHECK', style: TextStyle(fontWeight: FontWeight.w700, color: kTextPrimary, fontSize: 11))),
-                DataColumn(
-                  label: SortableColumnHeader(
-                    label: 'JO NUMBER',
-                    isSorted: _sortColumn == 'id',
-                    isAscending: _sortAscending,
-                    onSort: () {
-                      setState(() {
-                        if (_sortColumn == 'id') {
-                          _sortAscending = !_sortAscending;
-                        } else {
-                          _sortColumn = 'id';
-                          _sortAscending = true;
-                        }
-                      });
-                    },
-                  ),
-                ),
-                DataColumn(
-                  label: SortableColumnHeader(
-                    label: 'CLIENT',
-                    isSorted: _sortColumn == 'client',
-                    isAscending: _sortAscending,
-                    onSort: () {
-                      setState(() {
-                        if (_sortColumn == 'client') {
-                          _sortAscending = !_sortAscending;
-                        } else {
-                          _sortColumn = 'client';
-                          _sortAscending = true;
-                        }
-                      });
-                    },
-                  ),
-                ),
-                const DataColumn(label: Text('JOB / WORK TYPE', style: TextStyle(fontWeight: FontWeight.w700, color: kTextPrimary, fontSize: 11))),
-                DataColumn(
-                  label: SortableColumnHeader(
-                    label: 'DATE',
-                    isSorted: _sortColumn == 'date',
-                    isAscending: _sortAscending,
-                    onSort: () {
-                      setState(() {
-                        if (_sortColumn == 'date') {
-                          _sortAscending = !_sortAscending;
-                        } else {
-                          _sortColumn = 'date';
-                          _sortAscending = true;
-                        }
-                      });
-                    },
-                  ),
-                ),
-                DataColumn(
-                  label: SortableColumnHeader(
-                    label: 'LOCATION',
-                    isSorted: _sortColumn == 'location',
-                    isAscending: _sortAscending,
-                    onSort: () {
-                      setState(() {
-                        if (_sortColumn == 'location') {
-                          _sortAscending = !_sortAscending;
-                        } else {
-                          _sortColumn = 'location';
-                          _sortAscending = true;
-                        }
-                      });
-                    },
-                  ),
-                ),
-                DataColumn(
-                  label: SortableColumnHeader(
-                    label: 'STATUS',
-                    isSorted: _sortColumn == 'status',
-                    isAscending: _sortAscending,
-                    onSort: () {
-                      setState(() {
-                        if (_sortColumn == 'status') {
-                          _sortAscending = !_sortAscending;
-                        } else {
-                          _sortColumn = 'status';
-                          _sortAscending = true;
-                        }
-                      });
-                    },
-                  ),
-                ),
-                const DataColumn(label: Text('ACTIONS', style: TextStyle(fontWeight: FontWeight.w700, color: kTextPrimary, fontSize: 11))),
-              ],
-              rows: orders.map((order) => _buildDataRow(order)).toList(),
-            ),
-          ),
-            ),
-      ),
-    );
-  }
-
-  DataRow _buildDataRow(JobOrder order) {
-    final isSelected = _selectedOrderIds.contains(order.id);
-    
-    return DataRow(
-      color: MaterialStateProperty.resolveWith((states) {
-        if (states.contains(MaterialState.hovered)) return const Color(0xFFF1F5F9);
-        return Colors.white;
-      }),
-      cells: [
-        // Checkbox
-        DataCell(
-          SizedBox(
-            width: 24,
-            height: 24,
-            child: Checkbox(
-              value: isSelected,
-              activeColor: kPrimaryColor,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
-              onChanged: (v) {
-                setState(() {
-                  if (v == true) {
-                    _selectedOrderIds.add(order.id);
-                  } else {
-                    _selectedOrderIds.remove(order.id);
-                  }
-                });
-                _onCheckboxToggle(order.id, v == true);
-              },
-            ),
-          ),
-        ),
-        DataCell(Text(order.id, style: const TextStyle(fontWeight: FontWeight.w600, color: kTextPrimary, fontSize: 13))),
-        DataCell(
-          Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(order.clientName, style: const TextStyle(fontWeight: FontWeight.w500, color: kTextPrimary, fontSize: 13)),
-              if (order.segment.isNotEmpty)
-                Text(order.segment, style: const TextStyle(fontSize: 11, color: kTextSecondary)),
-            ],
-          ),
-        ),
-        DataCell(
-          Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(order.jobType, style: const TextStyle(color: kTextPrimary, fontSize: 13)),
-              if (order.workType.isNotEmpty)
-                Text(order.workType, style: const TextStyle(fontSize: 11, color: kTextSecondary)),
-            ],
-          ),
-        ),
-        DataCell(Text(_formatDateRange(order.dateStarted, order.dateCompleted), style: const TextStyle(color: kTextPrimary, fontSize: 13))),
-        DataCell(Text(order.location, style: const TextStyle(color: kTextPrimary, fontSize: 13))),
-        DataCell(_StatusBadge(status: order.status)),
-        DataCell(
-          TextButton(
-            onPressed: () => _onViewDetails(order),
-            child: const Text('See More', style: TextStyle(color: kPrimaryColor, fontSize: 12, fontWeight: FontWeight.w600)),
-          )
-        ),
-      ],
-    );
-  }
-
-  Widget _buildJobCards(List<JobOrder> orders) {
-    if (orders.isEmpty) {
-      return _buildEmptyState();
-    }
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final isMobile = constraints.maxWidth < 600;
-        final isTablet = constraints.maxWidth >= 600 && constraints.maxWidth < 1024;
-        final cardWidth = isMobile
-            ? constraints.maxWidth
-            : isTablet
-                ? (constraints.maxWidth - 16) / 2
-                : (constraints.maxWidth - 32) / 3;
-        return Wrap(
-          spacing: isMobile ? 12 : 16,
-          runSpacing: isMobile ? 12 : 16,
-          children: orders.map((order) => _JobCard(
-            order: order, 
-            width: cardWidth,
-            onView: () => _onViewDetails(order),
-            onEdit: () => _onAddOrEdit(existing: order),
-            onArchive: () => _onArchive(order),
-          )).toList(),
-        );
-      }
-    );
+  String _monthName(int month) {
+    const months = [
+      "Jan",
+      "Feb",
+      "Mar",
+      "Apr",
+      "May",
+      "Jun",
+      "Jul",
+      "Aug",
+      "Sep",
+      "Oct",
+      "Nov",
+      "Dec",
+    ];
+    return months[month - 1];
   }
 }
 
-// --- Reusable Widgets ---
+// --- JOB DETAIL DIALOG (NEW) ---
 
-class _ViewToggleButton extends StatelessWidget {
-  final String label;
-  final IconData icon;
-  final bool isSelected;
-  final VoidCallback onTap;
+class _JobDetailDialog extends StatelessWidget {
+  final JobOrder job;
+  final VoidCallback onEdit;
+  final VoidCallback onDelete;
+  final Function(DateTime) onReschedule;
+  final Function(DateTime) onExtend;
 
-  const _ViewToggleButton({required this.label, required this.icon, required this.isSelected, required this.onTap});
+  const _JobDetailDialog({
+    required this.job,
+    required this.onEdit,
+    required this.onDelete,
+    required this.onReschedule,
+    required this.onExtend,
+  });
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
+    return Dialog(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-        decoration: BoxDecoration(
-          color: isSelected ? Colors.white : Colors.transparent,
-          borderRadius: BorderRadius.circular(6),
-          boxShadow: isSelected ? [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 2)] : null,
-        ),
-        child: Row(
+        padding: const EdgeInsets.all(24),
+        constraints: const BoxConstraints(maxWidth: 400),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Icon(icon, size: 16, color: isSelected ? Colors.black87 : Colors.black54),
-            const SizedBox(width: 6),
-            Text(label, style: TextStyle(fontSize: 13, fontWeight: FontWeight.w500, color: isSelected ? Colors.black87 : Colors.black54)),
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    job.clientName,
+                    style: const TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+                IconButton(
+                  onPressed: () => Navigator.pop(context),
+                  icon: const Icon(Icons.close),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Text(
+              job.jobType,
+              style: const TextStyle(
+                fontSize: 16,
+                color: Colors.blue,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            const SizedBox(height: 16),
+            _infoRow(
+              Icons.calendar_today,
+              "${job.startDateTime.month}/${job.startDateTime.day} ${job.startDateTime.hour}:${job.startDateTime.minute.toString().padLeft(2, '0')}",
+            ),
+            if (job.endDateTime != null)
+              _infoRow(
+                Icons.event_repeat,
+                "Ends: ${job.endDateTime!.month}/${job.endDateTime!.day}",
+              ),
+            const SizedBox(height: 8),
+            _infoRow(Icons.numbers, job.displayId),
+
+            const SizedBox(height: 24),
+            const Divider(),
+            const SizedBox(height: 16),
+            const Text(
+              "Actions",
+              style: TextStyle(
+                fontSize: 14,
+                color: Colors.grey,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            const SizedBox(height: 12),
+
+            // ACTION BUTTONS GRID
+            Wrap(
+              spacing: 12,
+              runSpacing: 12,
+              children: [
+                _ActionButton(
+                  icon: Icons.edit,
+                  label: "Edit",
+                  color: Colors.blue,
+                  onTap: onEdit,
+                ),
+                _ActionButton(
+                  icon: Icons.calendar_month,
+                  label: "Reschedule",
+                  color: Colors.orange,
+                  onTap: () async {
+                    final d = await showDatePicker(
+                      context: context,
+                      initialDate: job.startDateTime,
+                      // FIX: Allow past dates (starting from 2020) so the picker doesn't crash on old jobs
+                      firstDate: DateTime(2020),
+                      lastDate: DateTime(2030),
+                    );
+                    if (d != null) onReschedule(d);
+                  },
+                ),
+                _ActionButton(
+                  icon: Icons.update,
+                  label: "Extend",
+                  color: Colors.purple,
+                  onTap: () async {
+                    final d = await showDatePicker(
+                      context: context,
+                      initialDate: job.endDateTime ?? job.startDateTime,
+                      firstDate: job.startDateTime,
+                      lastDate: DateTime(2030),
+                      helpText: "Select End Date",
+                    );
+                    if (d != null) onExtend(d);
+                  },
+                ),
+                _ActionButton(
+                  icon: Icons.delete,
+                  label: "Delete",
+                  color: Colors.red,
+                  onTap:
+                      onDelete, // FIX: The error logic was actually in the parent call, fixed below
+                ),
+              ],
+            ),
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _infoRow(IconData icon, String text) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        children: [
+          Icon(icon, size: 16, color: Colors.grey),
+          const SizedBox(width: 8),
+          Text(
+            text,
+            style: const TextStyle(fontSize: 14, color: Colors.black87),
+          ),
+        ],
       ),
     );
   }
 }
 
 class _ActionButton extends StatelessWidget {
-  final String label;
   final IconData icon;
-  final VoidCallback onPressed;
-  final bool isPrimary;
+  final String label;
+  final Color color;
+  final VoidCallback onTap;
 
   const _ActionButton({
-    required this.label,
     required this.icon,
-    required this.onPressed,
-    this.isPrimary = false,
+    required this.label,
+    required this.color,
+    required this.onTap,
   });
 
   @override
   Widget build(BuildContext context) {
-    return ElevatedButton.icon(
-      onPressed: onPressed,
-      style: ElevatedButton.styleFrom(
-        backgroundColor: isPrimary ? const Color(0xFF2563EB) : Colors.white,
-        foregroundColor: isPrimary ? Colors.white : const Color(0xFF475569),
-        elevation: 0,
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
-        shape: RoundedRectangleBorder(
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(8),
+      child: Container(
+        width: 100, // Compact width for grid
+        padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
+        decoration: BoxDecoration(
+          color: color.withOpacity(0.1),
           borderRadius: BorderRadius.circular(8),
-          side: isPrimary ? BorderSide.none : const BorderSide(color: Color(0xFFE2E8F0)),
+          border: Border.all(color: color.withOpacity(0.3)),
+        ),
+        child: Column(
+          children: [
+            Icon(icon, color: color, size: 20),
+            const SizedBox(height: 4),
+            Text(
+              label,
+              style: TextStyle(
+                color: color,
+                fontWeight: FontWeight.w600,
+                fontSize: 12,
+              ),
+            ),
+          ],
         ),
       ),
-      icon: Icon(icon, size: 16),
-      label: Text(label, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
     );
   }
 }
 
-class _StatCard extends StatelessWidget {
-  final String title;
-  final String value;
-  final IconData icon;
-  final Color color;
-  final double width;
+// --- VISUAL WIZARD DIALOG ---
 
-  const _StatCard({
-    required this.title,
-    required this.value,
-    required this.icon,
-    required this.color,
-    required this.width,
-  });
+class _JobOrderDialog extends StatefulWidget {
+  final DateTime? initialDate;
+  const _JobOrderDialog({this.initialDate});
+  @override
+  State<_JobOrderDialog> createState() => _JobOrderDialogState();
+}
+
+class _JobOrderDialogState extends State<_JobOrderDialog> {
+  int _currentStep = 0;
+  bool _isSubmitting = false;
+  final _supabase = Supabase.instance.client;
+  final _formKey = GlobalKey<FormState>();
+
+  // Data
+  String _jobTypeName = 'Installation';
+  int? _jobTypeId;
+  bool _isNewClient = false;
+  List<Map<String, dynamic>> _existingClients = [];
+  List<String> _brandOptions = [];
+  List<Map<String, dynamic>> _airconTypes = [];
+  int? _selectedClientId;
+  List<Map<String, dynamic>> _clientAircons = [];
+  final List<int> _selectedAirconIds = [];
+
+  // Controllers
+  final _firstNameController = TextEditingController();
+  final _middleNameController = TextEditingController();
+  final _lastNameController = TextEditingController();
+  final _companyController = TextEditingController();
+  final _jobPositionController = TextEditingController();
+  final _phoneController = TextEditingController();
+  final _emailController = TextEditingController();
+  final _unitController = TextEditingController();
+  final _streetController = TextEditingController();
+  final _villageController = TextEditingController();
+  final _barangayController = TextEditingController();
+  final _cityController = TextEditingController();
+  final _landmarkController = TextEditingController();
+
+  String _selectedBrandName = '';
+  int? _selectedAirconTypeId;
+  final _unitRemarkController = TextEditingController();
+
+  late DateTime _scheduleDate;
+  TimeOfDay _scheduleTime = const TimeOfDay(hour: 9, minute: 0);
+  final _notesController = TextEditingController();
+
+  @override
+  void initState() {
+    super.initState();
+    _scheduleDate = widget.initialDate ?? DateTime.now();
+    _fetchInitialData();
+  }
+
+  Future<void> _fetchInitialData() async {
+    final customers = await _supabase
+        .from('customers')
+        .select('id, first_name, last_name, company_name, city, barangay')
+        .order('last_name', ascending: true);
+
+    final types = await _supabase.from('job_types').select();
+    final brands = await _supabase
+        .from('brands')
+        .select('brand_name')
+        .order('brand_name');
+    final acTypes = await _supabase
+        .from('aircon_types')
+        .select('id, type_name');
+
+    if (mounted) {
+      setState(() {
+        _existingClients = List<Map<String, dynamic>>.from(customers);
+        _brandOptions = List<String>.from(brands.map((b) => b['brand_name']));
+        _airconTypes = List<Map<String, dynamic>>.from(acTypes);
+
+        final installType = types.firstWhere(
+          (t) => t['job_type_name'] == 'Installation',
+          orElse: () => types.first,
+        );
+        _jobTypeId = installType['id'];
+
+        if (_airconTypes.isNotEmpty) {
+          _selectedAirconTypeId = _airconTypes.first['id'];
+        }
+      });
+    }
+  }
+
+  Future<void> _fetchClientAircons(int clientId) async {
+    final units = await _supabase
+        .from('aircons')
+        .select('id, remarks, brands(brand_name), aircon_types(type_name)')
+        .eq('customer_id', clientId);
+
+    if (mounted) {
+      setState(() {
+        _clientAircons = List<Map<String, dynamic>>.from(units);
+        _selectedAirconIds.clear();
+      });
+    }
+  }
+
+  // --- VALIDATORS ---
+  String? _validatePhone(String? value) {
+    if (value == null || value.isEmpty) return 'Required';
+    final trimmed = value.trim();
+    if (!RegExp(r'^(09\d{9}|\d{7,10})$').hasMatch(trimmed)) {
+      return 'Invalid #';
+    }
+    return null;
+  }
+
+  String? _validateEmail(String? value) {
+    if (value == null || value.isEmpty) return null;
+    if (!value.contains('@') || !value.contains('.')) return 'Invalid email';
+    return null;
+  }
+
+  // --- SUBMIT ---
+  Future<void> _submit() async {
+    setState(() => _isSubmitting = true);
+
+    try {
+      int? finalCustomerId = _selectedClientId;
+
+      // 1. CREATE CUSTOMER
+      if (_isNewClient) {
+        final newCustomerData = {
+          'first_name': _firstNameController.text,
+          'middle_name': _middleNameController.text.isNotEmpty
+              ? _middleNameController.text
+              : null,
+          'last_name': _lastNameController.text,
+          'company_name': _companyController.text.isNotEmpty
+              ? _companyController.text
+              : null,
+          'job_position': _jobPositionController.text.isNotEmpty
+              ? _jobPositionController.text
+              : null,
+          'contact_number': _phoneController.text,
+          'email': _emailController.text.isNotEmpty
+              ? _emailController.text
+              : null,
+          'unit_building_house_no': _unitController.text,
+          'street': _streetController.text,
+          'subdivision_village': _villageController.text,
+          'barangay': _barangayController.text,
+          'city': _cityController.text,
+          'landmark': _landmarkController.text,
+          'customer_type_id': _companyController.text.isNotEmpty ? 1 : 2,
+        };
+        final custRes = await _supabase
+            .from('customers')
+            .insert(newCustomerData)
+            .select('id')
+            .single();
+        finalCustomerId = custRes['id'];
+      }
+
+      if (finalCustomerId == null) throw "Customer ID missing";
+
+      // 2. CREATE AIRCON
+      if (_isNewClient && _selectedBrandName.isNotEmpty) {
+        final brandName = _selectedBrandName.trim();
+        int brandId;
+        final brandCheck = await _supabase
+            .from('brands')
+            .select('id')
+            .ilike('brand_name', brandName)
+            .maybeSingle();
+        if (brandCheck != null) {
+          brandId = brandCheck['id'];
+        } else {
+          final newBrand = await _supabase
+              .from('brands')
+              .insert({'brand_name': brandName})
+              .select('id')
+              .single();
+          brandId = newBrand['id'];
+        }
+
+        final newAircon = await _supabase
+            .from('aircons')
+            .insert({
+              'customer_id': finalCustomerId,
+              'brand_id': brandId,
+              'aircon_type_id': _selectedAirconTypeId ?? 1,
+              'remarks': _unitRemarkController.text.isNotEmpty
+                  ? _unitRemarkController.text
+                  : 'New Unit',
+            })
+            .select('id')
+            .single();
+        _selectedAirconIds.add(newAircon['id']);
+      }
+
+      // 3. CREATE JOB
+      final typeRes = await _supabase
+          .from('job_types')
+          .select('id')
+          .eq('job_type_name', _jobTypeName)
+          .maybeSingle();
+      final correctTypeId = typeRes != null ? typeRes['id'] : _jobTypeId;
+
+      final scheduleDateTime = DateTime(
+        _scheduleDate.year,
+        _scheduleDate.month,
+        _scheduleDate.day,
+        _scheduleTime.hour,
+        _scheduleTime.minute,
+      );
+
+      final joRes = await _supabase
+          .from('job_orders')
+          .insert({
+            'customer_id': finalCustomerId,
+            'job_type_id': correctTypeId,
+            'date_scheduled': scheduleDateTime.toIso8601String(),
+            'status': 'Pending',
+            'user_id': _supabase.auth.currentUser?.id,
+            'client_jo_number':
+                'JO-${DateTime.now().millisecondsSinceEpoch.toString().substring(9)}',
+          })
+          .select('id')
+          .single();
+
+      final int newJoId = joRes['id'];
+
+      // 4. LINK AIRCONS
+      for (int airconId in _selectedAirconIds) {
+        await _supabase.from('job_order_aircons').insert({
+          'job_order_id': newJoId,
+          'aircon_id': airconId,
+        });
+      }
+
+      if (mounted) {
+        Navigator.pop(context, true);
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text("Job Order Created!")));
+      }
+    } catch (e) {
+      if (mounted)
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text("Error: $e"), backgroundColor: Colors.red),
+        );
+    } finally {
+      if (mounted) setState(() => _isSubmitting = false);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      width: width,
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
+    final isMobile = MediaQuery.of(context).size.width < 600;
+
+    return Dialog(
+      insetPadding: isMobile ? EdgeInsets.zero : const EdgeInsets.all(40),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      child: Container(
+        width: isMobile ? double.infinity : 600,
+        height: isMobile ? double.infinity : 750,
         color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: const Color(0xFFE2E8F0)),
-      ),
-      child: Row(
-        children: [
-          Container(
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: color.withOpacity(0.1),
-              borderRadius: BorderRadius.circular(10),
+        child: Column(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(20),
+              decoration: const BoxDecoration(
+                border: Border(bottom: BorderSide(color: Color(0xFFE2E8F0))),
+              ),
+              child: Row(
+                children: [
+                  if (_currentStep > 0)
+                    IconButton(
+                      icon: const Icon(Icons.arrow_back),
+                      onPressed: () => setState(() => _currentStep--),
+                    ),
+                  Expanded(
+                    child: Text(
+                      _currentStep == 0
+                          ? "Service Type"
+                          : _currentStep == 1
+                          ? "Customer & Asset"
+                          : "Schedule",
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.close),
+                    onPressed: () => Navigator.pop(context),
+                  ),
+                ],
+              ),
             ),
-            child: Icon(icon, color: color, size: 24),
+
+            Expanded(
+              child: Padding(
+                padding: const EdgeInsets.all(24),
+                child: _buildCurrentStep(),
+              ),
+            ),
+
+            Padding(
+              padding: const EdgeInsets.all(24),
+              child: SizedBox(
+                width: double.infinity,
+                height: 50,
+                child: // In build method, scroll down to the ElevatedButton
+                ElevatedButton(
+                  // UPDATE THIS ONPRESSED LOGIC
+                  onPressed: _isSubmitting
+                      ? null
+                      : () {
+                          // Logic for Step 2 (Customer Info) -> Step 3
+                          if (_currentStep == 1 && _isNewClient) {
+                            // Validate the form NOW while it is still on screen
+                            if (_formKey.currentState!.validate()) {
+                              setState(() => _currentStep++);
+                            } else {
+                              // Show error if validation fails
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                  content: Text("Please fix errors in red"),
+                                  backgroundColor: Colors.red,
+                                ),
+                              );
+                            }
+                          }
+                          // Logic for Final Step (Submit)
+                          else if (_currentStep == 2) {
+                            _submit();
+                          }
+                          // Logic for Step 1 -> Step 2
+                          else {
+                            setState(() => _currentStep++);
+                          }
+                        },
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF2563EB),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                  child: _isSubmitting
+                      ? const CircularProgressIndicator(color: Colors.white)
+                      : Text(
+                          _currentStep == 2 ? 'Create Job Order' : 'Next Step',
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildCurrentStep() {
+    if (_currentStep == 0) return _stepOne();
+    if (_currentStep == 1) return _stepTwo();
+    return _stepThree();
+  }
+
+  Widget _stepOne() {
+    return SingleChildScrollView(
+      child: Column(
+        children: [
+          _BigVisualOption(
+            icon: Icons.build_circle_outlined,
+            title: "Installation",
+            color: Colors.blue,
+            isSelected: _jobTypeName == 'Installation',
+            onTap: () => setState(() => _jobTypeName = 'Installation'),
           ),
-          const SizedBox(width: 16),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(title, style: const TextStyle(fontSize: 13, color: Color(0xFF64748B), fontWeight: FontWeight.w500)),
-              const SizedBox(height: 2),
-              Text(value, style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w700, color: Color(0xFF1E293B))),
-            ],
+          const SizedBox(height: 12),
+          _BigVisualOption(
+            icon: Icons.cleaning_services_outlined,
+            title: "Maintenance",
+            color: Colors.green,
+            isSelected: _jobTypeName == 'Maintenance',
+            onTap: () => setState(() => _jobTypeName = 'Maintenance'),
+          ),
+          const SizedBox(height: 12),
+          _BigVisualOption(
+            icon: Icons.handyman_outlined,
+            title: "Repair",
+            color: Colors.orange,
+            isSelected: _jobTypeName == 'Repair',
+            onTap: () => setState(() => _jobTypeName = 'Repair'),
+          ),
+          const SizedBox(height: 12),
+          _BigVisualOption(
+            icon: Icons.remove_circle_outline,
+            title: "De-installation",
+            color: Colors.red,
+            isSelected: _jobTypeName == 'De-installation',
+            onTap: () => setState(() => _jobTypeName = 'De-installation'),
           ),
         ],
       ),
     );
   }
+
+  Widget _stepTwo() {
+    return SingleChildScrollView(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            padding: const EdgeInsets.all(4),
+            decoration: BoxDecoration(
+              color: Colors.grey[100],
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Row(
+              children: [
+                Expanded(
+                  child: _ToggleOption(
+                    label: "Existing",
+                    isSelected: !_isNewClient,
+                    onTap: () => setState(() => _isNewClient = false),
+                  ),
+                ),
+                Expanded(
+                  child: _ToggleOption(
+                    label: "New Client",
+                    isSelected: _isNewClient,
+                    onTap: () => setState(() => _isNewClient = true),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 20),
+
+          if (!_isNewClient) ...[
+            const Text(
+              "Search Database",
+              style: TextStyle(fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 8),
+            DropdownButtonFormField<int>(
+              value: _selectedClientId,
+              isExpanded: true,
+              decoration: InputDecoration(
+                hintText: "Select Customer...",
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                filled: true,
+                fillColor: Colors.white,
+              ),
+              items: _existingClients.map((c) {
+                final name =
+                    c['company_name'] ?? '${c['first_name']} ${c['last_name']}';
+                final loc = c['barangay'] ?? c['city'] ?? '';
+                return DropdownMenuItem(
+                  value: c['id'] as int,
+                  child: Text("$name ($loc)"),
+                );
+              }).toList(),
+              onChanged: (val) {
+                setState(() => _selectedClientId = val);
+                if (val != null) _fetchClientAircons(val);
+              },
+            ),
+            if (_selectedClientId != null && _clientAircons.isNotEmpty) ...[
+              const SizedBox(height: 20),
+              const Text(
+                "Select Units",
+                style: TextStyle(fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 8),
+              ..._clientAircons.map((unit) {
+                final brand = unit['brands'] != null
+                    ? unit['brands']['brand_name']
+                    : 'Unknown';
+                final type = unit['aircon_types'] != null
+                    ? unit['aircon_types']['type_name']
+                    : 'Unit';
+                return CheckboxListTile(
+                  title: Text("$brand $type"),
+                  subtitle: Text(unit['remarks'] ?? ''),
+                  value: _selectedAirconIds.contains(unit['id']),
+                  onChanged: (v) {
+                    setState(() {
+                      if (v == true)
+                        _selectedAirconIds.add(unit['id']);
+                      else
+                        _selectedAirconIds.remove(unit['id']);
+                    });
+                  },
+                );
+              }),
+            ],
+          ] else ...[
+            Form(
+              key: _formKey,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    "Client Info",
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      color: Colors.blue,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  // FIX: Layout to prevent overflow
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Expanded(
+                        child: _SimpleInput(
+                          controller: _firstNameController,
+                          hint: "First Name",
+                          icon: Icons.person,
+                          isRequired: true,
+                          textCapitalization: TextCapitalization.words,
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: _SimpleInput(
+                          controller: _middleNameController,
+                          hint: "Middle (Opt)",
+                          textCapitalization: TextCapitalization.words,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  _SimpleInput(
+                    controller: _lastNameController,
+                    hint: "Last Name",
+                    isRequired: true,
+                    textCapitalization: TextCapitalization.words,
+                  ),
+                  const SizedBox(height: 12),
+                  _SimpleInput(
+                    controller: _companyController,
+                    hint: "Company Name (Optional)",
+                    icon: Icons.business,
+                    textCapitalization: TextCapitalization.words,
+                  ),
+                  const SizedBox(height: 12),
+                  _SimpleInput(
+                    controller: _jobPositionController,
+                    hint: "Job Position (e.g. Manager)",
+                    icon: Icons.badge,
+                    textCapitalization: TextCapitalization.words,
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Expanded(
+                        child: _SimpleInput(
+                          controller: _phoneController,
+                          hint: "Mobile/Landline",
+                          icon: Icons.phone,
+                          isRequired: true,
+                          keyboardType: TextInputType.phone,
+                          validator: _validatePhone,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: _SimpleInput(
+                          controller: _emailController,
+                          hint: "Email Address",
+                          icon: Icons.email,
+                          keyboardType: TextInputType.emailAddress,
+                          validator: _validateEmail,
+                        ),
+                      ),
+                    ],
+                  ),
+
+                  const SizedBox(height: 24),
+                  const Text(
+                    "Detailed Address",
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      color: Colors.blue,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Expanded(
+                        child: _SimpleInput(
+                          controller: _unitController,
+                          hint: "Unit/House #",
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: _SimpleInput(
+                          controller: _streetController,
+                          hint: "Street Name",
+                          isRequired: true,
+                          textCapitalization: TextCapitalization.words,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  _SimpleInput(
+                    controller: _villageController,
+                    hint: "Subdivision / Village",
+                    textCapitalization: TextCapitalization.words,
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Expanded(
+                        child: _SimpleInput(
+                          controller: _barangayController,
+                          hint: "Barangay",
+                          isRequired: true,
+                          textCapitalization: TextCapitalization.words,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: _SimpleInput(
+                          controller: _cityController,
+                          hint: "City",
+                          icon: Icons.location_city,
+                          isRequired: true,
+                          textCapitalization: TextCapitalization.words,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  _SimpleInput(
+                    controller: _landmarkController,
+                    hint: "Landmark (Near...)",
+                    icon: Icons.flag,
+                    textCapitalization: TextCapitalization.sentences,
+                  ),
+
+                  const SizedBox(height: 24),
+                  const Text(
+                    "First Aircon Unit",
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      color: Colors.blue,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Expanded(
+                        child: LayoutBuilder(
+                          builder: (context, constraints) {
+                            return Autocomplete<String>(
+                              optionsBuilder:
+                                  (TextEditingValue textEditingValue) {
+                                    if (textEditingValue.text == '')
+                                      return const Iterable<String>.empty();
+                                    return _brandOptions.where((String option) {
+                                      return option.toLowerCase().contains(
+                                        textEditingValue.text.toLowerCase(),
+                                      );
+                                    });
+                                  },
+                              onSelected: (String selection) {
+                                _selectedBrandName = selection;
+                              },
+                              fieldViewBuilder:
+                                  (
+                                    context,
+                                    textEditingController,
+                                    focusNode,
+                                    onFieldSubmitted,
+                                  ) {
+                                    textEditingController.addListener(() {
+                                      _selectedBrandName =
+                                          textEditingController.text;
+                                    });
+                                    return TextFormField(
+                                      controller: textEditingController,
+                                      focusNode: focusNode,
+                                      decoration: InputDecoration(
+                                        label: RichText(
+                                          text: TextSpan(
+                                            text: "Brand (Search/Add)",
+                                            style: TextStyle(
+                                              color: Colors.grey[600],
+                                              fontSize: 14,
+                                            ),
+                                            children: const [
+                                              TextSpan(
+                                                text: ' *',
+                                                style: TextStyle(
+                                                  color: Colors.red,
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                        border: OutlineInputBorder(
+                                          borderRadius: BorderRadius.circular(
+                                            12,
+                                          ),
+                                        ),
+                                        filled: true,
+                                        fillColor: Colors.white,
+                                        contentPadding:
+                                            const EdgeInsets.symmetric(
+                                              horizontal: 16,
+                                              vertical: 14,
+                                            ),
+                                      ),
+                                      validator: (val) =>
+                                          val == null || val.isEmpty
+                                          ? 'Required'
+                                          : null,
+                                    );
+                                  },
+                            );
+                          },
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: DropdownButtonFormField<int>(
+                          value: _selectedAirconTypeId,
+                          decoration: InputDecoration(
+                            hintText: "Type",
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            filled: true,
+                            fillColor: Colors.white,
+                            contentPadding: const EdgeInsets.symmetric(
+                              horizontal: 16,
+                              vertical: 14,
+                            ),
+                          ),
+                          items: _airconTypes
+                              .map(
+                                (t) => DropdownMenuItem(
+                                  value: t['id'] as int,
+                                  child: Text(t['type_name']),
+                                ),
+                              )
+                              .toList(),
+                          onChanged: (v) =>
+                              setState(() => _selectedAirconTypeId = v),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  _SimpleInput(
+                    controller: _unitRemarkController,
+                    hint: "Location (e.g. Lobby)",
+                    isRequired: true,
+                    textCapitalization: TextCapitalization.words,
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _stepThree() {
+    return Column(
+      children: [
+        const Text(
+          "Date & Time",
+          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+        ),
+        const SizedBox(height: 16),
+        ListTile(
+          tileColor: Colors.grey[50],
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+            side: BorderSide(color: Colors.grey.shade300),
+          ),
+          leading: const Icon(Icons.calendar_month, color: Colors.blue),
+          title: Text("${_scheduleDate.toLocal()}".split(' ')[0]),
+          onTap: () async {
+            final d = await showDatePicker(
+              context: context,
+              initialDate: _scheduleDate,
+              firstDate: DateTime.now(),
+              lastDate: DateTime(2030),
+            );
+            if (d != null) setState(() => _scheduleDate = d);
+          },
+        ),
+        const SizedBox(height: 12),
+        ListTile(
+          tileColor: Colors.grey[50],
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+            side: BorderSide(color: Colors.grey.shade300),
+          ),
+          leading: const Icon(Icons.access_time, color: Colors.orange),
+          title: Text(_scheduleTime.format(context)),
+          onTap: () async {
+            final t = await showTimePicker(
+              context: context,
+              initialTime: _scheduleTime,
+            );
+            if (t != null) setState(() => _scheduleTime = t);
+          },
+        ),
+        const SizedBox(height: 20),
+        TextField(
+          controller: _notesController,
+          maxLines: 3,
+          decoration: InputDecoration(
+            hintText: "Additional Notes...",
+            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+            filled: true,
+            fillColor: Colors.grey[50],
+          ),
+        ),
+      ],
+    );
+  }
 }
 
-class _StatusBadge extends StatelessWidget {
-  final String status;
+// --- VISUAL HELPERS ---
 
-  const _StatusBadge({required this.status});
+class _BigVisualOption extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final Color color;
+  final bool isSelected;
+  final VoidCallback onTap;
+
+  const _BigVisualOption({
+    required this.icon,
+    required this.title,
+    required this.color,
+    required this.isSelected,
+    required this.onTap,
+  });
 
   @override
   Widget build(BuildContext context) {
-    Color bg;
-    Color text;
-    String label = status;
-
-    switch (status.toLowerCase()) {
-      case 'in progress':
-        bg = const Color(0xFFDBEAFE); 
-        text = const Color(0xFF1D4ED8); 
-        break;
-      case 'pending':
-        bg = const Color(0xFFFFEDD5); 
-        text = const Color(0xFFC2410C); 
-        break;
-      case 'completed':
-        bg = const Color(0xFFDCFCE7); 
-        text = const Color(0xFF15803D); 
-        break;
-      default:
-        bg = const Color(0xFFF1F5F9); 
-        text = const Color(0xFF475569); 
-    }
-
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-      decoration: BoxDecoration(
-        color: bg,
-        borderRadius: BorderRadius.circular(20),
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: isSelected ? color.withOpacity(0.1) : Colors.white,
+          border: Border.all(
+            color: isSelected ? color : Colors.grey.shade200,
+            width: 2,
+          ),
+          borderRadius: BorderRadius.circular(16),
+        ),
+        child: Row(
+          children: [
+            Icon(icon, color: isSelected ? color : Colors.grey, size: 28),
+            const SizedBox(width: 16),
+            Text(
+              title,
+              style: TextStyle(
+                fontSize: 16,
+                fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+              ),
+            ),
+            const Spacer(),
+            if (isSelected) Icon(Icons.check_circle, color: color),
+          ],
+        ),
       ),
-      child: Text(
-        label,
-        style: TextStyle(color: text, fontSize: 11, fontWeight: FontWeight.w700),
+    );
+  }
+}
+
+class _ToggleOption extends StatelessWidget {
+  final String label;
+  final bool isSelected;
+  final VoidCallback onTap;
+  const _ToggleOption({
+    required this.label,
+    required this.isSelected,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 10),
+        decoration: BoxDecoration(
+          color: isSelected ? Colors.white : Colors.transparent,
+          borderRadius: BorderRadius.circular(10),
+          boxShadow: isSelected
+              ? [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.05),
+                    blurRadius: 2,
+                  ),
+                ]
+              : null,
+        ),
+        child: Text(
+          label,
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+            color: isSelected ? Colors.blue : Colors.grey,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// UPDATED: Now uses TextFormField for Validation
+class _SimpleInput extends StatelessWidget {
+  final TextEditingController controller;
+  final IconData? icon;
+  final String hint;
+  final bool isRequired;
+  final String? Function(String?)? validator;
+  final TextInputType? keyboardType;
+  final TextCapitalization textCapitalization;
+
+  const _SimpleInput({
+    required this.controller,
+    this.icon,
+    required this.hint,
+    this.isRequired = false,
+    this.validator,
+    this.keyboardType,
+    this.textCapitalization = TextCapitalization.none,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return TextFormField(
+      controller: controller,
+      keyboardType: keyboardType,
+      textCapitalization: textCapitalization,
+      validator: (value) {
+        if (isRequired && (value == null || value.isEmpty)) {
+          return '$hint is required';
+        }
+        if (validator != null) {
+          return validator!(value);
+        }
+        return null;
+      },
+      decoration: InputDecoration(
+        label: RichText(
+          text: TextSpan(
+            text: hint,
+            style: TextStyle(color: Colors.grey[600], fontSize: 14),
+            children: [
+              if (isRequired)
+                const TextSpan(
+                  text: ' *',
+                  style: TextStyle(color: Colors.red),
+                ),
+            ],
+          ),
+        ),
+        prefixIcon: icon != null ? Icon(icon, size: 20) : null,
+        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: 16,
+          vertical: 14,
+        ),
+        filled: true,
+        fillColor: Colors.white,
       ),
     );
   }
@@ -976,29 +1716,33 @@ class _StatusBadge extends StatelessWidget {
 
 class _JobCard extends StatelessWidget {
   final JobOrder order;
-  final double width;
-  final VoidCallback onView;
-  final VoidCallback? onEdit;
-  final VoidCallback? onArchive;
-
-  const _JobCard({
-    required this.order,
-    required this.width,
-    required this.onView,
-    this.onEdit,
-    this.onArchive,
-  });
+  const _JobCard({required this.order});
 
   @override
   Widget build(BuildContext context) {
+    // If job spans multiple days, show range
+    String dateText = "${order.startDateTime.month}/${order.startDateTime.day}";
+    if (order.endDateTime != null) {
+      dateText += " - ${order.endDateTime!.month}/${order.endDateTime!.day}";
+    } else {
+      dateText +=
+          " ${order.startDateTime.hour}:${order.startDateTime.minute.toString().padLeft(2, '0')}";
+    }
+
     return Container(
-      width: width,
+      width: double.infinity,
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(12),
         border: Border.all(color: const Color(0xFFE2E8F0)),
-        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.02), blurRadius: 4, offset: const Offset(0,2))],
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.02),
+            blurRadius: 4,
+            offset: const Offset(0, 2),
+          ),
+        ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1006,967 +1750,47 @@ class _JobCard extends StatelessWidget {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              _StatusBadge(status: order.status),
-            ],
-          ),
-          const SizedBox(height: 12),
-          Text(order.id, style: const TextStyle(fontSize: 12, color: Color(0xFF64748B), fontWeight: FontWeight.w600)),
-          const SizedBox(height: 4),
-          Text(order.clientName, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: Color(0xFF1E293B))),
-          const SizedBox(height: 8),
-          Row(
-            children: [
-              const Icon(Icons.location_on_outlined, size: 14, color: Color(0xFF64748B)),
-              const SizedBox(width: 4),
-              Text(order.location, style: const TextStyle(fontSize: 12, color: Color(0xFF64748B))),
-            ],
-          ),
-          const SizedBox(height: 16),
-          const Divider(height: 1),
-          const SizedBox(height: 12),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Expanded(
-                child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text('Work Type', style: TextStyle(fontSize: 10, color: Color(0xFF94A3B8))),
-                  Text(order.jobType, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
-                ],
-              ),
-              ),
-              Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  if (onEdit != null)
-                    IconButton(
-                      icon: const Icon(Icons.edit_outlined, size: 16),
-                      onPressed: onEdit,
-                      tooltip: 'Edit',
-                      padding: EdgeInsets.zero,
-                      constraints: const BoxConstraints(),
-                    ),
-                  const SizedBox(width: 8),
-                  TextButton(
-                onPressed: onView,
-                    style: TextButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                  minimumSize: Size.zero,
-                ),
-                    child: const Text('View', style: TextStyle(fontSize: 11)),
-                  ),
-                ],
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-// --- Comprehensive Add/Edit Dialog ---
-
-class _JobOrderDialog extends StatefulWidget {
-  final JobOrder? order;
-  const _JobOrderDialog({this.order});
-  @override
-  State<_JobOrderDialog> createState() => _JobOrderDialogState();
-}
-
-class _JobOrderDialogState extends State<_JobOrderDialog> {
-  late TextEditingController _idController;
-  late TextEditingController _clientController;
-  late TextEditingController _jobTypeController;
-  late TextEditingController _locationController;
-  late TextEditingController _durationController;
-  
-  // Extra details controllers
-  late TextEditingController _unitDescController;
-  late TextEditingController _addressController;
-  late TextEditingController _contactController;
-  late TextEditingController _brandController;
-  late TextEditingController _unitLocationController;
-  late TextEditingController _installDetailsController;
-  late TextEditingController _notesController;
-  late TextEditingController _followUpController;
-  
-  String _status = 'Pending';
-  DateTime _dateTime = DateTime.now();
-  String _segment = 'B2C';
-  String _customerStatus = 'New';
-  String _workType = 'Installation';
-  String _customerType = 'Residential';
-  DateTime? _dateStarted;
-  DateTime? _dateCompleted;
-  
-  List<JobOrderTechnician> _selectedTechnicians = [];
-  List<JobOrderAircon> _selectedAircons = [];
-  List<JobOrderServiceItem> _selectedServiceItems = [];
-  
-  // Form validation
-  String? _idError;
-  String? _clientError;
-  String? _locationError;
-  bool _isSubmitting = false;
-
-  // Data Sources (Mock)
-  final List<TechnicianData> _availableTechnicians = [
-    const TechnicianData(id: 1, firstName: 'John', middleName: 'M', lastName: 'Doe', contactNumber: '+63 912 345 6789'),
-    const TechnicianData(id: 2, firstName: 'Jane', middleName: 'A', lastName: 'Smith', contactNumber: '+63 917 123 4567'),
-  ];
-  final List<AirconData> _availableAircons = [
-    AirconData(
-      id: 1,
-      brand: const BrandData(id: 1, name: 'Daikin'),
-      airconType: const AirconTypeData(id: 1, typeName: 'Split Type'),
-      customer: const CustomerData(
-        id: 1,
-        customerType: CustomerTypeData(id: 1, type: CustomerTypeKind.b2b),
-        companyName: 'ABC Corp',
-        firstName: 'John', middleName: '', lastName: 'Manager',
-        jobPosition: 'Facilities', contactNumber: '', unitOrBuilding: '', street: '', subdivisionOrVillage: '', barangay: '', city: '', landmark: '',
-      ),
-      remarks: 'Main Lobby',
-    ),
-  ];
-  // Service items available but not used in current implementation
-  // final List<ServiceItemData> _availableServiceItems = [
-  //   const ServiceItemData(id: 1, itemName: 'Installation', itemType: 'Service', price: 5000),
-  // ];
-
-  @override
-  void initState() {
-    super.initState();
-    final o = widget.order;
-    _idController = TextEditingController(text: o?.id ?? '');
-    _clientController = TextEditingController(text: o?.clientName ?? '');
-    _jobTypeController = TextEditingController(text: o?.jobType ?? '');
-    _locationController = TextEditingController(text: o?.location ?? '');
-    _durationController = TextEditingController(text: o?.duration ?? '');
-    
-    _unitDescController = TextEditingController(text: o?.unitDescription ?? '');
-    _addressController = TextEditingController(text: o?.customerAddress ?? '');
-    _contactController = TextEditingController(text: o?.customerContact ?? '');
-    _brandController = TextEditingController(text: o?.brand ?? '');
-    _unitLocationController = TextEditingController(text: o?.unitLocation ?? '');
-    _installDetailsController = TextEditingController(text: o?.installationDetails ?? '');
-    _notesController = TextEditingController(text: o?.workNotes ?? '');
-    _followUpController = TextEditingController(text: o?.followUpSchedule ?? '');
-    
-    // Normalize status to match dropdown options
-    final statusValue = o?.status ?? 'Pending';
-    _status = ['Pending', 'In progress', 'Completed'].contains(statusValue) 
-        ? statusValue 
-        : 'Pending';
-    
-    _dateTime = o?.dateTime ?? DateTime.now();
-    
-    // Normalize segment
-    final segmentValue = o?.segment ?? 'B2C';
-    _segment = ['B2C', 'B2B'].contains(segmentValue) ? segmentValue : 'B2C';
-    
-    // Normalize customer status
-    final customerStatusValue = o?.customerStatus ?? 'New';
-    _customerStatus = ['New', 'Returning'].contains(customerStatusValue) 
-        ? customerStatusValue 
-        : 'New';
-    
-    // Normalize work type - handle "PM" as "Maintenance"
-    final workTypeValue = o?.workType ?? 'Installation';
-    if (workTypeValue == 'PM' || workTypeValue == 'Preventive Maintenance') {
-      _workType = 'Maintenance';
-    } else {
-      _workType = ['Installation', 'Maintenance', 'Repair'].contains(workTypeValue)
-          ? workTypeValue
-          : 'Installation';
-    }
-    
-    _customerType = o?.customerType ?? 'Residential';
-    
-    _dateStarted = o?.dateStarted;
-    _dateCompleted = o?.dateCompleted;
-    
-    _selectedTechnicians = o?.technicians ?? [];
-    _selectedAircons = o?.aircons ?? [];
-    _selectedServiceItems = o?.serviceItems ?? [];
-  }
-
-  @override
-  void dispose() {
-    _idController.dispose();
-    _clientController.dispose();
-    _jobTypeController.dispose();
-    _locationController.dispose();
-    _durationController.dispose();
-    _unitDescController.dispose();
-    _addressController.dispose();
-    _contactController.dispose();
-    _brandController.dispose();
-    _unitLocationController.dispose();
-    _installDetailsController.dispose();
-    _notesController.dispose();
-    _followUpController.dispose();
-    super.dispose();
-  }
-
-  void _validateForm() {
-    setState(() {
-      _idError = _idController.text.trim().isEmpty ? 'JO Number is required' : null;
-      _clientError = _clientController.text.trim().isEmpty ? 'Client name is required' : null;
-      _locationError = _locationController.text.trim().isEmpty ? 'Location is required' : null;
-    });
-  }
-  
-  bool get _isFormValid {
-    return _idController.text.trim().isNotEmpty &&
-        _clientController.text.trim().isNotEmpty &&
-        _locationController.text.trim().isNotEmpty;
-  }
-  
-  Future<void> _submit() async {
-    _validateForm();
-    if (!_isFormValid) {
-      return;
-    }
-    
-    setState(() => _isSubmitting = true);
-    
-    // Simulate async operation
-    await Future.delayed(const Duration(milliseconds: 500));
-    
-    if (!mounted) return;
-    
-    final order = JobOrder(
-      id: _idController.text.trim(),
-      clientName: _clientController.text.trim(),
-      jobType: _jobTypeController.text.trim(),
-      technician: _selectedTechnicians.isNotEmpty ? _selectedTechnicians.first.technician.firstName : 'Unassigned',
-      dateTime: _dateTime,
-      duration: _durationController.text.trim(),
-      location: _locationController.text.trim(),
-      status: _status,
-      segment: _segment,
-      customerStatus: _customerStatus,
-      workType: _workType,
-      customerType: _customerType,
-      unitDescription: _unitDescController.text.trim(),
-      customerAddress: _addressController.text.trim(),
-      customerContact: _contactController.text.trim(),
-      brand: _brandController.text.trim(),
-      unitLocation: _unitLocationController.text.trim(),
-      installationDetails: _installDetailsController.text.trim(),
-      workNotes: _notesController.text.trim(),
-      followUpSchedule: _followUpController.text.trim(),
-      technicians: _selectedTechnicians,
-      aircons: _selectedAircons,
-      serviceItems: _selectedServiceItems,
-      dateStarted: _dateStarted,
-      dateCompleted: _dateCompleted,
-    );
-    
-    if (mounted) {
-    Navigator.of(context).pop(order);
-    }
-  }
-
-  InputDecoration _inputDecor(String label) {
-    return InputDecoration(
-      labelText: label,
-      labelStyle: const TextStyle(fontSize: 13, color: Color(0xFF64748B)),
-      enabledBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(8),
-        borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
-      ),
-      focusedBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(8),
-        borderSide: const BorderSide(color: Color(0xFF2563EB), width: 1.5),
-      ),
-      filled: true,
-      fillColor: Colors.white,
-      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-      isDense: true,
-    );
-  }
-
-  Future<void> _pickDateTime() async {
-    final date = await showDatePicker(
-      context: context,
-      initialDate: _dateTime,
-      firstDate: DateTime(2020),
-      lastDate: DateTime(2030),
-    );
-    if (date == null) return;
-    if (!mounted) return;
-    final time = await showTimePicker(
-      context: context,
-      initialTime: TimeOfDay.fromDateTime(_dateTime),
-    );
-    if (time == null) return;
-    setState(() {
-      _dateTime = DateTime(date.year, date.month, date.day, time.hour, time.minute);
-    });
-  }
-  
-  void _manageTechnicians() async {
-    final result = await showDialog<List<JobOrderTechnician>>(
-      context: context,
-      builder: (context) => _TechnicianSelectionDialog(
-        available: _availableTechnicians,
-        selected: _selectedTechnicians,
-      ),
-    );
-    if (result != null) {
-      setState(() => _selectedTechnicians = result);
-    }
-  }
-
-  void _manageAircons() async {
-    final result = await showDialog<List<JobOrderAircon>>(
-      context: context,
-      builder: (context) => _AirconSelectionDialog(
-        available: _availableAircons,
-        selected: _selectedAircons,
-      ),
-    );
-    if (result != null) {
-      setState(() => _selectedAircons = result);
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final isMobile = MediaQuery.of(context).size.width < 600;
-    
-    return Dialog(
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      child: Container(
-        width: isMobile ? double.infinity : 600,
-        constraints: BoxConstraints(
-          maxHeight: MediaQuery.of(context).size.height * 0.9,
-          maxWidth: isMobile ? MediaQuery.of(context).size.width * 0.95 : 600,
-        ),
-        padding: EdgeInsets.all(isMobile ? 16 : 24),
-        child: SingleChildScrollView(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min,
-            children: [
               Text(
-                widget.order == null ? 'Add Job Order' : 'Edit Job Order',
-                style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w700, color: Color(0xFF1E293B)),
-              ),
-              const SizedBox(height: 4),
-              const Text(
-                'Enter all necessary details for this job.',
-                style: TextStyle(fontSize: 13, color: Color(0xFF64748B)),
-              ),
-              const SizedBox(height: 24),
-              
-              // Essential Fields (Primary)
-              LayoutBuilder(
-                builder: (context, constraints) {
-                  final isNarrow = constraints.maxWidth < 500;
-                  if (isNarrow) {
-                    return Column(
-                children: [
-                        TextField(
-                          controller: _idController,
-                          decoration: _inputDecor('JO Number').copyWith(
-                            errorText: _idError,
-                            suffixIcon: _idController.text.trim().isNotEmpty && _idError == null
-                                ? const Icon(Icons.check_circle, color: AppDesignTokens.success, size: 20)
-                                : null,
-                          ),
-                          onChanged: (v) {
-                            if (v.trim().isNotEmpty) {
-                              setState(() => _idError = null);
-                            }
-                          },
-                        ),
-                        const SizedBox(height: 16),
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 12),
-                      decoration: BoxDecoration(
-                        border: Border.all(color: const Color(0xFFE2E8F0)),
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: DropdownButtonHideUnderline(
-                        child: DropdownButton<String>(
-                          value: _status,
-                          isExpanded: true,
-                              items: ['Pending', 'In progress', 'Completed']
-                                  .map((s) => DropdownMenuItem(value: s, child: Text(s, style: const TextStyle(fontSize: 14))))
-                                  .toList(),
-                          onChanged: (v) => setState(() => _status = v!),
-                        ),
-                      ),
-                        ),
-                      ],
-                    );
-                  }
-                  return Row(
-                    children: [
-                      Expanded(
-                        child: TextField(
-                          controller: _idController,
-                          decoration: _inputDecor('JO Number').copyWith(
-                            errorText: _idError,
-                            suffixIcon: _idController.text.trim().isNotEmpty && _idError == null
-                                ? const Icon(Icons.check_circle, color: AppDesignTokens.success, size: 20)
-                                : null,
-                          ),
-                          onChanged: (v) {
-                            if (v.trim().isNotEmpty) {
-                              setState(() => _idError = null);
-                            }
-                          },
-                        ),
-                      ),
-                      const SizedBox(width: 16),
-                      Expanded(
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 12),
-                          decoration: BoxDecoration(
-                            border: Border.all(color: const Color(0xFFE2E8F0)),
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          child: DropdownButtonHideUnderline(
-                            child: DropdownButton<String>(
-                              value: _status,
-                              isExpanded: true,
-                              items: ['Pending', 'In progress', 'Completed']
-                                  .map((s) => DropdownMenuItem(value: s, child: Text(s, style: const TextStyle(fontSize: 14))))
-                                  .toList(),
-                              onChanged: (v) => setState(() => _status = v!),
-                            ),
-                          ),
-                        ),
-                      ),
-                    ],
-                  );
-                },
-              ),
-              const SizedBox(height: 16),
-              TextField(
-                controller: _clientController,
-                decoration: _inputDecor('Client Name').copyWith(
-                  errorText: _clientError,
-                  suffixIcon: _clientController.text.trim().isNotEmpty && _clientError == null
-                      ? const Icon(Icons.check_circle, color: AppDesignTokens.success, size: 20)
-                      : null,
-                ),
-                onChanged: (v) {
-                  if (v.trim().isNotEmpty) {
-                    setState(() => _clientError = null);
-                  }
-                },
-              ),
-              const SizedBox(height: 16),
-              InkWell(
-                onTap: _pickDateTime,
-                borderRadius: BorderRadius.circular(8),
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-                  decoration: BoxDecoration(
-                    border: Border.all(color: const Color(0xFFE2E8F0)),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Row(
-                    children: [
-                      const Icon(Icons.calendar_today, size: 16, color: Color(0xFF64748B)),
-                      const SizedBox(width: 8),
-                      Text(
-                        'Schedule: ${_dateTime.month}/${_dateTime.day}/${_dateTime.year} ${_dateTime.hour.toString().padLeft(2,'0')}:${_dateTime.minute.toString().padLeft(2,'0')}',
-                        style: const TextStyle(fontSize: 14, color: Color(0xFF1E293B)),
-                      ),
-                    ],
-                  ),
+                order.jobType,
+                style: const TextStyle(
+                  fontWeight: FontWeight.bold,
+                  color: Colors.blue,
                 ),
               ),
-              const SizedBox(height: 16),
-              Row(
-                children: [
-                  Expanded(child: TextField(controller: _jobTypeController, decoration: _inputDecor('Job Type'))),
-                  const SizedBox(width: 16),
-                  Expanded(
-                    child: TextField(
-                      controller: _locationController,
-                      decoration: _inputDecor('Location').copyWith(
-                        errorText: _locationError,
-                        suffixIcon: _locationController.text.trim().isNotEmpty && _locationError == null
-                            ? const Icon(Icons.check_circle, color: AppDesignTokens.success, size: 20)
-                            : null,
-                      ),
-                      onChanged: (v) {
-                        if (v.trim().isNotEmpty) {
-                          setState(() => _locationError = null);
-                        }
-                      },
-                    ),
-                  ),
-                ],
-              ),
-
-              const SizedBox(height: 24),
-              
-              // Collapsible Additional Details (Full functionality)
-              Theme(
-                data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
-                child: ExpansionTile(
-                  title: const Text('Additional Details', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: Color(0xFF2563EB))),
-                  tilePadding: EdgeInsets.zero,
-                  initiallyExpanded: false,
-                  children: [
-                    const SizedBox(height: 8),
-                    const Text("Customer Info", style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF94A3B8))),
-                    const SizedBox(height: 8),
-                    LayoutBuilder(
-                      builder: (context, constraints) {
-                        final isNarrow = constraints.maxWidth < 500;
-                        if (isNarrow) {
-                          return Column(
-                            children: [
-                              DropdownButtonFormField<String>(
-                                value: _segment,
-                                decoration: _inputDecor('Segment'),
-                                items: ['B2C', 'B2B'].map((s) => DropdownMenuItem(value: s, child: Text(s))).toList(),
-                                onChanged: (v) => setState(() => _segment = v!),
-                              ),
-                              const SizedBox(height: 12),
-                              DropdownButtonFormField<String>(
-                                value: _customerStatus,
-                                decoration: _inputDecor('Customer Status'),
-                                items: ['New', 'Returning'].map((s) => DropdownMenuItem(value: s, child: Text(s))).toList(),
-                                onChanged: (v) => setState(() => _customerStatus = v!),
-                              ),
-                            ],
-                          );
-                        }
-                        return Row(
-                      children: [
-                        Expanded(
-                          child: DropdownButtonFormField<String>(
-                            value: _segment,
-                            decoration: _inputDecor('Segment'),
-                            items: ['B2C', 'B2B'].map((s) => DropdownMenuItem(value: s, child: Text(s))).toList(),
-                            onChanged: (v) => setState(() => _segment = v!),
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: DropdownButtonFormField<String>(
-                            value: _customerStatus,
-                            decoration: _inputDecor('Customer Status'),
-                            items: ['New', 'Returning'].map((s) => DropdownMenuItem(value: s, child: Text(s))).toList(),
-                            onChanged: (v) => setState(() => _customerStatus = v!),
-                          ),
-                        ),
-                      ],
-                        );
-                      },
-                    ),
-                    const SizedBox(height: 12),
-                    TextField(controller: _addressController, decoration: _inputDecor('Customer Address')),
-                    const SizedBox(height: 12),
-                    TextField(controller: _contactController, decoration: _inputDecor('Customer Contact')),
-                    
-                    const SizedBox(height: 16),
-                    const Text("Technical & Units", style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF94A3B8))),
-                    const SizedBox(height: 8),
-                    LayoutBuilder(
-                      builder: (context, constraints) {
-                        final isNarrow = constraints.maxWidth < 500;
-                        if (isNarrow) {
-                          return Column(
-                            children: [
-                              TextField(controller: _durationController, decoration: _inputDecor('Duration (e.g., 2h)')),
-                              const SizedBox(height: 12),
-                              DropdownButtonFormField<String>(
-                                value: _workType,
-                                decoration: _inputDecor('Work Type'),
-                                items: ['Installation', 'Maintenance', 'Repair'].map((s) => DropdownMenuItem(value: s, child: Text(s))).toList(),
-                                onChanged: (v) => setState(() => _workType = v!),
-                              ),
-                            ],
-                          );
-                        }
-                        return Row(
-                      children: [
-                        Expanded(child: TextField(controller: _durationController, decoration: _inputDecor('Duration (e.g., 2h)'))),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: DropdownButtonFormField<String>(
-                            value: _workType,
-                            decoration: _inputDecor('Work Type'),
-                            items: ['Installation', 'Maintenance', 'Repair'].map((s) => DropdownMenuItem(value: s, child: Text(s))).toList(),
-                            onChanged: (v) => setState(() => _workType = v!),
-                          ),
-                        ),
-                      ],
-                        );
-                      },
-                    ),
-                    const SizedBox(height: 12),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: OutlinedButton.icon(
-                            onPressed: _manageTechnicians,
-                            icon: const Icon(Icons.people, size: 16),
-                            label: Text(_selectedTechnicians.isEmpty ? 'Assign Technicians' : '${_selectedTechnicians.length} Techs'),
-                            style: OutlinedButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 16)),
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: OutlinedButton.icon(
-                            onPressed: _manageAircons,
-                            icon: const Icon(Icons.ac_unit, size: 16),
-                            label: Text(_selectedAircons.isEmpty ? 'Select Units' : '${_selectedAircons.length} Units'),
-                            style: OutlinedButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 16)),
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 12),
-                    const Text("Manual Unit Entry (If not selected above)", style: TextStyle(fontSize: 11, fontStyle: FontStyle.italic, color: Colors.grey)),
-                    const SizedBox(height: 4),
-                    LayoutBuilder(
-                      builder: (context, constraints) {
-                        final isNarrow = constraints.maxWidth < 500;
-                        if (isNarrow) {
-                          return Column(
-                            children: [
-                              TextField(controller: _brandController, decoration: _inputDecor('Brand')),
-                              const SizedBox(height: 12),
-                              TextField(controller: _unitLocationController, decoration: _inputDecor('Unit Location')),
-                            ],
-                          );
-                        }
-                        return Row(children: [
-                      Expanded(child: TextField(controller: _brandController, decoration: _inputDecor('Brand'))),
-                      const SizedBox(width: 12),
-                      Expanded(child: TextField(controller: _unitLocationController, decoration: _inputDecor('Unit Location'))),
-                        ]);
-                      },
-                    ),
-                    const SizedBox(height: 12),
-                    TextField(controller: _installDetailsController, decoration: _inputDecor('Installation Details')),
-                    
-                    const SizedBox(height: 16),
-                    const Text("Notes", style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF94A3B8))),
-                    const SizedBox(height: 8),
-                    TextField(controller: _notesController, decoration: _inputDecor('Work Notes'), maxLines: 3),
-                    const SizedBox(height: 12),
-                    TextField(controller: _followUpController, decoration: _inputDecor('Follow-up Schedule')),
-                  ],
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: Colors.orange.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(8),
                 ),
-              ),
-
-              const SizedBox(height: 24),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.end,
-                children: [
-                  TextButton(
-                    onPressed: _isSubmitting ? null : () => Navigator.pop(context),
-                    style: TextButton.styleFrom(foregroundColor: const Color(0xFF64748B)),
-                    child: const Text('Cancel'),
+                child: Text(
+                  order.status,
+                  style: const TextStyle(
+                    fontSize: 10,
+                    color: Colors.deepOrange,
+                    fontWeight: FontWeight.bold,
                   ),
-                  const SizedBox(width: 8),
-                  LoadingButton(
-                    onPressed: _isSubmitting ? null : _submit,
-                    label: 'Save',
-                    isLoading: _isSubmitting,
-                    isPrimary: true,
-                  ),
-                ],
+                ),
               ),
             ],
           ),
-        ),
-      ),
-    );
-  }
-}
-
-// --- Read-Only Details Dialog ---
-
-class _JobOrderDetailsDialog extends StatelessWidget {
-  final JobOrder order;
-  const _JobOrderDetailsDialog({required this.order});
-
-  @override
-  Widget build(BuildContext context) {
-    final isMobile = MediaQuery.of(context).size.width < 600;
-    
-    return Dialog(
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      child: Container(
-        width: isMobile ? double.infinity : 600,
-        constraints: BoxConstraints(
-          maxHeight: MediaQuery.of(context).size.height * 0.9,
-          maxWidth: isMobile ? MediaQuery.of(context).size.width * 0.95 : 600,
-        ),
-        padding: EdgeInsets.all(isMobile ? 16 : 32),
-        child: SingleChildScrollView(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(order.id, style: const TextStyle(fontSize: 14, color: Color(0xFF64748B), fontWeight: FontWeight.w600)),
-                    const SizedBox(height: 4),
-                    Text(order.clientName, style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w700, color: Color(0xFF1E293B))),
-                  ],
-                ),
-                _StatusBadge(status: order.status),
-              ],
-            ),
-            const SizedBox(height: 24),
-            const Divider(),
-            const SizedBox(height: 24),
-            _detailRow('Job Type', order.jobType),
-            _detailRow('Schedule', '${order.dateTime}'),
-            _detailRow('Location', order.location),
-            _detailRow('Address', order.customerAddress.isEmpty ? '-' : order.customerAddress),
-            _detailRow('Contact', order.customerContact.isEmpty ? '-' : order.customerContact),
-            const SizedBox(height: 16),
-            const Text("Technical Info", style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
-            const SizedBox(height: 8),
-            _detailRow('Work Type', order.workType.isEmpty ? '-' : order.workType),
-            _detailRow('Duration', order.duration.isEmpty ? '-' : order.duration),
-            _detailRow('Technicians', order.technicians.isEmpty ? 'Unassigned' : order.technicians.map((t) => t.technician.firstName).join(', ')),
-            const SizedBox(height: 16),
-            const Text("Unit Details", style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
-            const SizedBox(height: 8),
-            _detailRow('Units', order.aircons.isEmpty ? (order.numberOfUnits > 0 ? '${order.numberOfUnits}' : '-') : '${order.aircons.length} units selected'),
-            _detailRow('Brand', order.brand.isEmpty ? '-' : order.brand),
-            _detailRow('Unit Location', order.unitLocation.isEmpty ? '-' : order.unitLocation),
-            _detailRow('Install Details', order.installationDetails.isEmpty ? '-' : order.installationDetails),
-            const SizedBox(height: 16),
-            const Text("Notes", style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
-            const SizedBox(height: 8),
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: const Color(0xFFF8FAFC),
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: const Color(0xFFE2E8F0)),
-              ),
-              child: Text(order.workNotes.isEmpty ? 'No additional notes.' : order.workNotes, style: const TextStyle(fontSize: 14, color: Color(0xFF334155))),
-            ),
-            const SizedBox(height: 32),
-            Align(
-              alignment: Alignment.centerRight,
-              child: OutlinedButton(
-                onPressed: () => Navigator.pop(context),
-                child: const Text('Close'),
-              ),
-            ),
-          ],
+          const SizedBox(height: 8),
+          Text(
+            order.clientName,
+            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
           ),
-        ),
-      ),
-    );
-  }
-
-  Widget _detailRow(String label, String value) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 12),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          SizedBox(width: 120, child: Text(label, style: const TextStyle(fontSize: 13, color: Color(0xFF64748B), fontWeight: FontWeight.w500))),
-          Expanded(child: Text(value, style: const TextStyle(fontSize: 14, color: Color(0xFF1E293B), fontWeight: FontWeight.w500))),
+          const SizedBox(height: 4),
+          Row(
+            children: [
+              const Icon(Icons.calendar_today, size: 12, color: Colors.grey),
+              const SizedBox(width: 4),
+              Text(
+                dateText,
+                style: const TextStyle(fontSize: 13, color: Colors.grey),
+              ),
+            ],
+          ),
         ],
-      ),
-    );
-  }
-}
-
-// --- Helper Selection Dialogs ---
-
-class _TechnicianSelectionDialog extends StatefulWidget {
-  final List<TechnicianData> available;
-  final List<JobOrderTechnician> selected;
-
-  const _TechnicianSelectionDialog({required this.available, required this.selected});
-
-  @override
-  State<_TechnicianSelectionDialog> createState() => _TechnicianSelectionDialogState();
-}
-
-class _TechnicianSelectionDialogState extends State<_TechnicianSelectionDialog> {
-  late List<JobOrderTechnician> _selected;
-  final Map<int, String> _roles = {};
-
-  @override
-  void initState() {
-    super.initState();
-    _selected = List.from(widget.selected);
-    for (var t in _selected) {
-      _roles[t.technician.id] = t.role;
-    }
-  }
-
-  void _toggleTechnician(TechnicianData tech) {
-    setState(() {
-      final existing = _selected.indexWhere((t) => t.technician.id == tech.id);
-      if (existing >= 0) {
-        _selected.removeAt(existing);
-        _roles.remove(tech.id);
-      } else {
-        _selected.add(JobOrderTechnician(
-          technician: tech,
-          role: _roles[tech.id] ?? 'Technician',
-        ));
-      }
-    });
-  }
-
-  void _updateRole(TechnicianData tech, String role) {
-    setState(() {
-      _roles[tech.id] = role;
-      final index = _selected.indexWhere((t) => t.technician.id == tech.id);
-      if (index >= 0) {
-        _selected[index] = JobOrderTechnician(technician: tech, role: role);
-      }
-    });
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Dialog(
-      child: Container(
-        width: 500,
-        height: 600,
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text('Select Technicians', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700)),
-            const SizedBox(height: 16),
-            Expanded(
-              child: ListView.builder(
-                itemCount: widget.available.length,
-                itemBuilder: (context, index) {
-                  final tech = widget.available[index];
-                  final isSelected = _selected.any((t) => t.technician.id == tech.id);
-                  return CheckboxListTile(
-                    title: Text('${tech.firstName} ${tech.lastName}'),
-                    subtitle: Text(tech.contactNumber),
-                    value: isSelected,
-                    onChanged: (v) => _toggleTechnician(tech),
-                    secondary: isSelected
-                        ? DropdownButton<String>(
-                            value: _roles[tech.id] ?? 'Technician',
-                            underline: const SizedBox(),
-                            items: const [
-                              DropdownMenuItem(value: 'Technician', child: Text('Technician')),
-                              DropdownMenuItem(value: 'Lead', child: Text('Lead')),
-                              DropdownMenuItem(value: 'Assistant', child: Text('Assistant')),
-                            ],
-                            onChanged: (v) {
-                              if (v != null) _updateRole(tech, v);
-                            },
-                          )
-                        : null,
-                  );
-                },
-              ),
-            ),
-            const SizedBox(height: 16),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.end,
-              children: [
-                TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
-                const SizedBox(width: 12),
-                ElevatedButton(onPressed: () => Navigator.pop(context, _selected), child: const Text('Save')),
-              ],
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _AirconSelectionDialog extends StatefulWidget {
-  final List<AirconData> available;
-  final List<JobOrderAircon> selected;
-
-  const _AirconSelectionDialog({required this.available, required this.selected});
-
-  @override
-  State<_AirconSelectionDialog> createState() => _AirconSelectionDialogState();
-}
-
-class _AirconSelectionDialogState extends State<_AirconSelectionDialog> {
-  late List<JobOrderAircon> _selected;
-
-  @override
-  void initState() {
-    super.initState();
-    _selected = List.from(widget.selected);
-  }
-
-  void _toggle(AirconData aircon) {
-    setState(() {
-      final index = _selected.indexWhere((a) => a.aircon.id == aircon.id);
-      if (index >= 0) {
-        _selected.removeAt(index);
-      } else {
-        _selected.add(JobOrderAircon(aircon: aircon));
-      }
-    });
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Dialog(
-      child: Container(
-        width: 520,
-        height: 520,
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text('Select Aircon Units', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700)),
-            const SizedBox(height: 16),
-            Expanded(
-              child: ListView.builder(
-                itemCount: widget.available.length,
-                itemBuilder: (context, index) {
-                  final aircon = widget.available[index];
-                  final isSelected = _selected.any((a) => a.aircon.id == aircon.id);
-                  return CheckboxListTile(
-                    title: Text('${aircon.brand.name} • ${aircon.airconType.typeName}'),
-                    subtitle: Text(aircon.remarks),
-                    value: isSelected,
-                    onChanged: (_) => _toggle(aircon),
-                  );
-                },
-              ),
-            ),
-            const SizedBox(height: 16),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.end,
-              children: [
-                TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
-                const SizedBox(width: 12),
-                ElevatedButton(onPressed: () => Navigator.pop(context, _selected), child: const Text('Save')),
-              ],
-            ),
-          ],
-        ),
       ),
     );
   }

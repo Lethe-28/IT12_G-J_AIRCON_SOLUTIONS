@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:supabase_flutter/supabase_flutter.dart'; // NEW IMPORT
+
 import 'login.dart';
 import 'dashboard.dart';
 import 'scheduling.dart';
@@ -14,14 +16,23 @@ import 'aircons.dart';
 import 'service_items.dart';
 import 'master_data.dart';
 
-void main() {
+Future<void> main() async {
+  // 1. Ensure Flutter is ready before we start the backend
+  WidgetsFlutterBinding.ensureInitialized();
+
+  // 2. Connect to Supabase
+  // GO TO YOUR SUPABASE DASHBOARD -> SETTINGS -> API to find these keys.
+  await Supabase.initialize(
+    url: 'https://tuwiauhnstzocrbcfono.supabase.co',
+    anonKey: 'sb_publishable_lRaDnJO0YkZCNwJS-6jBEA_LNXLRQ5S',
+  );
+
   runApp(const MyApp());
 }
 
 class MyApp extends StatelessWidget {
   const MyApp({super.key});
 
-  // This widget is the root of your application.
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
@@ -33,6 +44,7 @@ class MyApp extends StatelessWidget {
         scaffoldBackgroundColor: const Color(0xFFF3F6FB),
         fontFamily: 'Roboto',
       ),
+      // We keep your existing routes exactly as they were
       routes: {
         '/login': (_) => const LoginScreen(),
         '/dashboard': (_) => const DashboardScreen(),
@@ -53,5 +65,3 @@ class MyApp extends StatelessWidget {
     );
   }
 }
-
-// The rest of the feature screens live in their own files under lib/.
