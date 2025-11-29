@@ -3,19 +3,9 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'data/app_state.dart';
 import 'data/models.dart';
 import 'ui_app_shell.dart';
-import 'calendar_view.dart';
-import 'shared/widgets.dart'
-    show
-        LoadingOverlay,
-        LoadingButton,
-        EmptyState,
-        FilterChipGroup,
-        SortableColumnHeader,
-        showConfirmDialog,
-        showUndoSnackBar,
-        AppDesignTokens;
+import 'shared/widgets.dart' show LoadingOverlay, AppDesignTokens;
 
-// --- Data Classes ---
+// --- Data Classes (Unchanged) ---
 class JobOrderTechnician {
   final TechnicianData technician;
   final String role;
@@ -70,7 +60,10 @@ class SchedulingScreen extends StatefulWidget {
 class _SchedulingScreenState extends State<SchedulingScreen> {
   List<JobOrder> _orders = [];
   bool _isLoading = true;
-  String _searchQuery = '';
+
+  // Calendar State
+  DateTime _focusedDate = DateTime.now(); // The month currently being viewed
+  DateTime _selectedDate = DateTime.now(); // The specific day selected
 
   @override
   void initState() {
@@ -133,9 +126,10 @@ class _SchedulingScreenState extends State<SchedulingScreen> {
   }
 
   void _onAddOrEdit() async {
+    // Pass the currently selected date to the dialog
     final result = await showDialog(
       context: context,
-      builder: (context) => const _JobOrderDialog(),
+      builder: (context) => _JobOrderDialog(initialDate: _selectedDate),
     );
 
     if (result == true) {
@@ -143,17 +137,31 @@ class _SchedulingScreenState extends State<SchedulingScreen> {
     }
   }
 
+  // --- Calendar Logic Helpers ---
+
+  List<JobOrder> _getJobsForDay(DateTime day) {
+    return _orders.where((o) {
+      return o.dateTime.year == day.year &&
+          o.dateTime.month == day.month &&
+          o.dateTime.day == day.day;
+    }).toList();
+  }
+
+  void _changeMonth(int increment) {
+    setState(() {
+      _focusedDate = DateTime(
+        _focusedDate.year,
+        _focusedDate.month + increment,
+      );
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
-    final filtered = _orders
-        .where(
-          (o) =>
-              o.clientName.toLowerCase().contains(_searchQuery.toLowerCase()) ||
-              o.id.toLowerCase().contains(_searchQuery.toLowerCase()),
-        )
-        .toList();
-
     final isMobileView = MediaQuery.of(context).size.width < 600;
+
+    // Get jobs for the currently selected day to display in the list
+    final selectedDayJobs = _getJobsForDay(_selectedDate);
 
     return AppShell(
       selectedIndex: 1,
@@ -163,6 +171,7 @@ class _SchedulingScreenState extends State<SchedulingScreen> {
           color: const Color(0xFFF8FAFC),
           child: Column(
             children: [
+              // 1. Calendar Header (Month Name & Controls)
               Container(
                 padding: EdgeInsets.symmetric(
                   horizontal: isMobileView ? 16 : 32,
@@ -172,13 +181,25 @@ class _SchedulingScreenState extends State<SchedulingScreen> {
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    const Text(
-                      'Job Orders',
-                      style: TextStyle(
-                        fontSize: 24,
-                        fontWeight: FontWeight.w800,
-                        color: Color(0xFF1E293B),
-                      ),
+                    Row(
+                      children: [
+                        IconButton(
+                          icon: const Icon(Icons.chevron_left),
+                          onPressed: () => _changeMonth(-1),
+                        ),
+                        Text(
+                          "${_monthName(_focusedDate.month)} ${_focusedDate.year}",
+                          style: const TextStyle(
+                            fontSize: 20,
+                            fontWeight: FontWeight.w800,
+                            color: Color(0xFF1E293B),
+                          ),
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.chevron_right),
+                          onPressed: () => _changeMonth(1),
+                        ),
+                      ],
                     ),
                     ElevatedButton.icon(
                       onPressed: _onAddOrEdit,
@@ -186,55 +207,94 @@ class _SchedulingScreenState extends State<SchedulingScreen> {
                         backgroundColor: const Color(0xFF2563EB),
                         foregroundColor: Colors.white,
                         padding: const EdgeInsets.symmetric(
-                          horizontal: 20,
-                          vertical: 16,
+                          horizontal: 16,
+                          vertical: 12,
                         ),
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(12),
                         ),
                       ),
-                      icon: const Icon(Icons.add_circle, size: 20),
-                      label: const Text(
-                        'Create Job',
-                        style: TextStyle(fontWeight: FontWeight.w700),
+                      icon: const Icon(Icons.add, size: 18),
+                      label: Text(
+                        isMobileView
+                            ? 'Add'
+                            : 'Add Job on ${_selectedDate.day}',
+                        style: const TextStyle(fontWeight: FontWeight.w700),
                       ),
                     ),
                   ],
                 ),
               ),
               const Divider(height: 1),
+
+              // 2. The Content Area (Split View)
               Expanded(
                 child: SingleChildScrollView(
-                  padding: const EdgeInsets.all(20),
                   child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      TextField(
-                        onChanged: (v) => setState(() => _searchQuery = v),
-                        decoration: InputDecoration(
-                          hintText: 'Search jobs...',
-                          prefixIcon: const Icon(Icons.search),
-                          filled: true,
-                          fillColor: Colors.white,
-                          border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(12),
-                            borderSide: BorderSide.none,
-                          ),
+                      // A. Calendar Grid
+                      Container(
+                        color: Colors.white,
+                        padding: const EdgeInsets.only(bottom: 16),
+                        child: _buildCalendarGrid(),
+                      ),
+
+                      const Divider(height: 1),
+
+                      // B. Selected Day Details
+                      Padding(
+                        padding: const EdgeInsets.all(20),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              "Schedule for ${_monthName(_selectedDate.month)} ${_selectedDate.day}",
+                              style: const TextStyle(
+                                fontSize: 18,
+                                fontWeight: FontWeight.w700,
+                                color: Color(0xFF64748B),
+                              ),
+                            ),
+                            const SizedBox(height: 16),
+
+                            if (selectedDayJobs.isEmpty)
+                              Center(
+                                child: Padding(
+                                  padding: const EdgeInsets.all(32.0),
+                                  child: Column(
+                                    children: [
+                                      Icon(
+                                        Icons.event_busy,
+                                        size: 48,
+                                        color: Colors.grey[300],
+                                      ),
+                                      const SizedBox(height: 12),
+                                      const Text(
+                                        "No jobs scheduled for this day.",
+                                        style: TextStyle(color: Colors.grey),
+                                      ),
+                                      TextButton(
+                                        onPressed: _onAddOrEdit,
+                                        child: const Text("Create a Job"),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              )
+                            else
+                              ListView.separated(
+                                shrinkWrap: true,
+                                physics: const NeverScrollableScrollPhysics(),
+                                itemCount: selectedDayJobs.length,
+                                separatorBuilder: (ctx, i) =>
+                                    const SizedBox(height: 12),
+                                itemBuilder: (ctx, i) =>
+                                    _JobCard(order: selectedDayJobs[i]),
+                              ),
+                          ],
                         ),
                       ),
-                      const SizedBox(height: 20),
-                      if (filtered.isEmpty)
-                        const Padding(
-                          padding: EdgeInsets.all(40),
-                          child: Text("No jobs found."),
-                        )
-                      else
-                        Wrap(
-                          spacing: 16,
-                          runSpacing: 16,
-                          children: filtered
-                              .map((o) => _JobCard(order: o))
-                              .toList(),
-                        ),
                     ],
                   ),
                 ),
@@ -245,12 +305,141 @@ class _SchedulingScreenState extends State<SchedulingScreen> {
       ),
     );
   }
+
+  // --- Calendar Builders ---
+
+  Widget _buildCalendarGrid() {
+    final daysInMonth = DateUtils.getDaysInMonth(
+      _focusedDate.year,
+      _focusedDate.month,
+    );
+    final firstDayOfMonth = DateTime(_focusedDate.year, _focusedDate.month, 1);
+    // Determine the offset (e.g. if Month starts on Wednesday, we need empty slots for Mon/Tue)
+    // weekday 1=Mon, 7=Sun. We want Sun=0 or Sun=Start. Let's assume standard Sun start.
+    final int firstWeekday = firstDayOfMonth.weekday % 7;
+
+    return Column(
+      children: [
+        // Weekday Headers
+        Padding(
+          padding: const EdgeInsets.symmetric(vertical: 12),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceAround,
+            children: ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
+                .map(
+                  (day) => Expanded(
+                    child: Center(
+                      child: Text(
+                        day,
+                        style: const TextStyle(
+                          color: Colors.grey,
+                          fontSize: 12,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                  ),
+                )
+                .toList(),
+          ),
+        ),
+        // Days Grid
+        GridView.builder(
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          itemCount: daysInMonth + firstWeekday,
+          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: 7,
+            childAspectRatio: 1.2, // Adjust height of cells
+          ),
+          itemBuilder: (context, index) {
+            if (index < firstWeekday) {
+              return const SizedBox(); // Empty slots before 1st of month
+            }
+
+            final dayInt = index - firstWeekday + 1;
+            final currentDay = DateTime(
+              _focusedDate.year,
+              _focusedDate.month,
+              dayInt,
+            );
+
+            final isSelected = DateUtils.isSameDay(currentDay, _selectedDate);
+            final isToday = DateUtils.isSameDay(currentDay, DateTime.now());
+            final hasJobs = _getJobsForDay(currentDay).isNotEmpty;
+
+            return GestureDetector(
+              onTap: () => setState(() => _selectedDate = currentDay),
+              child: Container(
+                margin: const EdgeInsets.all(4),
+                decoration: BoxDecoration(
+                  color: isSelected
+                      ? const Color(0xFF2563EB)
+                      : (isToday
+                            ? const Color(0xFFEFF6FF)
+                            : Colors.transparent),
+                  borderRadius: BorderRadius.circular(8),
+                  border: isToday && !isSelected
+                      ? Border.all(color: const Color(0xFF2563EB))
+                      : null,
+                ),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Text(
+                      "$dayInt",
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        color: isSelected ? Colors.white : Colors.black87,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    // VISUAL INDICATOR (DOT)
+                    if (hasJobs)
+                      Container(
+                        width: 6,
+                        height: 6,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: isSelected ? Colors.white : Colors.orange,
+                        ),
+                      )
+                    else
+                      const SizedBox(height: 6),
+                  ],
+                ),
+              ),
+            );
+          },
+        ),
+      ],
+    );
+  }
+
+  String _monthName(int month) {
+    const months = [
+      "Jan",
+      "Feb",
+      "Mar",
+      "Apr",
+      "May",
+      "Jun",
+      "Jul",
+      "Aug",
+      "Sep",
+      "Oct",
+      "Nov",
+      "Dec",
+    ];
+    return months[month - 1];
+  }
 }
 
 // --- VISUAL WIZARD DIALOG ---
 
 class _JobOrderDialog extends StatefulWidget {
-  const _JobOrderDialog();
+  final DateTime? initialDate;
+  const _JobOrderDialog({this.initialDate});
   @override
   State<_JobOrderDialog> createState() => _JobOrderDialogState();
 }
@@ -259,6 +448,9 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
   int _currentStep = 0;
   bool _isSubmitting = false;
   final _supabase = Supabase.instance.client;
+
+  // FORM KEY FOR VALIDATION
+  final _formKey = GlobalKey<FormState>();
 
   // STEP 1 DATA
   String _jobTypeName = 'Installation';
@@ -269,8 +461,8 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
 
   // Lookup Data
   List<Map<String, dynamic>> _existingClients = [];
-  List<String> _brandOptions = []; // For Autocomplete
-  List<Map<String, dynamic>> _airconTypes = []; // For Dropdown
+  List<String> _brandOptions = [];
+  List<Map<String, dynamic>> _airconTypes = [];
 
   int? _selectedClientId;
   List<Map<String, dynamic>> _clientAircons = [];
@@ -278,7 +470,7 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
 
   // New Client Data
   final _firstNameController = TextEditingController();
-  final _middleNameController = TextEditingController(); // ADDED
+  final _middleNameController = TextEditingController();
   final _lastNameController = TextEditingController();
   final _companyController = TextEditingController();
   final _jobPositionController = TextEditingController();
@@ -294,39 +486,34 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
   final _landmarkController = TextEditingController();
 
   // New Unit Data
-  // Note: We use Autocomplete, so we need a way to capture the text
   String _selectedBrandName = '';
   int? _selectedAirconTypeId;
   final _unitRemarkController = TextEditingController();
 
   // STEP 3 DATA
-  DateTime _scheduleDate = DateTime.now();
+  late DateTime _scheduleDate;
   TimeOfDay _scheduleTime = const TimeOfDay(hour: 9, minute: 0);
   final _notesController = TextEditingController();
 
   @override
   void initState() {
     super.initState();
+    // Initialize date from calendar selection or today
+    _scheduleDate = widget.initialDate ?? DateTime.now();
     _fetchInitialData();
   }
 
   Future<void> _fetchInitialData() async {
-    // 1. Fetch Customers
     final customers = await _supabase
         .from('customers')
         .select('id, first_name, last_name, company_name, city, barangay')
         .order('last_name', ascending: true);
 
-    // 2. Fetch Job Types
     final types = await _supabase.from('job_types').select();
-
-    // 3. Fetch Brands (For Autocomplete)
     final brands = await _supabase
         .from('brands')
         .select('brand_name')
         .order('brand_name');
-
-    // 4. Fetch Aircon Types (For Dropdown)
     final acTypes = await _supabase
         .from('aircon_types')
         .select('id, type_name');
@@ -337,7 +524,6 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
         _brandOptions = List<String>.from(brands.map((b) => b['brand_name']));
         _airconTypes = List<Map<String, dynamic>>.from(acTypes);
 
-        // Defaults
         final installType = types.firstWhere(
           (t) => t['job_type_name'] == 'Installation',
           orElse: () => types.first,
@@ -365,26 +551,50 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
     }
   }
 
+  // --- VALIDATORS ---
+  String? _validatePhone(String? value) {
+    if (value == null || value.isEmpty) return 'Required';
+    final trimmed = value.trim();
+    if (!RegExp(r'^(09\d{9}|\d{7,10})$').hasMatch(trimmed)) {
+      return 'Invalid #';
+    }
+    return null;
+  }
+
+  String? _validateEmail(String? value) {
+    if (value == null || value.isEmpty) return null;
+    if (!value.contains('@') || !value.contains('.')) {
+      return 'Invalid email';
+    }
+    return null;
+  }
+
+  // --- SUBMIT LOGIC ---
   Future<void> _submit() async {
+    if (_isNewClient) {
+      if (!_formKey.currentState!.validate()) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text("Please fix errors in red"),
+            backgroundColor: Colors.red,
+          ),
+        );
+        return;
+      }
+    }
+
     setState(() => _isSubmitting = true);
 
     try {
       int? finalCustomerId = _selectedClientId;
 
-      // 1. CREATE CUSTOMER (If New)
+      // 1. CREATE CUSTOMER
       if (_isNewClient) {
-        // Validate required fields
-        if (_firstNameController.text.isEmpty ||
-            _lastNameController.text.isEmpty ||
-            _phoneController.text.isEmpty) {
-          throw "Please fill in all required customer fields (*)";
-        }
-
         final newCustomerData = {
           'first_name': _firstNameController.text,
           'middle_name': _middleNameController.text.isNotEmpty
               ? _middleNameController.text
-              : null, // ADDED
+              : null,
           'last_name': _lastNameController.text,
           'company_name': _companyController.text.isNotEmpty
               ? _companyController.text
@@ -415,13 +625,11 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
 
       if (finalCustomerId == null) throw "Customer ID missing";
 
-      // 2. CREATE AIRCON (If New/Manual)
-      // Check if user typed a brand
+      // 2. CREATE AIRCON
       if (_isNewClient && _selectedBrandName.isNotEmpty) {
         final brandName = _selectedBrandName.trim();
         int brandId;
 
-        // Smart Search: Check if brand exists, else create
         final brandCheck = await _supabase
             .from('brands')
             .select('id')
@@ -738,222 +946,276 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
               }),
             ],
           ] else ...[
-            // --- NEW CLIENT FORM ---
-            const Text(
-              "Client Info",
-              style: TextStyle(fontWeight: FontWeight.bold, color: Colors.blue),
-            ),
-            const SizedBox(height: 12),
-            Row(
-              children: [
-                Expanded(
-                  child: _SimpleInput(
-                    controller: _firstNameController,
-                    hint: "First Name",
-                    isRequired: true,
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: _SimpleInput(
-                    controller: _middleNameController,
-                    hint: "Middle Name (Opt)",
-                  ),
-                ), // ADDED
-                const SizedBox(width: 8),
-                Expanded(
-                  child: _SimpleInput(
-                    controller: _lastNameController,
-                    hint: "Last Name",
-                    isRequired: true,
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            _SimpleInput(
-              controller: _companyController,
-              hint: "Company Name (Optional - B2B)",
-              icon: Icons.business,
-            ),
-            const SizedBox(height: 12),
-            _SimpleInput(
-              controller: _jobPositionController,
-              hint: "Job Position (e.g. Manager)",
-              icon: Icons.badge,
-            ),
-            const SizedBox(height: 12),
-            Row(
-              children: [
-                Expanded(
-                  child: _SimpleInput(
-                    controller: _phoneController,
-                    hint: "Contact Number",
-                    icon: Icons.phone,
-                    isRequired: true,
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: _SimpleInput(
-                    controller: _emailController,
-                    hint: "Email Address",
-                    icon: Icons.email,
-                  ),
-                ),
-              ],
-            ),
-
-            const SizedBox(height: 24),
-            const Text(
-              "Detailed Address",
-              style: TextStyle(fontWeight: FontWeight.bold, color: Colors.blue),
-            ),
-            const SizedBox(height: 12),
-            Row(
-              children: [
-                Expanded(
-                  child: _SimpleInput(
-                    controller: _unitController,
-                    hint: "Unit/House #",
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: _SimpleInput(
-                    controller: _streetController,
-                    hint: "Street Name",
-                    isRequired: true,
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            _SimpleInput(
-              controller: _villageController,
-              hint: "Subdivision / Village",
-            ),
-            const SizedBox(height: 12),
-            Row(
-              children: [
-                Expanded(
-                  child: _SimpleInput(
-                    controller: _barangayController,
-                    hint: "Barangay",
-                    isRequired: true,
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: _SimpleInput(
-                    controller: _cityController,
-                    hint: "City",
-                    icon: Icons.location_city,
-                    isRequired: true,
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            _SimpleInput(
-              controller: _landmarkController,
-              hint: "Landmark (Near...)",
-              icon: Icons.flag,
-            ),
-
-            const SizedBox(height: 24),
-            const Text(
-              "First Aircon Unit",
-              style: TextStyle(fontWeight: FontWeight.bold, color: Colors.blue),
-            ),
-            const SizedBox(height: 12),
-            Row(
-              children: [
-                // BRAND AUTOCOMPLETE
-                Expanded(
-                  child: LayoutBuilder(
-                    builder: (context, constraints) {
-                      return Autocomplete<String>(
-                        optionsBuilder: (TextEditingValue textEditingValue) {
-                          if (textEditingValue.text == '') {
-                            return const Iterable<String>.empty();
-                          }
-                          return _brandOptions.where((String option) {
-                            return option.toLowerCase().contains(
-                              textEditingValue.text.toLowerCase(),
-                            );
-                          });
-                        },
-                        onSelected: (String selection) {
-                          _selectedBrandName = selection;
-                        },
-                        fieldViewBuilder:
-                            (
-                              context,
-                              textEditingController,
-                              focusNode,
-                              onFieldSubmitted,
-                            ) {
-                              // Capture text even if they don't select an option (Create New Brand)
-                              textEditingController.addListener(() {
-                                _selectedBrandName = textEditingController.text;
-                              });
-                              return TextField(
-                                controller: textEditingController,
-                                focusNode: focusNode,
-                                decoration: InputDecoration(
-                                  hintText: "Brand (Search/Add) *",
-                                  border: OutlineInputBorder(
-                                    borderRadius: BorderRadius.circular(12),
-                                  ),
-                                  filled: true,
-                                  fillColor: Colors.white,
-                                  contentPadding: const EdgeInsets.symmetric(
-                                    horizontal: 16,
-                                    vertical: 14,
-                                  ),
-                                ),
-                              );
-                            },
-                      );
-                    },
-                  ),
-                ),
-                const SizedBox(width: 12),
-                // TYPE DROPDOWN
-                Expanded(
-                  child: DropdownButtonFormField<int>(
-                    value: _selectedAirconTypeId,
-                    decoration: InputDecoration(
-                      hintText: "Type",
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      filled: true,
-                      fillColor: Colors.white,
-                      contentPadding: const EdgeInsets.symmetric(
-                        horizontal: 16,
-                        vertical: 14,
-                      ),
+            Form(
+              key: _formKey,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    "Client Info",
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      color: Colors.blue,
                     ),
-                    items: _airconTypes
-                        .map(
-                          (t) => DropdownMenuItem(
-                            value: t['id'] as int,
-                            child: Text(t['type_name']),
-                          ),
-                        )
-                        .toList(),
-                    onChanged: (v) => setState(() => _selectedAirconTypeId = v),
                   ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            _SimpleInput(
-              controller: _unitRemarkController,
-              hint: "Location (e.g. Lobby, Bedroom 1) *",
-              isRequired: true,
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: _SimpleInput(
+                          controller: _firstNameController,
+                          hint: "First Name",
+                          icon: Icons.person,
+                          isRequired: true,
+                          textCapitalization: TextCapitalization.words,
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: _SimpleInput(
+                          controller: _middleNameController,
+                          hint: "Middle (Opt)",
+                          textCapitalization: TextCapitalization.words,
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: _SimpleInput(
+                          controller: _lastNameController,
+                          hint: "Last Name",
+                          isRequired: true,
+                          textCapitalization: TextCapitalization.words,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  _SimpleInput(
+                    controller: _companyController,
+                    hint: "Company Name (Optional)",
+                    icon: Icons.business,
+                    textCapitalization: TextCapitalization.words,
+                  ),
+                  const SizedBox(height: 12),
+                  _SimpleInput(
+                    controller: _jobPositionController,
+                    hint: "Job Position (e.g. Manager)",
+                    icon: Icons.badge,
+                    textCapitalization: TextCapitalization.words,
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: _SimpleInput(
+                          controller: _phoneController,
+                          hint: "Mobile/Landline",
+                          icon: Icons.phone,
+                          isRequired: true,
+                          keyboardType: TextInputType.phone,
+                          validator: _validatePhone,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: _SimpleInput(
+                          controller: _emailController,
+                          hint: "Email Address",
+                          icon: Icons.email,
+                          keyboardType: TextInputType.emailAddress,
+                          validator: _validateEmail,
+                        ),
+                      ),
+                    ],
+                  ),
+
+                  const SizedBox(height: 24),
+                  const Text(
+                    "Detailed Address",
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      color: Colors.blue,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: _SimpleInput(
+                          controller: _unitController,
+                          hint: "Unit/House #",
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: _SimpleInput(
+                          controller: _streetController,
+                          hint: "Street Name",
+                          isRequired: true,
+                          textCapitalization: TextCapitalization.words,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  _SimpleInput(
+                    controller: _villageController,
+                    hint: "Subdivision / Village",
+                    textCapitalization: TextCapitalization.words,
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: _SimpleInput(
+                          controller: _barangayController,
+                          hint: "Barangay",
+                          isRequired: true,
+                          textCapitalization: TextCapitalization.words,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: _SimpleInput(
+                          controller: _cityController,
+                          hint: "City",
+                          icon: Icons.location_city,
+                          isRequired: true,
+                          textCapitalization: TextCapitalization.words,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  _SimpleInput(
+                    controller: _landmarkController,
+                    hint: "Landmark (Near...)",
+                    icon: Icons.flag,
+                    textCapitalization: TextCapitalization.sentences,
+                  ),
+
+                  const SizedBox(height: 24),
+                  const Text(
+                    "First Aircon Unit",
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      color: Colors.blue,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: LayoutBuilder(
+                          builder: (context, constraints) {
+                            return Autocomplete<String>(
+                              optionsBuilder:
+                                  (TextEditingValue textEditingValue) {
+                                    if (textEditingValue.text == '')
+                                      return const Iterable<String>.empty();
+                                    return _brandOptions.where((String option) {
+                                      return option.toLowerCase().contains(
+                                        textEditingValue.text.toLowerCase(),
+                                      );
+                                    });
+                                  },
+                              onSelected: (String selection) {
+                                _selectedBrandName = selection;
+                              },
+                              fieldViewBuilder:
+                                  (
+                                    context,
+                                    textEditingController,
+                                    focusNode,
+                                    onFieldSubmitted,
+                                  ) {
+                                    textEditingController.addListener(() {
+                                      _selectedBrandName =
+                                          textEditingController.text;
+                                    });
+                                    return TextFormField(
+                                      controller: textEditingController,
+                                      focusNode: focusNode,
+                                      decoration: InputDecoration(
+                                        label: RichText(
+                                          text: TextSpan(
+                                            text: "Brand (Search/Add)",
+                                            style: TextStyle(
+                                              color: Colors.grey[600],
+                                              fontSize: 14,
+                                            ),
+                                            children: const [
+                                              TextSpan(
+                                                text: ' *',
+                                                style: TextStyle(
+                                                  color: Colors.red,
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                        border: OutlineInputBorder(
+                                          borderRadius: BorderRadius.circular(
+                                            12,
+                                          ),
+                                        ),
+                                        filled: true,
+                                        fillColor: Colors.white,
+                                        contentPadding:
+                                            const EdgeInsets.symmetric(
+                                              horizontal: 16,
+                                              vertical: 14,
+                                            ),
+                                      ),
+                                      validator: (val) =>
+                                          val == null || val.isEmpty
+                                          ? 'Required'
+                                          : null,
+                                    );
+                                  },
+                            );
+                          },
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: DropdownButtonFormField<int>(
+                          value: _selectedAirconTypeId,
+                          decoration: InputDecoration(
+                            hintText: "Type",
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            filled: true,
+                            fillColor: Colors.white,
+                            contentPadding: const EdgeInsets.symmetric(
+                              horizontal: 16,
+                              vertical: 14,
+                            ),
+                          ),
+                          items: _airconTypes
+                              .map(
+                                (t) => DropdownMenuItem(
+                                  value: t['id'] as int,
+                                  child: Text(t['type_name']),
+                                ),
+                              )
+                              .toList(),
+                          onChanged: (v) =>
+                              setState(() => _selectedAirconTypeId = v),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  _SimpleInput(
+                    controller: _unitRemarkController,
+                    hint: "Location (e.g. Lobby)",
+                    isRequired: true,
+                    textCapitalization: TextCapitalization.words,
+                  ),
+                ],
+              ),
             ),
           ],
         ],
@@ -1117,20 +1379,36 @@ class _SimpleInput extends StatelessWidget {
   final IconData? icon;
   final String hint;
   final bool isRequired;
+  final String? Function(String?)? validator;
+  final TextInputType? keyboardType;
+  final TextCapitalization textCapitalization;
 
   const _SimpleInput({
     required this.controller,
     this.icon,
     required this.hint,
     this.isRequired = false,
+    this.validator,
+    this.keyboardType,
+    this.textCapitalization = TextCapitalization.none,
   });
 
   @override
   Widget build(BuildContext context) {
-    return TextField(
+    return TextFormField(
       controller: controller,
+      keyboardType: keyboardType,
+      textCapitalization: textCapitalization,
+      validator: (value) {
+        if (isRequired && (value == null || value.isEmpty)) {
+          return '$hint is required';
+        }
+        if (validator != null) {
+          return validator!(value);
+        }
+        return null;
+      },
       decoration: InputDecoration(
-        // Visual indicator for required fields
         label: RichText(
           text: TextSpan(
             text: hint,
