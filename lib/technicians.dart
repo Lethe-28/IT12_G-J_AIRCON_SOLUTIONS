@@ -238,7 +238,7 @@ class _TechniciansScreenState extends State<TechniciansScreen> {
                           delay: Duration(milliseconds: 300 + (index * 50)),
                           child: _buildMobileCard(t),
                         );
-                      }).toList()
+                      })
                     else
                       AnimatedCard(
                         delay: const Duration(milliseconds: 300),

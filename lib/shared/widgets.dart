@@ -987,7 +987,7 @@ class ResponsiveDataTable<T> extends StatelessWidget {
     return SingleChildScrollView(
       scrollDirection: Axis.horizontal,
       child: DataTable(
-        headingRowColor: MaterialStateProperty.all(AppDesignTokens.gray50),
+        headingRowColor: WidgetStateProperty.all(AppDesignTokens.gray50),
         columns: columns,
         rows: data.asMap().entries.map((entry) => buildRow(entry.value, entry.key)).toList(),
       ),

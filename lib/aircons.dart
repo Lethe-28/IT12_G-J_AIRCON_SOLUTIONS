@@ -681,7 +681,7 @@ class _AirconDialogState extends State<_AirconDialog> {
               ),
               const SizedBox(height: 20),
               DropdownButtonFormField<BrandData>(
-                value: _selectedBrand,
+                initialValue: _selectedBrand,
                 decoration: const InputDecoration(labelText: 'Brand *'),
                 items: widget.brands
                     .map((b) => DropdownMenuItem(value: b, child: Text(b.name)))
@@ -691,7 +691,7 @@ class _AirconDialogState extends State<_AirconDialog> {
               ),
               const SizedBox(height: 12),
               DropdownButtonFormField<AirconTypeData>(
-                value: _selectedType,
+                initialValue: _selectedType,
                 decoration: const InputDecoration(labelText: 'Aircon Type *'),
                 items: widget.airconTypes
                     .map(
@@ -705,7 +705,7 @@ class _AirconDialogState extends State<_AirconDialog> {
               ),
               const SizedBox(height: 12),
               DropdownButtonFormField<CustomerData>(
-                value: _selectedCustomer,
+                initialValue: _selectedCustomer,
                 decoration: const InputDecoration(labelText: 'Customer *'),
                 items: widget.customers
                     .map(

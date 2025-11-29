@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'data/app_state.dart';
 import 'data/models.dart';
 import 'ui_app_shell.dart';
@@ -168,7 +169,23 @@ class _CustomersScreenState extends State<CustomersScreen> {
             colors: [AppDesignTokens.gray50, Colors.white],
           ),
         ),
-        child: Column(
+        child: RefreshIndicator(
+          onRefresh: () async {
+            HapticFeedback.lightImpact();
+            // Simulate data refresh - in real app would refetch from database
+            await Future.delayed(const Duration(milliseconds: 500));
+            if (mounted) {
+              setState(() {});
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('Customers refreshed'),
+                  duration: Duration(seconds: 1),
+                  behavior: SnackBarBehavior.floating,
+                ),
+              );
+            }
+          },
+          child: Column(
           children: [
             AnimatedCard(
               delay: const Duration(milliseconds: 100),
@@ -241,6 +258,7 @@ class _CustomersScreenState extends State<CustomersScreen> {
             ),
             Expanded(
               child: SingleChildScrollView(
+                physics: const AlwaysScrollableScrollPhysics(),
                 padding: EdgeInsets.all(isMobileView ? 16 : 24),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -348,7 +366,7 @@ class _CustomersScreenState extends State<CustomersScreen> {
                           delay: Duration(milliseconds: 300 + (index * 50)),
                           child: _buildMobileCard(c),
                         );
-                      }).toList()
+                      })
                     else
                       AnimatedCard(
                         delay: const Duration(milliseconds: 300),
@@ -374,6 +392,7 @@ class _CustomersScreenState extends State<CustomersScreen> {
               ),
             ),
           ],
+        ),
         ),
       ),
     );
@@ -475,13 +494,19 @@ class _CustomersScreenState extends State<CustomersScreen> {
               mainAxisAlignment: MainAxisAlignment.end,
               children: [
                 TextButton.icon(
-                  onPressed: () => _onAddOrEdit(existing: c),
+                  onPressed: () {
+                    HapticFeedback.selectionClick();
+                    _onAddOrEdit(existing: c);
+                  },
                   icon: const Icon(Icons.edit_outlined, size: 18),
                   label: const Text('Edit'),
                 ),
                 const SizedBox(width: 8),
                 TextButton.icon(
-                  onPressed: () => _onDelete(c),
+                  onPressed: () {
+                    HapticFeedback.mediumImpact();
+                    _onDelete(c);
+                  },
                   icon: const Icon(Icons.delete_outline, size: 18, color: Colors.red),
                   label: const Text('Delete', style: TextStyle(color: Colors.red)),
                 ),
@@ -675,7 +700,7 @@ class _CustomerDialogState extends State<_CustomerDialog> {
               ),
               const SizedBox(height: 20),
               DropdownButtonFormField<CustomerTypeKind>(
-                value: _customerType,
+                initialValue: _customerType,
                 decoration: const InputDecoration(labelText: 'Customer Type *'),
                 items: const [
                   DropdownMenuItem(value: CustomerTypeKind.b2b, child: Text('B2B - Business to Business')),

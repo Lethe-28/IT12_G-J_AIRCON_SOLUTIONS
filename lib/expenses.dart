@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'data/app_state.dart';
 import 'ui_app_shell.dart';
-import 'shared/widgets.dart' show LoadingOverlay, LoadingButton, EmptyState, FilterChipGroup, showConfirmDialog, showUndoSnackBar, AppDesignTokens, isMobile;
+import 'shared/widgets.dart' show LoadingOverlay, EmptyState, showConfirmDialog, showUndoSnackBar, AppDesignTokens, isMobile;
 
 // --- Data Models ---
 
@@ -43,9 +44,31 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
   DateTime? _dateFilterEnd;
   String? _categoryFilter;
   String? _statusFilter;
-  bool _isLoading = false;
+  final bool _isLoading = false;
   ExpenseEntry? _lastDeletedExpense;
   int? _lastDeletedIndex;
+  final List<String> _categories = ['Fuel', 'Materials', 'Food', 'Transportation', 'Toll', 'Other'];
+
+  Future<String?> _promptNewCategory() async {
+    String value = '';
+    return showDialog<String>(
+      context: context,
+      builder: (ctx) {
+        return AlertDialog(
+          title: const Text('Add Category'),
+          content: TextField(
+            autofocus: true,
+            decoration: const InputDecoration(hintText: 'Category name'),
+            onChanged: (v) => value = v,
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.of(ctx).pop(), child: const Text('Cancel')),
+            ElevatedButton(onPressed: () => Navigator.of(ctx).pop(value.trim().isEmpty ? null : value.trim()), child: const Text('Add')),
+          ],
+        );
+      },
+    );
+  }
   
   // Design Constants
   static const Color kPrimaryColor = Color(0xFFDC2626);
@@ -167,19 +190,33 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
   // --- Actions ---
 
   void _onAddOrEdit({ExpenseEntry? existing}) async {
-    final ExpenseEntry? result = await showDialog<ExpenseEntry>(
-      context: context,
-      builder: (context) => _ExpenseDialog(entry: existing),
-    );
+    ExpenseEntry? result;
+    if (isMobile(context)) {
+      result = await _showExpenseBottomSheet(existing: existing);
+    } else {
+      result = await showDialog<ExpenseEntry>(
+        context: context,
+        builder: (context) => _ExpenseDialog(entry: existing, categories: _categories),
+      );
+    }
     if (result == null) return;
+
+    final res = result; // promote to a local non-nullable variable
+
+    // Persist any new category into the master list so filters include it
+    if (!_categories.contains(res.category)) {
+      setState(() {
+        _categories.add(res.category);
+      });
+    }
 
     setState(() {
       if (existing == null) {
-        _expenses.add(result);
+        _expenses.add(res);
       } else {
         final index = _expenses.indexWhere((e) => e.id == existing.id);
         if (index != -1) {
-          _expenses[index] = result;
+          _expenses[index] = res;
         }
       }
     });
@@ -230,146 +267,231 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
   @override
   Widget build(BuildContext context) {
     final records = _filteredExpenses;
-    final isMobileView = isMobile(context);
 
     return AppShell(
       selectedIndex: 2,
       body: LoadingOverlay(
         isLoading: _isLoading,
-        child: Container(
-          color: const Color(0xFFF8FAFC),
-          child: Column(
-            children: [
-              // Header - Responsive
-              Container(
-                padding: EdgeInsets.symmetric(
-                  horizontal: isMobileView ? 16 : 32,
-                  vertical: isMobileView ? 16 : 24,
+        child: RefreshIndicator(
+          onRefresh: () async {
+            HapticFeedback.lightImpact();
+            await Future.delayed(const Duration(milliseconds: 500));
+            if (mounted) {
+              setState(() {});
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('Expenses refreshed'),
+                  duration: Duration(seconds: 1),
+                  behavior: SnackBarBehavior.floating,
                 ),
-                color: Colors.white,
-                width: double.infinity,
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Expense Tracking (Cash-out)',
-                      style: TextStyle(
-                        fontSize: isMobileView ? 20 : 24,
-                        fontWeight: FontWeight.w700,
-                        color: kTextPrimary,
-                        letterSpacing: -0.5,
-                      ),
-                    ),
-                    const SizedBox(height: 6),
-                    Text(
-                      'Monitor spending, reimbursements, and job costs.',
-                      style: TextStyle(
-                        fontSize: isMobileView ? 12 : 14,
-                        color: kTextSecondary,
-                      ),
-                    ),
-                    if (isMobileView) ...[
-                      const SizedBox(height: 12),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: _ActionButton(
-                              label: 'Date Filter',
-                              icon: Icons.calendar_today_outlined,
-                              onPressed: _showDateRangePicker,
-                            ),
+              );
+            }
+          },
+          child: Builder(
+            builder: (context) {
+              final isMobileView = isMobile(context);
+              return Stack(
+                children: [
+                  // Main content column
+                  Container(
+                    color: const Color(0xFFF8FAFC),
+                    child: Column(
+                      children: [
+                        // Header
+                        Container(
+                          padding: EdgeInsets.symmetric(horizontal: isMobileView ? 16 : 32, vertical: isMobileView ? 16 : 24),
+                          color: Colors.white,
+                          width: double.infinity,
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text('Expense Tracking (Cash-out)', style: TextStyle(fontSize: isMobileView ? 20 : 24, fontWeight: FontWeight.w700, color: kTextPrimary, letterSpacing: -0.5)),
+                              const SizedBox(height: 6),
+                              Text('Monitor spending, reimbursements, and job costs.', style: TextStyle(fontSize: isMobileView ? 12 : 14, color: kTextSecondary)),
+                              if (isMobileView) ...[
+                                const SizedBox(height: 12),
+                                Row(children: [
+                                  Expanded(child: _ActionButton(label: 'Date Filter', icon: Icons.calendar_today_outlined, onPressed: _showDateRangePicker)),
+                                  if (_isServiceManager) ...[
+                                    const SizedBox(width: 8),
+                                    Expanded(child: _ActionButton(label: 'Add', icon: Icons.add, isPrimary: true, onPressed: () => _onAddOrEdit())),
+                                  ],
+                                ]),
+                              ] else ...[
+                                const SizedBox(height: 12),
+                                Row(mainAxisAlignment: MainAxisAlignment.end, children: [
+                                  _ActionButton(label: 'Date Filter', icon: Icons.calendar_today_outlined, onPressed: _showDateRangePicker),
+                                  const SizedBox(width: 12),
+                                  if (_isServiceManager) _ActionButton(label: 'Add Expense', icon: Icons.add, isPrimary: true, onPressed: () => _onAddOrEdit()),
+                                ]),
+                              ],
+                            ],
                           ),
-                          if (_isServiceManager) ...[
-                            const SizedBox(width: 8),
-                            Expanded(
-                              child: _ActionButton(
-                                label: 'Add',
-                                icon: Icons.add,
-                                isPrimary: true,
-                                onPressed: () => _onAddOrEdit(),
-                              ),
-                            ),
-                          ],
-                        ],
-                      ),
-                    ] else ...[
-                      const SizedBox(height: 12),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.end,
-                        children: [
-                          _ActionButton(
-                            label: 'Date Filter',
-                            icon: Icons.calendar_today_outlined,
-                            onPressed: _showDateRangePicker,
+                        ),
+                        const Divider(height: 1, color: kBorderColor),
+
+                        // Scrollable content
+                        Expanded(
+                          child: SingleChildScrollView(
+                            padding: EdgeInsets.all(isMobileView ? 16 : 32),
+                            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                              if (!isMobileView) ...[
+                                Row(
+                                  children: [
+                                    Expanded(
+                                      child: DropdownButtonFormField<String>(
+                                        value: _categoryFilter ?? 'All',
+                                        decoration: InputDecoration(labelText: 'Category', border: OutlineInputBorder(borderRadius: BorderRadius.circular(8))),
+                                        items: ['All', ..._categories].map((s) => DropdownMenuItem(value: s, child: Text(s))).toList(),
+                                        onChanged: (value) => setState(() => _categoryFilter = value == 'All' ? null : value),
+                                      ),
+                                    ),
+                                    const SizedBox(width: 12),
+                                    SizedBox(
+                                      width: 220,
+                                      child: DropdownButtonFormField<String>(
+                                        value: _statusFilter ?? 'All',
+                                        decoration: InputDecoration(labelText: 'Status', border: OutlineInputBorder(borderRadius: BorderRadius.circular(8))),
+                                        items: ['All', 'Pending', 'Verified'].map((s) => DropdownMenuItem(value: s, child: Text(s))).toList(),
+                                        onChanged: (value) => setState(() => _statusFilter = value == 'All' ? null : value),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 24),
+                              ],
+                              _buildSpendingChart(),
+                              const SizedBox(height: 24),
+                              _buildStatsGrid(),
+                              const SizedBox(height: 24),
+                              records.isEmpty ? _buildEmptyState() : _buildRecordsTable(records),
+                            ]),
                           ),
-                          const SizedBox(width: 12),
-                          if (_isServiceManager)
-                            _ActionButton(
-                              label: 'Add Expense',
-                              icon: Icons.add,
-                              isPrimary: true,
-                              onPressed: () => _onAddOrEdit(),
-                            ),
-                        ],
-                      ),
-                    ],
-                  ],
-                ),
-              ),
-              const Divider(height: 1, color: kBorderColor),
-              
-              // Scrollable Body
-              Expanded(
-                child: SingleChildScrollView(
-                padding: EdgeInsets.all(isMobileView ? 16 : 32),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    // Filter chips
-                    if (!isMobileView) ...[
-                      FilterChipGroup(
-                        label: 'Category',
-                        options: ['All', 'Fuel', 'Materials', 'Food', 'Transportation', 'Toll', 'Other'],
-                        selected: _categoryFilter ?? 'All',
-                        onSelected: (value) {
-                          setState(() {
-                            _categoryFilter = value == 'All' ? null : value;
-                          });
-                        },
-                      ),
-                      const SizedBox(height: 8),
-                      FilterChipGroup(
-                        label: 'Status',
-                        options: ['All', 'Pending', 'Verified'],
-                        selected: _statusFilter ?? 'All',
-                        onSelected: (value) {
-                          setState(() {
-                            _statusFilter = value == 'All' ? null : value;
-                          });
-                        },
-                      ),
-                      const SizedBox(height: 24),
-                    ],
-                    // 1. Chart Section (Top)
-                    _buildSpendingChart(),
-                    const SizedBox(height: 24),
-                    
-                    // 2. Unified Stats Grid (Middle - Now perfectly aligned)
-                    _buildStatsGrid(),
-                    const SizedBox(height: 24),
-                    
-                    // 3. Table Section (Bottom)
-                    records.isEmpty
-                        ? _buildEmptyState()
-                        : _buildRecordsTable(records),
-                  ],
-                ),
-              ),
-            ),
-          ],
+                        ),
+                      ],
+                    ),
+                  ),
+
+                  // FAB overlay for mobile
+                  if (isMobileView && _isServiceManager)
+                    Positioned(right: 16, bottom: 24, child: FloatingActionButton.extended(onPressed: () => _onAddOrEdit(), label: const Text('Add'), icon: const Icon(Icons.add), elevation: 4, materialTapTargetSize: MaterialTapTargetSize.padded)),
+                ],
+              );
+            },
+          ),
         ),
       ),
-      ),
+    );
+  }
+
+  // Mobile bottom-sheet form for add/edit to improve UX on phones
+  Future<ExpenseEntry?> _showExpenseBottomSheet({ExpenseEntry? existing}) async {
+    return showModalBottomSheet<ExpenseEntry>(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(16))),
+      builder: (context) {
+        // Use StatefulBuilder to manage local form state inside the sheet
+        return Padding(
+          padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
+          child: StatefulBuilder(
+            builder: (context, innerSetState) {
+              final tcCategory = TextEditingController(text: existing?.category ?? _categories.first);
+              final tcJO = TextEditingController(text: existing?.jobOrderId ?? '');
+              final tcDesc = TextEditingController(text: existing?.description ?? '');
+              final tcAmount = TextEditingController(text: existing != null ? existing.amount.toStringAsFixed(2) : '');
+              String status = existing?.status ?? 'Pending';
+              bool isCustomerFunded = existing?.isCustomerFunded ?? false;
+              DateTime date = existing?.date ?? DateTime.now();
+              final localCats = List<String>.from(_categories);
+
+              Future<void> pickDate() async {
+                final d = await showDatePicker(context: context, initialDate: date, firstDate: DateTime(2020), lastDate: DateTime(2030));
+                if (d != null) innerSetState(() => date = d);
+              }
+
+              void submit() {
+                final amount = double.tryParse(tcAmount.text.trim()) ?? 0;
+                if (tcDesc.text.trim().isEmpty || amount <= 0) {
+                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Please provide a valid amount and description')));
+                  return;
+                }
+                final entry = ExpenseEntry(
+                  id: existing?.id ?? DateTime.now().millisecondsSinceEpoch,
+                  category: tcCategory.text.trim(),
+                  jobOrderId: tcJO.text.trim(),
+                  description: tcDesc.text.trim(),
+                  date: date,
+                  amount: amount,
+                  status: status,
+                  isCustomerFunded: isCustomerFunded,
+                );
+                Navigator.of(context).pop(entry);
+              }
+
+              return SafeArea(
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text(existing == null ? 'Add Expense' : 'Edit Expense', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
+                          IconButton(onPressed: () => Navigator.of(context).pop(), icon: const Icon(Icons.close)),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      DropdownButtonFormField<String>(
+                        value: tcCategory.text.isEmpty ? localCats.first : tcCategory.text,
+                        items: [
+                          ...localCats.map((s) => DropdownMenuItem(value: s, child: Text(s))).toList(),
+                          const DropdownMenuItem(value: '__add_new__', child: Text('Add new...')),
+                        ],
+                        onChanged: (v) async {
+                          if (v == '__add_new__') {
+                            final newCat = await _promptNewCategory();
+                            if (newCat != null) {
+                              innerSetState(() {
+                                localCats.add(newCat);
+                                tcCategory.text = newCat;
+                              });
+                            }
+                          } else if (v != null) {
+                            innerSetState(() => tcCategory.text = v);
+                          }
+                        },
+                        decoration: InputDecoration(labelText: 'Category', border: OutlineInputBorder(borderRadius: BorderRadius.circular(8))),
+                      ),
+                      const SizedBox(height: 8),
+                      TextField(controller: tcAmount, keyboardType: const TextInputType.numberWithOptions(decimal: true), decoration: const InputDecoration(labelText: 'Amount (₱)', border: OutlineInputBorder(borderRadius: BorderRadius.all(Radius.circular(8))))),
+                      const SizedBox(height: 8),
+                      TextField(controller: tcJO, decoration: const InputDecoration(labelText: 'Job Order (optional)', border: OutlineInputBorder(borderRadius: BorderRadius.all(Radius.circular(8))))),
+                      const SizedBox(height: 8),
+                      TextField(controller: tcDesc, decoration: const InputDecoration(labelText: 'Description', border: OutlineInputBorder(borderRadius: BorderRadius.all(Radius.circular(8))))),
+                      const SizedBox(height: 8),
+                      Row(children: [
+                        ElevatedButton.icon(onPressed: pickDate, icon: const Icon(Icons.calendar_today), label: const Text('Pick date')),
+                        const SizedBox(width: 12),
+                        Expanded(child: Text('${date.month}/${date.day}/${date.year}')),
+                      ]),
+                      const SizedBox(height: 12),
+                      Row(children: [
+                        Expanded(child: OutlinedButton(onPressed: () => Navigator.of(context).pop(), child: const Text('Cancel'))),
+                        const SizedBox(width: 8),
+                        ElevatedButton(onPressed: submit, child: const Text('Save')),
+                      ]),
+                      const SizedBox(height: 8),
+                    ],
+                  ),
+                ),
+              );
+            },
+          ),
+        );
+      },
     );
   }
 
@@ -549,33 +671,28 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
                     ),
                   ),
                   const SizedBox(height: 12),
-                  SingleChildScrollView(
-                    scrollDirection: Axis.horizontal,
-                    child: Row(
-                      children: [
-                        FilterChipGroup(
-                          label: 'Category',
-                          options: ['All', 'Fuel', 'Materials', 'Food', 'Transportation', 'Toll', 'Other'],
-                          selected: _categoryFilter ?? 'All',
-                          onSelected: (value) {
-                            setState(() {
-                              _categoryFilter = value == 'All' ? null : value;
-                            });
-                          },
+                  // Show Category and Status side-by-side on mobile as two columns
+                  Row(
+                    children: [
+                      Expanded(
+                        child: DropdownButtonFormField<String>(
+                          value: _categoryFilter ?? 'All',
+                          decoration: InputDecoration(labelText: 'Category', border: OutlineInputBorder(borderRadius: BorderRadius.circular(8))),
+                          items: ['All', ..._categories].map((s) => DropdownMenuItem(value: s, child: Text(s))).toList(),
+                          onChanged: (value) => setState(() => _categoryFilter = value == 'All' ? null : value),
                         ),
-                        const SizedBox(width: 8),
-                        FilterChipGroup(
-                          label: 'Status',
-                          options: ['All', 'Pending', 'Verified'],
-                          selected: _statusFilter ?? 'All',
-                          onSelected: (value) {
-                            setState(() {
-                              _statusFilter = value == 'All' ? null : value;
-                            });
-                          },
+                      ),
+                      const SizedBox(width: 12),
+                      SizedBox(
+                        width: 140,
+                        child: DropdownButtonFormField<String>(
+                          value: _statusFilter ?? 'All',
+                          decoration: InputDecoration(labelText: 'Status', border: OutlineInputBorder(borderRadius: BorderRadius.circular(8))),
+                          items: ['All', 'Pending', 'Verified'].map((s) => DropdownMenuItem(value: s, child: Text(s))).toList(),
+                          onChanged: (value) => setState(() => _statusFilter = value == 'All' ? null : value),
                         ),
-                      ],
-                    ),
+                      ),
+                    ],
                   ),
                 ] else ...[
                   const SizedBox(height: 12),
@@ -613,17 +730,93 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
           // Table
           LayoutBuilder(
             builder: (context, constraints) {
-              // Dynamically calculate column spacing to fill width
-              // Base spacing is generic, but we can make it cleaner
               final width = constraints.maxWidth;
               final spacing = (width > 800) ? (width / 20) : 24.0;
-              
+
+              if (isMobile(context)) {
+                // Mobile: vertical list with slidable actions
+                return Column(
+                  children: records.map((e) => Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 6.0, horizontal: 0),
+                      child: Dismissible(
+                        key: ValueKey(e.id),
+                        direction: DismissDirection.endToStart,
+                        confirmDismiss: (dir) async {
+                          // Ask the existing confirm dialog to archive
+                          final confirmed = await showConfirmDialog(
+                            context: context,
+                            title: 'Archive Expense',
+                            message: 'Archive expense "${e.description}"? This action can be undone.',
+                            confirmLabel: 'Archive',
+                            cancelLabel: 'Cancel',
+                            isDestructive: false,
+                          );
+                          if (confirmed == true) {
+                            // perform deletion logic
+                            setState(() {
+                              final index = _expenses.indexWhere((x) => x.id == e.id);
+                              if (index != -1) {
+                                _lastDeletedExpense = _expenses[index];
+                                _lastDeletedIndex = index;
+                                _expenses.removeAt(index);
+                              }
+                            });
+                            if (mounted && _lastDeletedExpense != null) {
+                              showUndoSnackBar(
+                                context: context,
+                                message: 'Expense "${e.description}" has been archived',
+                                onUndo: () {
+                                  if (_lastDeletedExpense != null && _lastDeletedIndex != null) {
+                                    setState(() {
+                                      _expenses.insert(_lastDeletedIndex!, _lastDeletedExpense!);
+                                      _lastDeletedExpense = null;
+                                      _lastDeletedIndex = null;
+                                    });
+                                  }
+                                },
+                              );
+                            }
+                          }
+                          return confirmed == true;
+                        },
+                        background: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 20),
+                          alignment: Alignment.centerRight,
+                          decoration: BoxDecoration(color: Colors.orange, borderRadius: BorderRadius.circular(12)),
+                          child: const Icon(Icons.archive_outlined, color: Colors.white),
+                        ),
+                        child: Card(
+                          elevation: 0,
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                          child: ListTile(
+                            onTap: () => _onAddOrEdit(existing: e),
+                            contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                            leading: Container(width: 40, height: 40, decoration: BoxDecoration(color: _colorForCategory(e.category), borderRadius: BorderRadius.circular(8))),
+                            title: Text(e.description, style: const TextStyle(fontWeight: FontWeight.w600)),
+                            subtitle: Text('${e.jobOrderId.isEmpty ? '-' : e.jobOrderId} • ${_formatDate(e.date)}', style: const TextStyle(fontSize: 12)),
+                            trailing: Column(
+                              crossAxisAlignment: CrossAxisAlignment.end,
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Text(_formatAmount(e.amount), style: const TextStyle(fontWeight: FontWeight.w700)),
+                                const SizedBox(height: 6),
+                                _StatusBadge(status: e.status),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                    )).toList(),
+                );
+              }
+
+              // Desktop / larger screens: keep the DataTable
               return SingleChildScrollView(
                 scrollDirection: Axis.horizontal,
                 child: ConstrainedBox(
                   constraints: BoxConstraints(minWidth: width),
                   child: DataTable(
-                    headingRowColor: MaterialStateProperty.all(const Color(0xFFF8FAFC)),
+                    headingRowColor: WidgetStateProperty.all(const Color(0xFFF8FAFC)),
                     headingRowHeight: 48,
                     dataRowMinHeight: 56,
                     dataRowMaxHeight: 64,
@@ -640,7 +833,7 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
                     ],
                     rows: records.map((e) {
                       return DataRow(
-                        color: MaterialStateProperty.resolveWith((states) => states.contains(MaterialState.hovered) ? const Color(0xFFF1F5F9) : Colors.white),
+                        color: WidgetStateProperty.resolveWith((states) => states.contains(WidgetState.hovered) ? const Color(0xFFF1F5F9) : Colors.white),
                         cells: [
                           DataCell(
                             Row(children: [
@@ -668,12 +861,18 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
                                 if (_isServiceManager) ...[
                                   IconButton(
                                     icon: const Icon(Icons.edit_outlined, size: 16, color: kTextSecondary),
-                                    onPressed: () => _onAddOrEdit(existing: e),
+                                    onPressed: () {
+                                      HapticFeedback.selectionClick();
+                                      _onAddOrEdit(existing: e);
+                                    },
                                     tooltip: 'Edit',
                                   ),
                                   IconButton(
                                     icon: const Icon(Icons.archive_outlined, size: 16, color: Colors.orange),
-                                    onPressed: () => _onDelete(e),
+                                    onPressed: () {
+                                      HapticFeedback.mediumImpact();
+                                      _onDelete(e);
+                                    },
                                     tooltip: 'Archive',
                                   ),
                                 ] else
@@ -859,7 +1058,8 @@ class _ActionButton extends StatelessWidget {
 
 class _ExpenseDialog extends StatefulWidget {
   final ExpenseEntry? entry;
-  const _ExpenseDialog({this.entry});
+  final List<String>? categories;
+  const _ExpenseDialog({this.entry, this.categories});
 
   @override
   State<_ExpenseDialog> createState() => _ExpenseDialogState();
@@ -881,41 +1081,14 @@ class _ExpenseDialogState extends State<_ExpenseDialog> {
   void initState() {
     super.initState();
     final e = widget.entry;
-    _categoryController = TextEditingController(text: e?.category ?? 'Fuel');
+    final cats = widget.categories ?? ['Fuel', 'Materials', 'Food', 'Transportation', 'Toll', 'Other'];
+    _categoryController = TextEditingController(text: e?.category ?? cats.first);
     _joController = TextEditingController(text: e?.jobOrderId ?? '');
     _descriptionController = TextEditingController(text: e?.description ?? '');
     _amountController = TextEditingController(text: e != null ? e.amount.toStringAsFixed(2) : '');
     _status = e?.status ?? 'Pending';
     _isCustomerFunded = e?.isCustomerFunded ?? false;
     _date = e?.date ?? DateTime.now();
-  }
-
-  @override
-  void dispose() {
-    _categoryController.dispose();
-    _joController.dispose();
-    _descriptionController.dispose();
-    _amountController.dispose();
-    super.dispose();
-  }
-
-  InputDecoration _inputDecor(String label) {
-    return InputDecoration(
-      labelText: label,
-      labelStyle: const TextStyle(fontSize: 13, color: Color(0xFF64748B)),
-      enabledBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(8),
-        borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
-      ),
-      focusedBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(8),
-        borderSide: const BorderSide(color: Color(0xFF2563EB), width: 1.5),
-      ),
-      filled: true,
-      fillColor: Colors.white,
-      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-      isDense: true,
-    );
   }
 
   Future<void> _pickDate() async {
@@ -925,7 +1098,15 @@ class _ExpenseDialogState extends State<_ExpenseDialog> {
       firstDate: DateTime(2020),
       lastDate: DateTime(2030),
     );
-    if (date != null) setState(() => _date = date);
+    if (date != null && mounted) setState(() => _date = date);
+  }
+
+  InputDecoration _inputDecor(String label) {
+    return InputDecoration(
+      labelText: label,
+      border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+    );
   }
 
   void _validateForm() {
@@ -1006,10 +1187,31 @@ class _ExpenseDialogState extends State<_ExpenseDialog> {
               Row(children: [
                 Expanded(
                   child: DropdownButtonFormField<String>(
-                    value: _categoryController.text.isEmpty ? 'Fuel' : _categoryController.text,
+                    initialValue: _categoryController.text.isEmpty ? 'Fuel' : _categoryController.text,
                     decoration: _inputDecor('Category'),
-                    items: ['Fuel', 'Materials', 'Food', 'Transportation', 'Toll', 'Other'].map((s) => DropdownMenuItem(value: s, child: Text(s))).toList(),
-                    onChanged: (v) => setState(() => _categoryController.text = v!),
+                    items: [
+                      ...['Fuel', 'Materials', 'Food', 'Transportation', 'Toll', 'Other'].map((s) => DropdownMenuItem(value: s, child: Text(s))).toList(),
+                      const DropdownMenuItem(value: '__add_new__', child: Text('Add new...')),
+                    ],
+                    onChanged: (v) async {
+                      if (v == '__add_new__') {
+                        String name = '';
+                        final newCat = await showDialog<String>(
+                          context: context,
+                          builder: (ctx) => AlertDialog(
+                            title: const Text('Add Category'),
+                            content: TextField(autofocus: true, onChanged: (t) => name = t, decoration: const InputDecoration(hintText: 'Category name')),
+                            actions: [
+                              TextButton(onPressed: () => Navigator.of(ctx).pop(), child: const Text('Cancel')),
+                              ElevatedButton(onPressed: () => Navigator.of(ctx).pop(name.trim().isEmpty ? null : name.trim()), child: const Text('Add')),
+                            ],
+                          ),
+                        );
+                        if (newCat != null) setState(() => _categoryController.text = newCat);
+                      } else if (v != null) {
+                        setState(() => _categoryController.text = v);
+                      }
+                    },
                   ),
                 ),
                 const SizedBox(width: 16),
@@ -1081,19 +1283,20 @@ class _ExpenseDialogState extends State<_ExpenseDialog> {
               ),
               const SizedBox(height: 24),
               Row(
-                mainAxisAlignment: MainAxisAlignment.end,
                 children: [
-                  TextButton(
-                    onPressed: _isSubmitting ? null : () => Navigator.pop(context),
-                    style: TextButton.styleFrom(foregroundColor: const Color(0xFF64748B)),
-                    child: const Text('Cancel'),
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: _isSubmitting ? null : () => Navigator.pop(context),
+                      child: const Padding(padding: EdgeInsets.symmetric(vertical: 12), child: Text('Cancel')),
+                    ),
                   ),
-                  const SizedBox(width: 8),
-                  LoadingButton(
-                    onPressed: _isSubmitting ? null : _submit,
-                    label: 'Save',
-                    isLoading: _isSubmitting,
-                    isPrimary: true,
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: ElevatedButton(
+                      onPressed: _isSubmitting ? null : _submit,
+                      style: ElevatedButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 12)),
+                      child: const Text('Save'),
+                    ),
                   ),
                 ],
               ),

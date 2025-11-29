@@ -612,7 +612,7 @@ class _ServiceItemDialogState extends State<_ServiceItemDialog> {
               ),
               const SizedBox(height: 12),
               DropdownButtonFormField<String>(
-                value: _itemType,
+                initialValue: _itemType,
                 decoration: const InputDecoration(labelText: 'Item Type *'),
                 items: const [
                   DropdownMenuItem(value: 'Service', child: Text('Service')),
