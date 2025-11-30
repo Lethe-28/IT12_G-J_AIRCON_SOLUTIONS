@@ -481,6 +481,8 @@ class _JobBillingManagerState extends State<_JobBillingManager>
 
   List<Map<String, dynamic>> _lineItems = [];
   List<Map<String, dynamic>> _serviceCatalog = [];
+  List<String> _assignedTechNames = [];
+  List<String> _assignedUnitDetails = [];
   double _totalAmount = 0.0;
   double _totalPaid = 0.0;
 
@@ -493,36 +495,102 @@ class _JobBillingManagerState extends State<_JobBillingManager>
 
   Future<void> _fetchBillingData() async {
     setState(() => _isLoading = true);
-    try {
-      final items = await _supabase
-          .from('job_order_line_items')
-          .select('id, quantity, actual_price, service_items(item_name)')
-          .eq('job_order_id', widget.job.dbId);
-      final payments = await _supabase
-          .from('payments')
-          .select('amount')
-          .eq('job_order_id', widget.job.dbId);
-      final catalog = await _supabase
-          .from('service_items')
-          .select()
-          .order('item_name');
 
+    try {
+      final jobId = widget.job.dbId;
+
+      // --- 1. FIRE ALL QUERIES AT ONCE (PARALLEL) ---
+      final results = await Future.wait([
+        // Index 0: Line Items
+        _supabase
+            .from('job_order_line_items')
+            .select('id, quantity, actual_price, service_items(item_name)')
+            .eq('job_order_id', jobId),
+
+        // Index 1: Payments
+        _supabase.from('payments').select('amount').eq('job_order_id', jobId),
+
+        // Index 2: Service Catalog
+        _supabase.from('service_items').select().order('item_name'),
+
+        // Index 3: Assigned Technicians
+        // Using 'maybeSingle' logic by fetching list and checking emptiness is safer
+        _supabase
+            .from('job_order_technicians')
+            .select('technicians(first_name, last_name)')
+            .eq('job_order_id', jobId),
+
+        // Index 4: Assigned Aircons
+        // We simplify the query to prevent 'deep join' hangs if data is missing
+        _supabase
+            .from('job_order_aircons')
+            .select(
+              'aircons(remarks, brands(brand_name), aircon_types(type_name))',
+            )
+            .eq('job_order_id', jobId),
+      ]);
+
+      // --- 2. EXTRACT RESULTS ---
+      final items = List<Map<String, dynamic>>.from(results[0] as List);
+      final payments = List<Map<String, dynamic>>.from(results[1] as List);
+      final catalog = List<Map<String, dynamic>>.from(results[2] as List);
+      final techRes = List<Map<String, dynamic>>.from(results[3] as List);
+      final acRes = List<Map<String, dynamic>>.from(results[4] as List);
+
+      // --- 3. PROCESS CALCULATIONS ---
       double total = 0;
       for (var i in items) total += (i['actual_price'] * i['quantity']);
 
       double paid = 0;
       for (var p in payments) paid += p['amount'];
 
+      // --- 4. SAFE PROCESS: TECHNICIANS ---
+      final List<String> loadedTechs = [];
+      for (var row in techRes) {
+        // Handle case where technician link exists but technician data is null/deleted
+        if (row['technicians'] != null) {
+          final t = row['technicians'];
+          loadedTechs.add("${t['first_name']} ${t['last_name']}");
+        }
+      }
+
+      // --- 5. SAFE PROCESS: AIRCONS ---
+      final List<String> loadedUnits = [];
+      for (var row in acRes) {
+        // Handle case where aircon data is missing (deleted but link remains)
+        final a = row['aircons'];
+        if (a != null) {
+          // Use '?' (null aware) operators everywhere to prevent crashes on blank brands/types
+          final brand = a['brands']?['brand_name'] ?? 'Unknown Brand';
+          final type = a['aircon_types']?['type_name'] ?? 'Unit';
+          final remark = a['remarks'] ?? '';
+
+          loadedUnits.add(
+            "$brand $type${remark.isNotEmpty ? ' ($remark)' : ''}",
+          );
+        }
+      }
+
       if (mounted) {
         setState(() {
-          _lineItems = List<Map<String, dynamic>>.from(items);
-          _serviceCatalog = List<Map<String, dynamic>>.from(catalog);
+          _lineItems = items;
+          _serviceCatalog = catalog;
+          _assignedTechNames = loadedTechs;
+          _assignedUnitDetails = loadedUnits;
           _totalAmount = total;
           _totalPaid = paid;
         });
       }
     } catch (e) {
-      debugPrint('Error: $e');
+      debugPrint('Error loading details: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text("Network Error: Could not load full details."),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
@@ -911,19 +979,17 @@ class _JobBillingManagerState extends State<_JobBillingManager>
   }
 
   Widget _buildDetailsTab() {
-    // Define the schedule text logic
+    // Schedule Logic
     String scheduleText;
     final start = widget.job.startDateTime.toLocal();
     final timeStr = TimeOfDay.fromDateTime(start).format(context);
-    final startDateStr = start.toString().split(' ')[0]; // 2025-12-03
+    final startDateStr = start.toString().split(' ')[0];
 
     if (widget.job.endDateTime != null) {
       final end = widget.job.endDateTime!.toLocal();
       final endDateStr = end.toString().split(' ')[0];
-      // Show range: 2025-12-03 - 2025-12-05
       scheduleText = "$startDateStr - $endDateStr";
     } else {
-      // Show specific time: 2025-12-03 at 9:00 AM
       scheduleText = "$startDateStr at $timeStr";
     }
 
@@ -931,13 +997,33 @@ class _JobBillingManagerState extends State<_JobBillingManager>
       padding: const EdgeInsets.all(24),
       children: [
         _infoSection("Schedule", [
-          _infoRow(
-            Icons.calendar_today,
-            scheduleText, // Updated to use the variable
-          ),
+          _infoRow(Icons.calendar_today, scheduleText),
           _infoRow(Icons.location_on, widget.job.location),
         ]),
         const SizedBox(height: 24),
+
+        // NEW: Team Section
+        _infoSection("Assigned Team", [
+          _infoRow(
+            Icons.people,
+            _assignedTechNames.isNotEmpty
+                ? _assignedTechNames.join('\n')
+                : "No technicians assigned",
+          ),
+        ]),
+        const SizedBox(height: 24),
+
+        // NEW: Assets Section
+        _infoSection("Assets / Units", [
+          _infoRow(
+            Icons.ac_unit,
+            _assignedUnitDetails.isNotEmpty
+                ? _assignedUnitDetails.join('\n')
+                : "No specific units linked",
+          ),
+        ]),
+        const SizedBox(height: 24),
+
         _infoSection("Notes", [
           _infoRow(
             Icons.note,
