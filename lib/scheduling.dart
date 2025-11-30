@@ -1268,6 +1268,7 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
   bool _isSubmitting = false;
   final _supabase = Supabase.instance.client;
   final _formKey = GlobalKey<FormState>();
+  final _customerDisplayController = TextEditingController();
 
   // Data
   String _jobTypeName = 'Installation';
@@ -1339,6 +1340,18 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
         .from('aircon_types')
         .select('id, type_name');
 
+    // NEW: Fetch linked aircons if editing
+    List<int> existingLinkedAircons = [];
+    if (widget.existingJob != null) {
+      final linkedRes = await _supabase
+          .from('job_order_aircons')
+          .select('aircon_id')
+          .eq('job_order_id', widget.existingJob!.dbId);
+      existingLinkedAircons = List<int>.from(
+        linkedRes.map((e) => e['aircon_id']),
+      );
+    }
+
     if (mounted) {
       setState(() {
         _existingClients = List<Map<String, dynamic>>.from(customers);
@@ -1351,15 +1364,28 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
             orElse: () => types.first,
           );
           _jobTypeId = installType['id'];
+        } else {
+          // SETUP EDIT MODE:
+          // 1. Pre-fill Customer Name
+          if (_selectedClientId != null) {
+            final cust = _existingClients.firstWhere(
+              (c) => c['id'] == _selectedClientId,
+              orElse: () => {},
+            );
+            if (cust.isNotEmpty) {
+              _customerDisplayController.text =
+                  cust['company_name'] ??
+                  '${cust['first_name']} ${cust['last_name']}';
+            }
+            // 2. Load their aircons
+            _fetchClientAircons(_selectedClientId!);
+          }
+          // 3. Check the boxes that were previously saved
+          _selectedAirconIds.addAll(existingLinkedAircons);
         }
 
         if (_airconTypes.isNotEmpty) {
           _selectedAirconTypeId = _airconTypes.first['id'];
-        }
-
-        // If editing, fetch aircons for selected client
-        if (_selectedClientId != null) {
-          _fetchClientAircons(_selectedClientId!);
         }
       });
     }
@@ -1943,82 +1969,106 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
   }
 
   Widget _stepTwo() {
+    final isEditing = widget.existingJob != null;
+
     return SingleChildScrollView(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Container(
-            padding: const EdgeInsets.all(4),
-            decoration: BoxDecoration(
-              color: Colors.grey[100],
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Row(
-              children: [
-                Expanded(
-                  child: _ToggleOption(
-                    label: "Existing",
-                    isSelected: !_isNewClient,
-                    onTap: () => setState(() => _isNewClient = false),
+          // 1. HIDE TOGGLE IF EDITING
+          if (!isEditing) ...[
+            Container(
+              padding: const EdgeInsets.all(4),
+              decoration: BoxDecoration(
+                color: Colors.grey[100],
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: _ToggleOption(
+                      label: "Existing",
+                      isSelected: !_isNewClient,
+                      onTap: () => setState(() => _isNewClient = false),
+                    ),
                   ),
-                ),
-                Expanded(
-                  child: _ToggleOption(
-                    label: "New Client",
-                    isSelected: _isNewClient,
-                    onTap: () => setState(() => _isNewClient = true),
+                  Expanded(
+                    child: _ToggleOption(
+                      label: "New Client",
+                      isSelected: _isNewClient,
+                      onTap: () => setState(() => _isNewClient = true),
+                    ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
-          ),
-          const SizedBox(height: 20),
+            const SizedBox(height: 20),
+          ],
 
           if (!_isNewClient) ...[
             const Text(
-              "Search Database",
+              "Customer",
               style: TextStyle(fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 8),
-            Autocomplete<Map<String, dynamic>>(
-              optionsBuilder: (TextEditingValue textEditingValue) {
-                if (textEditingValue.text == '')
-                  return const Iterable<Map<String, dynamic>>.empty();
-                return _existingClients.where((Map<String, dynamic> option) {
-                  final name =
-                      option['company_name'] ??
-                      '${option['first_name']} ${option['last_name']}';
-                  return name.toLowerCase().contains(
-                    textEditingValue.text.toLowerCase(),
-                  );
-                });
-              },
-              displayStringForOption: (Map<String, dynamic> option) =>
-                  option['company_name'] ??
-                  '${option['first_name']} ${option['last_name']}',
-              onSelected: (Map<String, dynamic> selection) {
-                setState(() {
-                  _selectedClientId = selection['id'];
-                  _fetchClientAircons(_selectedClientId!);
-                });
-              },
-              fieldViewBuilder:
-                  (context, controller, focusNode, onFieldSubmitted) {
-                    return TextField(
-                      controller: controller,
-                      focusNode: focusNode,
-                      decoration: const InputDecoration(
-                        hintText: "Type client name...",
-                        prefixIcon: Icon(Icons.search),
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.all(Radius.circular(12)),
-                        ),
-                        filled: true,
-                        fillColor: Colors.white,
-                      ),
+
+            // 2. SHOW LOCKED FIELD IF EDITING, ELSE SHOW SEARCH
+            if (isEditing)
+              TextField(
+                controller: _customerDisplayController,
+                readOnly: true,
+                decoration: const InputDecoration(
+                  labelText: "Selected Customer",
+                  prefixIcon: Icon(Icons.lock, color: Colors.grey),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.all(Radius.circular(12)),
+                  ),
+                  filled: true,
+                  fillColor: Color(
+                    0xFFF1F5F9,
+                  ), // Light grey to indicate disabled
+                ),
+              )
+            else
+              Autocomplete<Map<String, dynamic>>(
+                optionsBuilder: (TextEditingValue textEditingValue) {
+                  if (textEditingValue.text == '')
+                    return const Iterable<Map<String, dynamic>>.empty();
+                  return _existingClients.where((Map<String, dynamic> option) {
+                    final name =
+                        option['company_name'] ??
+                        '${option['first_name']} ${option['last_name']}';
+                    return name.toLowerCase().contains(
+                      textEditingValue.text.toLowerCase(),
                     );
-                  },
-            ),
+                  });
+                },
+                displayStringForOption: (Map<String, dynamic> option) =>
+                    option['company_name'] ??
+                    '${option['first_name']} ${option['last_name']}',
+                onSelected: (Map<String, dynamic> selection) {
+                  setState(() {
+                    _selectedClientId = selection['id'];
+                    _fetchClientAircons(_selectedClientId!);
+                  });
+                },
+                fieldViewBuilder:
+                    (context, controller, focusNode, onFieldSubmitted) {
+                      return TextField(
+                        controller: controller,
+                        focusNode: focusNode,
+                        decoration: const InputDecoration(
+                          hintText: "Type client name...",
+                          prefixIcon: Icon(Icons.search),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.all(Radius.circular(12)),
+                          ),
+                          filled: true,
+                          fillColor: Colors.white,
+                        ),
+                      );
+                    },
+              ),
 
             if (_selectedClientId != null) ...[
               const SizedBox(height: 20),
@@ -2045,10 +2095,13 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
                   final type = unit['aircon_types'] != null
                       ? unit['aircon_types']['type_name']
                       : 'Unit';
+
+                  final isChecked = _selectedAirconIds.contains(unit['id']);
+
                   return CheckboxListTile(
                     title: Text("$brand $type"),
                     subtitle: Text(unit['remarks'] ?? ''),
-                    value: _selectedAirconIds.contains(unit['id']),
+                    value: isChecked,
                     onChanged: (v) {
                       setState(() {
                         if (v == true)
@@ -2072,6 +2125,7 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
                 ),
             ],
           ] else ...[
+            // FULL NEW CLIENT FORM
             Form(
               key: _formKey,
               child: Column(
@@ -2085,7 +2139,6 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
                     ),
                   ),
                   const SizedBox(height: 12),
-                  // FIX: Layout to prevent overflow
                   Row(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
