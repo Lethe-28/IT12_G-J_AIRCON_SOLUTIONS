@@ -911,13 +911,29 @@ class _JobBillingManagerState extends State<_JobBillingManager>
   }
 
   Widget _buildDetailsTab() {
+    // Define the schedule text logic
+    String scheduleText;
+    final start = widget.job.startDateTime.toLocal();
+    final timeStr = TimeOfDay.fromDateTime(start).format(context);
+    final startDateStr = start.toString().split(' ')[0]; // 2025-12-03
+
+    if (widget.job.endDateTime != null) {
+      final end = widget.job.endDateTime!.toLocal();
+      final endDateStr = end.toString().split(' ')[0];
+      // Show range: 2025-12-03 - 2025-12-05
+      scheduleText = "$startDateStr - $endDateStr";
+    } else {
+      // Show specific time: 2025-12-03 at 9:00 AM
+      scheduleText = "$startDateStr at $timeStr";
+    }
+
     return ListView(
       padding: const EdgeInsets.all(24),
       children: [
         _infoSection("Schedule", [
           _infoRow(
             Icons.calendar_today,
-            "${widget.job.startDateTime.toLocal().toString().split(' ')[0]} at ${TimeOfDay.fromDateTime(widget.job.startDateTime).format(context)}",
+            scheduleText, // Updated to use the variable
           ),
           _infoRow(Icons.location_on, widget.job.location),
         ]),
@@ -973,16 +989,39 @@ class _JobBillingManagerState extends State<_JobBillingManager>
   Widget _buildBillingTab() {
     final balance = _totalAmount - _totalPaid;
     final isPaid = balance <= 0 && _totalAmount > 0;
+
+    // Check width to switch layout for mobile
+    final isNarrow = MediaQuery.of(context).size.width < 450;
+
     return Column(
       children: [
         Expanded(
           child: _lineItems.isEmpty
-              ? EmptyState(
-                  icon: Icons.receipt_long,
-                  title: "No Items Yet",
-                  message: "Add services or parts to create the bill.",
-                  actionLabel: "Add Item",
-                  onAction: _addItemDialog,
+              ? LayoutBuilder(
+                  builder: (context, constraints) {
+                    // FIX 1: Wrap EmptyState in ScrollView to prevent overflow
+                    return SingleChildScrollView(
+                      physics: const AlwaysScrollableScrollPhysics(),
+                      child: ConstrainedBox(
+                        constraints: BoxConstraints(
+                          minHeight: constraints.maxHeight,
+                        ),
+                        child: Center(
+                          child: Padding(
+                            padding: const EdgeInsets.all(20.0),
+                            child: EmptyState(
+                              icon: Icons.receipt_long,
+                              title: "No Items Yet",
+                              message:
+                                  "Add services or parts to create the bill.",
+                              actionLabel: "Add Item",
+                              onAction: _addItemDialog,
+                            ),
+                          ),
+                        ),
+                      ),
+                    );
+                  },
                 )
               : ListView.separated(
                   padding: const EdgeInsets.all(24),
@@ -1026,50 +1065,80 @@ class _JobBillingManagerState extends State<_JobBillingManager>
                 ),
         ),
         Container(
-          padding: const EdgeInsets.all(24),
+          // FIX 2: Reduce padding on small screens
+          padding: EdgeInsets.all(isNarrow ? 16 : 24),
           decoration: BoxDecoration(
             color: Colors.grey[50],
             border: const Border(top: BorderSide(color: Color(0xFFE2E8F0))),
           ),
           child: Column(
+            mainAxisSize: MainAxisSize.min,
             children: [
               _totalRow("Total Bill", _totalAmount),
               _totalRow("Paid", _totalPaid, color: Colors.green),
-              const Divider(height: 24),
+              Divider(height: isNarrow ? 16 : 24),
               _totalRow(
                 "Balance Due",
                 balance,
                 isBold: true,
                 color: balance > 0 ? Colors.red : Colors.grey,
               ),
-              const SizedBox(height: 20),
-              Row(
-                children: [
-                  Expanded(
-                    child: OutlinedButton.icon(
+              SizedBox(height: isNarrow ? 16 : 20),
+
+              // FIX 3: Stack buttons on mobile to fix "off" look
+              if (isNarrow)
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    OutlinedButton.icon(
                       onPressed: _addItemDialog,
                       icon: const Icon(Icons.add),
                       label: const Text("Add Item"),
                       style: OutlinedButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(vertical: 16),
+                        padding: const EdgeInsets.symmetric(vertical: 12),
                       ),
                     ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: ElevatedButton.icon(
+                    const SizedBox(height: 8),
+                    ElevatedButton.icon(
                       onPressed: isPaid ? null : _recordPaymentDialog,
                       icon: const Icon(Icons.payment),
                       label: Text(isPaid ? "Paid" : "Record Payment"),
                       style: ElevatedButton.styleFrom(
                         backgroundColor: Colors.green,
                         foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(vertical: 16),
+                        padding: const EdgeInsets.symmetric(vertical: 12),
                       ),
                     ),
-                  ),
-                ],
-              ),
+                  ],
+                )
+              else
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        onPressed: _addItemDialog,
+                        icon: const Icon(Icons.add),
+                        label: const Text("Add Item"),
+                        style: OutlinedButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(vertical: 16),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: ElevatedButton.icon(
+                        onPressed: isPaid ? null : _recordPaymentDialog,
+                        icon: const Icon(Icons.payment),
+                        label: Text(isPaid ? "Paid" : "Record Payment"),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.green,
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(vertical: 16),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
             ],
           ),
         ),
@@ -1447,20 +1516,6 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text("Please fill in all required fields"),
-            backgroundColor: Colors.red,
-          ),
-        );
-        return;
-      }
-
-      // Validate brand if creating aircon
-      if (_selectedBrandName.trim().isEmpty ||
-          _unitRemarkController.text.trim().isEmpty) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text(
-              "Please fill in Brand and Location for the aircon unit",
-            ),
             backgroundColor: Colors.red,
           ),
         );
