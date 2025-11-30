@@ -41,6 +41,6 @@ class AppState {
 
   static String roleDisplayName() {
     final label = currentRole == UserRole.serviceManager ? 'Service Manager' : 'Admin User';
-    return currentUserName.isEmpty ? label : '$label';
+    return currentUserName.isEmpty ? label : label;
   }
 }

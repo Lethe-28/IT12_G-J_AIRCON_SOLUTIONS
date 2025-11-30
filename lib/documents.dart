@@ -1,6 +1,10 @@
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
+import 'package:printing/printing.dart';
+import 'package:intl/intl.dart';
 import 'ui_app_shell.dart';
 import 'shared/widgets.dart' show isMobile;
+import 'dialogs/generate_soa_dialog.dart';
 
 // --- Design Constants (Moved to top-level for global access) ---
 const Color kPrimaryColor = Color(0xFF2563EB);
@@ -46,6 +50,8 @@ class _DocumentsScreenState extends State<DocumentsScreen> {
   String _selectedCategory = 'All Documents';
   String _searchQuery = '';
   bool _isGridView = true; // Toggle state
+  String? _statusFilter; // null, 'Pending', 'Verified'
+  String _sortBy = 'date'; // 'date', 'name'
 
   @override
   void initState() {
@@ -119,12 +125,107 @@ class _DocumentsScreenState extends State<DocumentsScreen> {
   }
 
   List<DocumentItem> get _filteredDocs {
-    return _documents.where((doc) {
+    var result = _documents.where((doc) {
       final matchesCategory = _selectedCategory == 'All Documents' || doc.category == _selectedCategory;
       final matchesSearch = doc.title.toLowerCase().contains(_searchQuery.toLowerCase()) || 
                             doc.uploadedBy.toLowerCase().contains(_searchQuery.toLowerCase());
-      return matchesCategory && matchesSearch;
+      final matchesStatus = _statusFilter == null || doc.status == _statusFilter;
+      return matchesCategory && matchesSearch && matchesStatus;
     }).toList();
+    
+    // Sort
+    if (_sortBy == 'name') {
+      result.sort((a, b) => a.title.toLowerCase().compareTo(b.title.toLowerCase()));
+    } else {
+      result.sort((a, b) => b.date.compareTo(a.date)); // Most recent first
+    }
+    
+    return result;
+  }
+
+  Future<void> _showGenerateModal() async {
+    final choice = await showDialog<String>(
+      context: context,
+      builder: (context) => Dialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        child: Container(
+          width: 400,
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  const Icon(Icons.add_circle_outline, color: kPrimaryColor, size: 28),
+                  const SizedBox(width: 12),
+                  const Text('Generate Document', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700)),
+                  const Spacer(),
+                  IconButton(onPressed: () => Navigator.pop(context), icon: const Icon(Icons.close)),
+                ],
+              ),
+              const Divider(height: 24),
+              const Text('Select document type:', style: TextStyle(fontSize: 14, color: kTextSecondary)),
+              const SizedBox(height: 16),
+              _GenerateOptionTile(
+                icon: Icons.receipt_long,
+                title: 'Statement of Accounts (SOA)',
+                subtitle: 'Generate billing statement for clients',
+                onTap: () => Navigator.pop(context, 'soa'),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    if (choice == 'soa') {
+      _generateSOA();
+    }
+  }
+
+  Future<void> _generateSOA() async {
+    // Show the generation dialog
+    final pdfBytes = await showDialog<Uint8List>(
+      context: context,
+      builder: (context) => const GenerateSOADialog(),
+    );
+
+    if (pdfBytes == null) return;
+
+    // Show preview and save options
+    await Printing.layoutPdf(
+      onLayout: (format) async => pdfBytes,
+      name: 'SOA_${DateFormat('yyyyMMdd_HHmmss').format(DateTime.now())}.pdf',
+    );
+
+    // Add the generated document to the list
+    final now = DateTime.now();
+    final fileName = 'SOA_${DateFormat('yyyyMMdd_HHmmss').format(now)}.pdf';
+    final sizeKB = (pdfBytes.length / 1024).toStringAsFixed(0);
+    
+    setState(() {
+      _documents.insert(0, DocumentItem(
+        title: fileName,
+        type: 'pdf',
+        size: '$sizeKB KB',
+        status: 'Verified',
+        category: 'Invoices',
+        uploadedBy: 'System',
+        date: now,
+        tags: ['SOA', 'Generated', 'PDF'],
+      ));
+    });
+
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('✓ $fileName generated successfully'),
+          backgroundColor: Colors.green,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
   }
 
   @override
@@ -167,22 +268,7 @@ class _DocumentsScreenState extends State<DocumentsScreen> {
                             contentPadding: const EdgeInsets.symmetric(vertical: 12),
                           ),
                         ),
-                        const SizedBox(height: 12),
-                        SizedBox(
-                          width: double.infinity,
-                          child: ElevatedButton.icon(
-                            onPressed: () {},
-                            icon: const Icon(Icons.cloud_upload_outlined, size: 18),
-                            label: const Text('Upload'),
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: kPrimaryColor,
-                              foregroundColor: Colors.white,
-                              elevation: 0,
-                              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
-                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                            ),
-                          ),
-                        ),
+
                       ],
                     )
                   : Row(
@@ -211,19 +297,7 @@ class _DocumentsScreenState extends State<DocumentsScreen> {
                             ),
                           ),
                         ),
-                        const SizedBox(width: 16),
-                        ElevatedButton.icon(
-                          onPressed: () {},
-                          icon: const Icon(Icons.cloud_upload_outlined, size: 18),
-                          label: const Text('Upload'),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: kPrimaryColor,
-                            foregroundColor: Colors.white,
-                            elevation: 0,
-                            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 18),
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                          ),
-                        ),
+
                       ],
                     ),
             ),
@@ -321,7 +395,7 @@ class _DocumentsScreenState extends State<DocumentsScreen> {
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                _buildUploadZone(),
+                                _buildGenerateButton(),
                                 const SizedBox(height: 16),
                                 if (_filteredDocs.isEmpty)
                                   const Center(child: Padding(padding: EdgeInsets.all(40), child: Text("No documents found.")))
@@ -405,7 +479,7 @@ class _DocumentsScreenState extends State<DocumentsScreen> {
                                 child: Column(
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
-                                    _buildUploadZone(),
+                                    _buildGenerateButton(),
                                     const SizedBox(height: 24),
                                     if (_filteredDocs.isEmpty)
                                       const Center(child: Padding(padding: EdgeInsets.all(40), child: Text("No documents found.")))
@@ -558,28 +632,63 @@ class _DocumentsScreenState extends State<DocumentsScreen> {
   Widget _buildStatsRow() {
     final pending = _documents.where((d) => d.status == 'Pending').length;
     final verified = _documents.where((d) => d.status == 'Verified').length;
-    final isMobileView = isMobile(context);
+    final totalSize = _documents.fold<double>(0, (sum, doc) {
+      final kb = double.tryParse(doc.size.replaceAll(RegExp(r'[^0-9.]'), '')) ?? 0;
+      return sum + kb;
+    }) / 1024; // Convert to MB
     
     return SingleChildScrollView(
       scrollDirection: Axis.horizontal,
       child: Row(
         children: [
-          _MiniStatChip(label: 'Total Files', value: _documents.length.toString(), icon: Icons.folder),
-          SizedBox(width: isMobileView ? 8 : 12),
-          _MiniStatChip(label: 'Pending Review', value: pending.toString(), icon: Icons.pending_actions, color: Colors.orange),
-          SizedBox(width: isMobileView ? 8 : 12),
-          _MiniStatChip(label: 'Verified', value: verified.toString(), icon: Icons.check_circle, color: Colors.green),
-          SizedBox(width: isMobileView ? 8 : 12),
-          const _MiniStatChip(label: 'Storage Used', value: '2.1 MB', icon: Icons.cloud, color: Colors.blue),
+          GestureDetector(
+            onTap: () => setState(() => _statusFilter = null),
+            child: _MiniStatChip(
+              label: 'Total Files',
+              value: '${_documents.length}',
+              icon: Icons.folder,
+              color: _statusFilter == null ? kPrimaryColor : Colors.grey,
+              isActive: _statusFilter == null,
+            ),
+          ),
+          const SizedBox(width: 12),
+          GestureDetector(
+            onTap: () => setState(() => _statusFilter = _statusFilter == 'Pending' ? null : 'Pending'),
+            child: _MiniStatChip(
+              label: 'Pending Review',
+              value: '$pending',
+              icon: Icons.pending_outlined,
+              color: _statusFilter == 'Pending' ? Colors.orange : Colors.orange.withOpacity(0.6),
+              isActive: _statusFilter == 'Pending',
+            ),
+          ),
+          const SizedBox(width: 12),
+          GestureDetector(
+            onTap: () => setState(() => _statusFilter = _statusFilter == 'Verified' ? null : 'Verified'),
+            child: _MiniStatChip(
+              label: 'Verified',
+              value: '$verified',
+              icon: Icons.verified_outlined,
+              color: _statusFilter == 'Verified' ? Colors.green : Colors.green.withOpacity(0.6),
+              isActive: _statusFilter == 'Verified',
+            ),
+          ),
+          const SizedBox(width: 12),
+          _MiniStatChip(
+            label: 'Storage Used',
+            value: '${totalSize.toStringAsFixed(1)} MB',
+            icon: Icons.cloud,
+            color: Colors.blue,
+          ),
         ],
       ),
     );
   }
 
-  Widget _buildUploadZone() {
+  Widget _buildGenerateButton() {
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.symmetric(vertical: 24, horizontal: 24),
+      padding: const EdgeInsets.symmetric(vertical: 32, horizontal: 24),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(12),
@@ -588,15 +697,28 @@ class _DocumentsScreenState extends State<DocumentsScreen> {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          const Icon(Icons.cloud_upload_outlined, size: 32, color: kPrimaryColor),
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: kPrimaryColor.withOpacity(0.1),
+              shape: BoxShape.circle,
+            ),
+            child: const Icon(Icons.add_circle_outline, size: 48, color: kPrimaryColor),
+          ),
+          const SizedBox(height: 16),
+          const Text('Generate Documents', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600, color: kTextPrimary)),
           const SizedBox(height: 8),
-          RichText(
-            text: const TextSpan(
-              style: TextStyle(color: kTextSecondary, fontSize: 14),
-              children: [
-                TextSpan(text: 'Drag files here or '),
-                TextSpan(text: 'click to browse', style: TextStyle(color: kPrimaryColor, fontWeight: FontWeight.w600)),
-              ],
+          const Text('Create statements, invoices, and reports', style: TextStyle(fontSize: 14, color: kTextSecondary)),
+          const SizedBox(height: 20),
+          ElevatedButton.icon(
+            onPressed: _showGenerateModal,
+            icon: const Icon(Icons.add),
+            label: const Text('Generate'),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: kPrimaryColor,
+              foregroundColor: Colors.white,
+              padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 16),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
             ),
           ),
         ],
@@ -630,12 +752,14 @@ class _DocumentsScreenState extends State<DocumentsScreen> {
   }
 
   Widget _buildList(List<DocumentItem> docs) {
-    final isMobileView = isMobile(context);
-    
-    if (isMobileView) {
-      // Mobile: Card view instead of table
-      return Column(
-        children: docs.map((doc) => Container(
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final isMobileView = constraints.maxWidth < 600;
+        
+        if (isMobileView) {
+          // Mobile: Card view
+          return Column(
+            children: docs.map((doc) => Container(
           margin: const EdgeInsets.only(bottom: 12),
           padding: const EdgeInsets.all(16),
           decoration: BoxDecoration(
@@ -685,11 +809,11 @@ class _DocumentsScreenState extends State<DocumentsScreen> {
             ],
           ),
         )).toList(),
-      );
-    }
-    
-    // Desktop: Table view
-    return Container(
+          );
+        }
+        
+        // Desktop/Tablet: Table view
+        return Container(
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(12),
@@ -747,6 +871,8 @@ class _DocumentsScreenState extends State<DocumentsScreen> {
           ),
         ),
       ),
+        );
+      },
     );
   }
 
@@ -778,17 +904,18 @@ class _MiniStatChip extends StatelessWidget {
   final String value;
   final IconData icon;
   final Color color;
+  final bool isActive;
 
-  const _MiniStatChip({required this.label, required this.value, required this.icon, this.color = Colors.grey});
+  const _MiniStatChip({required this.label, required this.value, required this.icon, this.color = Colors.grey, this.isActive = false});
 
   @override
   Widget build(BuildContext context) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: isActive ? color.withOpacity(0.1) : Colors.white,
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: kBorderColor),
+        border: Border.all(color: isActive ? color : kBorderColor, width: isActive ? 2 : 1),
       ),
       child: Row(
         children: [
@@ -911,6 +1038,59 @@ class _StatusBadge extends StatelessWidget {
           fontSize: 10,
           fontWeight: FontWeight.w600,
           color: isVerified ? const Color(0xFF15803D) : const Color(0xFFB45309),
+        ),
+      ),
+    );
+  }
+}
+
+class _GenerateOptionTile extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final VoidCallback onTap;
+
+  const _GenerateOptionTile({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(12),
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          border: Border.all(color: kBorderColor),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: kPrimaryColor.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Icon(icon, color: kPrimaryColor, size: 28),
+            ),
+            const SizedBox(width: 16),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(title, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
+                  const SizedBox(height: 4),
+                  Text(subtitle, style: const TextStyle(fontSize: 13, color: kTextSecondary)),
+                ],
+              ),
+            ),
+            const Icon(Icons.arrow_forward_ios, size: 16, color: kTextSecondary),
+          ],
         ),
       ),
     );

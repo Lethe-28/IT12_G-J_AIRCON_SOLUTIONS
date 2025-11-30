@@ -458,6 +458,7 @@ class _KpiCard extends StatelessWidget {
         borderRadius: BorderRadius.circular(12),
         border: Border.all(color: kBorderColor),
       ),
+      height: 160,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -473,8 +474,7 @@ class _KpiCard extends StatelessWidget {
           const SizedBox(height: 4),
           Text(trend, style: const TextStyle(fontSize: 11, color: kTextSecondary)), // Simplified trend for clean look
         ],
-      ),
-      height: 160, // Fixed height for uniformity
+      ), // Fixed height for uniformity
     );
   }
 }
