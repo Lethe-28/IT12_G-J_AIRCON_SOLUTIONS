@@ -28,6 +28,8 @@ class JobOrder {
   // For Editing
   final int? customerId;
 
+  final bool isCorporate;
+
   JobOrder({
     required this.dbId,
     required this.displayId,
@@ -39,6 +41,7 @@ class JobOrder {
     required this.status,
     this.notes,
     this.customerId,
+    required this.isCorporate,
   });
 }
 
@@ -73,7 +76,7 @@ class _SchedulingScreenState extends State<SchedulingScreen> {
       final response = await supabase
           .from('job_orders')
           .select(
-            '*, customers(id, first_name, last_name, company_name, city, barangay), job_types(job_type_name)',
+            '*, customers(id, first_name, last_name, company_name, city, barangay, customer_type_id), job_types(job_type_name)',
           )
           .order('date_scheduled', ascending: false);
 
@@ -84,9 +87,12 @@ class _SchedulingScreenState extends State<SchedulingScreen> {
         String clientName = 'Unknown';
         String location = 'Unknown';
         int? custId;
+        bool isCorp = false;
 
         if (customer != null) {
           custId = customer['id'];
+          // Check if Corporate (assuming ID 1 = Corporate based on your logic)
+          isCorp = customer['customer_type_id'] == 1;
           if (customer['company_name'] != null &&
               customer['company_name'].toString().isNotEmpty) {
             clientName = customer['company_name'];
@@ -121,6 +127,7 @@ class _SchedulingScreenState extends State<SchedulingScreen> {
             status: row['status'] ?? 'Pending',
             notes: row['notes'],
             customerId: custId,
+            isCorporate: isCorp,
           ),
         );
       }
@@ -2817,9 +2824,8 @@ class _JobCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // If job spans multiple days, show range
+    // 1. Format Date and Time
     String dateText = "${order.startDateTime.month}/${order.startDateTime.day}";
-    // FIX: Show Specific Time (h:mm a)
     String timeText = TimeOfDay.fromDateTime(
       order.startDateTime,
     ).format(context);
@@ -2827,17 +2833,21 @@ class _JobCard extends StatelessWidget {
     if (order.endDateTime != null) {
       dateText += " - ${order.endDateTime!.month}/${order.endDateTime!.day}";
     } else {
-      // Append time if single day
       dateText += " at $timeText";
     }
 
+    // 2. Define Visuals based on Client Type
+    // Based on your DB screenshot: ID 1 is B2B (Corporate)
+    final bool isCorp = order.isCorporate;
+    final Color typeColor = isCorp ? Colors.indigo : Colors.teal;
+    final IconData typeIcon = isCorp ? Icons.business : Icons.person;
+
+    // FIX: Separate Radius/Shadow from the Non-Uniform Border
     return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(16),
+      // A. Outer Decoration: SHADOW & RADIUS ONLY
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: Colors.white, // Background for the shadow to cast from
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: const Color(0xFFE2E8F0)),
         boxShadow: [
           BoxShadow(
             color: Colors.black.withOpacity(0.02),
@@ -2846,54 +2856,108 @@ class _JobCard extends StatelessWidget {
           ),
         ],
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      // B. ClipRRect: Forces the inner straight borders to be rounded
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(12),
+        child: Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(16),
+          // C. Inner Decoration: BORDER & COLOR ONLY (No Radius here)
+          decoration: BoxDecoration(
+            color: Colors.white,
+            border: Border(
+              top: const BorderSide(color: Color(0xFFE2E8F0)),
+              right: const BorderSide(color: Color(0xFFE2E8F0)),
+              bottom: const BorderSide(color: Color(0xFFE2E8F0)),
+              // The colored left strip
+              left: BorderSide(color: typeColor, width: 4),
+            ),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(
-                order.jobType,
-                style: const TextStyle(
-                  fontWeight: FontWeight.bold,
-                  color: Colors.blue,
-                ),
-              ),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                decoration: BoxDecoration(
-                  color: Colors.orange.withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Text(
-                  order.status,
-                  style: const TextStyle(
-                    fontSize: 10,
-                    color: Colors.deepOrange,
-                    fontWeight: FontWeight.bold,
+              // Row 1: Job Type & Status Badge
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    order.jobType,
+                    style: const TextStyle(
+                      fontWeight: FontWeight.bold,
+                      color: Colors.blue,
+                    ),
                   ),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 4,
+                    ),
+                    decoration: BoxDecoration(
+                      color: Colors.orange.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Text(
+                      order.status,
+                      style: const TextStyle(
+                        fontSize: 10,
+                        color: Colors.deepOrange,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 10),
+
+              // Row 2: Client Name with Type Icon
+              Row(
+                children: [
+                  Icon(typeIcon, size: 18, color: typeColor),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      order.clientName,
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                      ),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                ],
+              ),
+
+              // Row 3: Location
+              Padding(
+                padding: const EdgeInsets.only(left: 26, top: 2),
+                child: Text(
+                  order.location,
+                  style: const TextStyle(color: Colors.grey, fontSize: 13),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                 ),
               ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          Text(
-            order.clientName,
-            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-          ),
-          Text(order.location, style: const TextStyle(color: Colors.grey)),
-          const SizedBox(height: 4),
-          Row(
-            children: [
-              const Icon(Icons.calendar_today, size: 12, color: Colors.grey),
-              const SizedBox(width: 4),
-              Text(
-                dateText,
-                style: const TextStyle(fontSize: 13, color: Colors.grey),
+
+              const SizedBox(height: 10),
+
+              // Row 4: Schedule
+              Row(
+                children: [
+                  const Icon(
+                    Icons.calendar_today,
+                    size: 14,
+                    color: Colors.grey,
+                  ),
+                  const SizedBox(width: 6),
+                  Text(
+                    dateText,
+                    style: const TextStyle(fontSize: 13, color: Colors.grey),
+                  ),
+                ],
               ),
             ],
           ),
-        ],
+        ),
       ),
     );
   }
