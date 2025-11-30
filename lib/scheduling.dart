@@ -20,14 +20,17 @@ class JobOrder {
   String clientName;
   String jobType;
   DateTime startDateTime;
-  DateTime? endDateTime;
+
+  // CHANGED: Renamed for clarity (maps to date_scheduled_end)
+  DateTime? scheduledEndDate;
+
+  // NEW: Maps to date_completed (Actual finish time)
+  DateTime? actualCompletionDate;
+
   String location;
   String status;
   String? notes;
-
-  // For Editing
   final int? customerId;
-
   final bool isCorporate;
 
   JobOrder({
@@ -36,7 +39,8 @@ class JobOrder {
     required this.clientName,
     required this.jobType,
     required this.startDateTime,
-    this.endDateTime,
+    this.scheduledEndDate,
+    this.actualCompletionDate,
     required this.location,
     required this.status,
     this.notes,
@@ -76,6 +80,7 @@ class _SchedulingScreenState extends State<SchedulingScreen> {
       final response = await supabase
           .from('job_orders')
           .select(
+            // UPDATED: Now selecting date_scheduled_end and date_completed
             '*, customers(id, first_name, last_name, company_name, city, barangay, customer_type_id), job_types(job_type_name)',
           )
           .order('date_scheduled', ascending: false);
@@ -91,7 +96,7 @@ class _SchedulingScreenState extends State<SchedulingScreen> {
 
         if (customer != null) {
           custId = customer['id'];
-          // Check if Corporate (assuming ID 1 = Corporate based on your logic)
+          // Check if Corporate (ID 1 = Corporate)
           isCorp = customer['customer_type_id'] == 1;
           if (customer['company_name'] != null &&
               customer['company_name'].toString().isNotEmpty) {
@@ -110,9 +115,16 @@ class _SchedulingScreenState extends State<SchedulingScreen> {
           start = DateTime.parse(row['date_scheduled']).toLocal();
         }
 
-        DateTime? end;
+        // 1. Parse Scheduled End (The extension date)
+        DateTime? schedEnd;
+        if (row['date_scheduled_end'] != null) {
+          schedEnd = DateTime.parse(row['date_scheduled_end']).toLocal();
+        }
+
+        // 2. Parse Actual Completion (History)
+        DateTime? actualEnd;
         if (row['date_completed'] != null) {
-          end = DateTime.parse(row['date_completed']).toLocal();
+          actualEnd = DateTime.parse(row['date_completed']).toLocal();
         }
 
         loaded.add(
@@ -122,7 +134,8 @@ class _SchedulingScreenState extends State<SchedulingScreen> {
             clientName: clientName,
             jobType: row['job_types']?['job_type_name'] ?? 'Service',
             startDateTime: start,
-            endDateTime: end,
+            scheduledEndDate: schedEnd, // New Field
+            actualCompletionDate: actualEnd, // New Field
             location: location,
             status: row['status'] ?? 'Pending',
             notes: row['notes'],
@@ -184,11 +197,12 @@ class _SchedulingScreenState extends State<SchedulingScreen> {
       );
       final check = DateTime(day.year, day.month, day.day);
 
-      if (o.endDateTime != null) {
+      // UPDATED: Use scheduledEndDate for multi-day bars
+      if (o.scheduledEndDate != null) {
         final end = DateTime(
-          o.endDateTime!.year,
-          o.endDateTime!.month,
-          o.endDateTime!.day,
+          o.scheduledEndDate!.year,
+          o.scheduledEndDate!.month,
+          o.scheduledEndDate!.day,
         );
         return (check.isAfter(start) || check.isAtSameMomentAs(start)) &&
             (check.isBefore(end) || check.isAtSameMomentAs(end));
@@ -627,12 +641,24 @@ class _JobBillingManagerState extends State<_JobBillingManager>
   }
 
   void _onReschedule() async {
+    final now = DateTime.now();
+    // Strip time to get strictly "Today at 00:00"
+    final today = DateTime(now.year, now.month, now.day);
+
+    // SAFETY CHECK:
+    // If the current job date is in the past, we can't use it as 'initialDate'
+    // because it would be before 'firstDate' (Today).
+    // So if it's past, we default the picker to Today.
+    final isPast = widget.job.startDateTime.isBefore(today);
+    final pickerInitialDate = isPast ? today : widget.job.startDateTime;
+
     final d = await showDatePicker(
       context: context,
-      initialDate: widget.job.startDateTime,
-      firstDate: DateTime(2020),
+      initialDate: pickerInitialDate,
+      firstDate: today, // STRICT: Blocks previous dates
       lastDate: DateTime(2030),
     );
+
     if (d != null) {
       final t = await showTimePicker(
         context: context,
@@ -640,10 +666,16 @@ class _JobBillingManagerState extends State<_JobBillingManager>
       );
       if (t != null) {
         final newDate = DateTime(d.year, d.month, d.day, t.hour, t.minute);
+
         await _supabase
             .from('job_orders')
-            .update({'date_scheduled': newDate.toUtc().toIso8601String()})
+            .update({
+              'date_scheduled': newDate.toUtc().toIso8601String(),
+              'date_scheduled_end':
+                  null, // Keep the fix for the disappearing bug
+            })
             .eq('id', widget.job.dbId);
+
         widget.onJobUpdated();
         if (mounted) Navigator.pop(context);
       }
@@ -653,7 +685,8 @@ class _JobBillingManagerState extends State<_JobBillingManager>
   void _onExtend() async {
     final d = await showDatePicker(
       context: context,
-      initialDate: widget.job.endDateTime ?? widget.job.startDateTime,
+      // FIX: Changed endDateTime to scheduledEndDate
+      initialDate: widget.job.scheduledEndDate ?? widget.job.startDateTime,
       firstDate: widget.job.startDateTime,
       lastDate: DateTime(2030),
       helpText: "Select End Date",
@@ -661,7 +694,10 @@ class _JobBillingManagerState extends State<_JobBillingManager>
     if (d != null) {
       await _supabase
           .from('job_orders')
-          .update({'date_completed': d.toUtc().toIso8601String()})
+          .update({
+            // FIX: Now writing to the new column
+            'date_scheduled_end': d.toUtc().toIso8601String(),
+          })
           .eq('id', widget.job.dbId);
       widget.onJobUpdated();
       if (mounted) Navigator.pop(context);
@@ -990,8 +1026,9 @@ class _JobBillingManagerState extends State<_JobBillingManager>
     final timeStr = TimeOfDay.fromDateTime(start).format(context);
     final startDateStr = start.toString().split(' ')[0];
 
-    if (widget.job.endDateTime != null) {
-      final end = widget.job.endDateTime!.toLocal();
+    // FIX: Changed endDateTime to scheduledEndDate
+    if (widget.job.scheduledEndDate != null) {
+      final end = widget.job.scheduledEndDate!.toLocal();
       final endDateStr = end.toString().split(' ')[0];
       scheduleText = "$startDateStr - $endDateStr";
     } else {
@@ -1007,7 +1044,7 @@ class _JobBillingManagerState extends State<_JobBillingManager>
         ]),
         const SizedBox(height: 24),
 
-        // NEW: Team Section
+        // Team Section
         _infoSection("Assigned Team", [
           _infoRow(
             Icons.people,
@@ -1018,7 +1055,7 @@ class _JobBillingManagerState extends State<_JobBillingManager>
         ]),
         const SizedBox(height: 24),
 
-        // NEW: Assets Section
+        // Assets Section
         _infoSection("Assets / Units", [
           _infoRow(
             Icons.ac_unit,
@@ -2564,7 +2601,8 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
               final d = await showDatePicker(
                 context: context,
                 initialDate: _scheduleDate,
-                firstDate: DateTime.now(),
+                // OPEN: Allow selection of past dates (back to 2020) for record keeping
+                firstDate: DateTime(2020),
                 lastDate: DateTime(2030),
               );
               if (d != null) setState(() => _scheduleDate = d);
@@ -2830,23 +2868,22 @@ class _JobCard extends StatelessWidget {
       order.startDateTime,
     ).format(context);
 
-    if (order.endDateTime != null) {
-      dateText += " - ${order.endDateTime!.month}/${order.endDateTime!.day}";
+    // UPDATED: Check scheduledEndDate instead of endDateTime
+    if (order.scheduledEndDate != null) {
+      dateText +=
+          " - ${order.scheduledEndDate!.month}/${order.scheduledEndDate!.day}";
     } else {
       dateText += " at $timeText";
     }
 
     // 2. Define Visuals based on Client Type
-    // Based on your DB screenshot: ID 1 is B2B (Corporate)
     final bool isCorp = order.isCorporate;
     final Color typeColor = isCorp ? Colors.indigo : Colors.teal;
     final IconData typeIcon = isCorp ? Icons.business : Icons.person;
 
-    // FIX: Separate Radius/Shadow from the Non-Uniform Border
     return Container(
-      // A. Outer Decoration: SHADOW & RADIUS ONLY
       decoration: BoxDecoration(
-        color: Colors.white, // Background for the shadow to cast from
+        color: Colors.white,
         borderRadius: BorderRadius.circular(12),
         boxShadow: [
           BoxShadow(
@@ -2856,27 +2893,23 @@ class _JobCard extends StatelessWidget {
           ),
         ],
       ),
-      // B. ClipRRect: Forces the inner straight borders to be rounded
       child: ClipRRect(
         borderRadius: BorderRadius.circular(12),
         child: Container(
           width: double.infinity,
           padding: const EdgeInsets.all(16),
-          // C. Inner Decoration: BORDER & COLOR ONLY (No Radius here)
           decoration: BoxDecoration(
             color: Colors.white,
             border: Border(
               top: const BorderSide(color: Color(0xFFE2E8F0)),
               right: const BorderSide(color: Color(0xFFE2E8F0)),
               bottom: const BorderSide(color: Color(0xFFE2E8F0)),
-              // The colored left strip
               left: BorderSide(color: typeColor, width: 4),
             ),
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Row 1: Job Type & Status Badge
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
@@ -2908,8 +2941,6 @@ class _JobCard extends StatelessWidget {
                 ],
               ),
               const SizedBox(height: 10),
-
-              // Row 2: Client Name with Type Icon
               Row(
                 children: [
                   Icon(typeIcon, size: 18, color: typeColor),
@@ -2926,8 +2957,6 @@ class _JobCard extends StatelessWidget {
                   ),
                 ],
               ),
-
-              // Row 3: Location
               Padding(
                 padding: const EdgeInsets.only(left: 26, top: 2),
                 child: Text(
@@ -2937,10 +2966,7 @@ class _JobCard extends StatelessWidget {
                   overflow: TextOverflow.ellipsis,
                 ),
               ),
-
               const SizedBox(height: 10),
-
-              // Row 4: Schedule
               Row(
                 children: [
                   const Icon(
