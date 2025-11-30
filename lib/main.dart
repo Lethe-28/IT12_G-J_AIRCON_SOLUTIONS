@@ -22,10 +22,8 @@ Future<void> main() async {
   // 2. Initialize Supabase (THE MISSING PIECE)
   // You MUST replace these strings with your actual Supabase keys
   await Supabase.initialize(
-    url:
-        'https://tuwiauhnstzocrbcfono.supabase.co', // e.g. 'https://xyz.supabase.co'
-    anonKey:
-        'sb_publishable_lRaDnJO0YkZCNwJS-6jBEA_LNXLRQ5S', // e.g. 'eyJhbGciOiJIUzI1NiIsInR5cCI...'
+    url: 'https://tuwiauhnstzocrbcfono.supabase.co',
+    anonKey: 'sb_publishable_lRaDnJO0YkZCNwJS-6jBEA_LNXLRQ5S',
   );
 
   // 3. Run the app

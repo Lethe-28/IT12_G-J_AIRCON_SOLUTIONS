@@ -1,7 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import 'data/app_state.dart';
-import 'data/models.dart';
 import 'ui_app_shell.dart';
 // REMOVED: import 'calendar_view.dart'; (This was causing the error)
 import 'shared/widgets.dart'
@@ -1414,7 +1412,7 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
   }
 
   Future<void> _fetchInitialData() async {
-    // 1. Fetch Basic Data
+    // 1. Fetch Master Data
     final customers = await _supabase
         .from('customers')
         .select('id, first_name, last_name, company_name, city, barangay')
@@ -1424,18 +1422,18 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
     final brands = await _supabase.from('brands').select().order('brand_name');
     final acTypes = await _supabase.from('aircon_types').select();
 
-    // NEW: Fetch Technicians
     final techs = await _supabase
         .from('technicians')
         .select('id, first_name, last_name')
         .order('first_name');
 
-    // 2. Fetch Existing Links (Aircons & Technicians) if Editing
+    // 2. Prepare Variables for Edit Mode
     List<int> existingLinkedAircons = [];
     List<int> existingLinkedTechs = [];
+    List<Map<String, dynamic>> loadedClientAircons = [];
 
     if (widget.existingJob != null) {
-      // Fetch Aircons
+      // A. Fetch Linked Aircon IDs
       final linkedAcRes = await _supabase
           .from('job_order_aircons')
           .select('aircon_id')
@@ -1444,7 +1442,7 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
         linkedAcRes.map((e) => e['aircon_id']),
       );
 
-      // NEW: Fetch Technicians
+      // B. Fetch Linked Technician IDs
       final linkedTechRes = await _supabase
           .from('job_order_technicians')
           .select('technician_id')
@@ -1452,6 +1450,24 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
       existingLinkedTechs = List<int>.from(
         linkedTechRes.map((e) => e['technician_id']),
       );
+
+      // C. FIX: Fetch the Customer's Aircon List MANUALLY here
+      // (We do this here to avoid calling _fetchClientAircons which clears selections)
+      // 1. Create a local variable (Dart trusts local variables)
+      final int? custId = widget.existingJob?.customerId;
+
+      // 2. Check the LOCAL variable
+      if (custId != null) {
+        final units = await _supabase
+            .from('aircons')
+            .select('id, remarks, brands(brand_name), aircon_types(type_name)')
+            .eq(
+              'customer_id',
+              custId,
+            ); // 3. Use the LOCAL variable here (Error gone!)
+
+        loadedClientAircons = List<Map<String, dynamic>>.from(units);
+      }
     }
 
     if (mounted) {
@@ -1459,18 +1475,19 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
         _existingClients = List<Map<String, dynamic>>.from(customers);
         _brandOptions = List<String>.from(brands.map((b) => b['brand_name']));
         _airconTypes = List<Map<String, dynamic>>.from(acTypes);
-        _availableTechnicians = List<Map<String, dynamic>>.from(
-          techs,
-        ); // Set Techs
+        _availableTechnicians = List<Map<String, dynamic>>.from(techs);
 
         if (widget.existingJob == null) {
+          // --- CREATE MODE ---
           final installType = types.firstWhere(
             (t) => t['job_type_name'] == 'Installation',
             orElse: () => types.first,
           );
           _jobTypeId = installType['id'];
         } else {
-          // EDIT MODE SETUP
+          // --- EDIT MODE ---
+
+          // 1. Set Customer Text
           if (_selectedClientId != null) {
             final cust = _existingClients.firstWhere(
               (c) => c['id'] == _selectedClientId,
@@ -1481,11 +1498,19 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
                   cust['company_name'] ??
                   '${cust['first_name']} ${cust['last_name']}';
             }
-            _fetchClientAircons(_selectedClientId!);
           }
-          // Restore selections
+
+          // 2. Populate Aircon List (from our manual fetch above)
+          if (loadedClientAircons.isNotEmpty) {
+            _clientAircons = loadedClientAircons;
+          }
+
+          // 3. Restore Checkboxes (Now safe from being cleared)
+          _selectedAirconIds.clear();
           _selectedAirconIds.addAll(existingLinkedAircons);
-          _selectedTechnicianIds.addAll(existingLinkedTechs); // Restore Techs
+
+          _selectedTechnicianIds.clear();
+          _selectedTechnicianIds.addAll(existingLinkedTechs);
         }
 
         if (_airconTypes.isNotEmpty) {
