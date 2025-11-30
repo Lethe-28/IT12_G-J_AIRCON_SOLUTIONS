@@ -1,18 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'data/app_state.dart';
-import 'data/models.dart';
 import 'ui_app_shell.dart';
 import 'shared/widgets.dart'
-    show
-        LoadingOverlay,
-        LoadingButton,
-        EmptyState,
-        FilterChipGroup,
-        SortableColumnHeader,
-        showConfirmDialog,
-        showUndoSnackBar,
-        AppDesignTokens;
+    show LoadingOverlay, EmptyState, showConfirmDialog, AppDesignTokens;
 
 // --- Data Classes ---
 class JobOrder {
@@ -24,7 +15,7 @@ class JobOrder {
   DateTime? endDateTime;
   String location;
   String status;
-  String? notes; // Now linked to DB
+  String? notes;
 
   JobOrder({
     required this.dbId,
@@ -67,7 +58,6 @@ class _SchedulingScreenState extends State<SchedulingScreen> {
     final supabase = Supabase.instance.client;
 
     try {
-      // FIX: Added 'notes' to selection
       final response = await supabase
           .from('job_orders')
           .select(
@@ -147,7 +137,6 @@ class _SchedulingScreenState extends State<SchedulingScreen> {
   void _showJobDetails(JobOrder job) {
     showDialog(
       context: context,
-      // FIX: Restored the Billing Manager which contains Tabs + Actions
       builder: (context) => _JobBillingManager(
         job: job,
         onJobUpdated: _fetchJobOrders,
@@ -159,7 +148,7 @@ class _SchedulingScreenState extends State<SchedulingScreen> {
     );
   }
 
-  // --- Calendar Logic ---
+  // --- Calendar Logic Helpers ---
 
   List<JobOrder> _getJobsForDay(DateTime day) {
     return _orders.where((o) {
@@ -179,6 +168,7 @@ class _SchedulingScreenState extends State<SchedulingScreen> {
         return (check.isAfter(start) || check.isAtSameMomentAs(start)) &&
             (check.isBefore(end) || check.isAtSameMomentAs(end));
       }
+
       return DateUtils.isSameDay(start, check);
     }).toList();
   }
@@ -205,6 +195,7 @@ class _SchedulingScreenState extends State<SchedulingScreen> {
           color: const Color(0xFFF8FAFC),
           child: Column(
             children: [
+              // 1. Calendar Header
               Container(
                 padding: EdgeInsets.symmetric(
                   horizontal: isMobileView ? 16 : 32,
@@ -257,6 +248,8 @@ class _SchedulingScreenState extends State<SchedulingScreen> {
                 ),
               ),
               const Divider(height: 1),
+
+              // 2. The Content Area
               Expanded(
                 child: SingleChildScrollView(
                   child: Column(
@@ -267,7 +260,9 @@ class _SchedulingScreenState extends State<SchedulingScreen> {
                         padding: const EdgeInsets.only(bottom: 16),
                         child: _buildCalendarGrid(),
                       ),
+
                       const Divider(height: 1),
+
                       Padding(
                         padding: const EdgeInsets.all(20),
                         child: Column(
@@ -282,6 +277,7 @@ class _SchedulingScreenState extends State<SchedulingScreen> {
                               ),
                             ),
                             const SizedBox(height: 16),
+
                             if (selectedDayJobs.isEmpty)
                               Center(
                                 child: Padding(
@@ -371,12 +367,14 @@ class _SchedulingScreenState extends State<SchedulingScreen> {
           ),
           itemBuilder: (context, index) {
             if (index < firstWeekday) return const SizedBox();
+
             final dayInt = index - firstWeekday + 1;
             final currentDay = DateTime(
               _focusedDate.year,
               _focusedDate.month,
               dayInt,
             );
+
             final isSelected = DateUtils.isSameDay(currentDay, _selectedDate);
             final isToday = DateUtils.isSameDay(currentDay, DateTime.now());
             final hasJobs = _getJobsForDay(currentDay).isNotEmpty;
@@ -447,7 +445,7 @@ class _SchedulingScreenState extends State<SchedulingScreen> {
   }
 }
 
-// --- JOB MANAGEMENT & BILLING HUB (Combined) ---
+// --- JOB MANAGEMENT & BILLING HUB ---
 
 class _JobBillingManager extends StatefulWidget {
   final JobOrder job;
@@ -470,7 +468,6 @@ class _JobBillingManagerState extends State<_JobBillingManager>
   bool _isLoading = true;
   final _supabase = Supabase.instance.client;
 
-  // Billing Data
   List<Map<String, dynamic>> _lineItems = [];
   List<Map<String, dynamic>> _serviceCatalog = [];
   double _totalAmount = 0.0;
@@ -520,8 +517,6 @@ class _JobBillingManagerState extends State<_JobBillingManager>
     }
   }
 
-  // --- ACTIONS ---
-
   void _deleteJob() async {
     final confirm = await showConfirmDialog(
       context: context,
@@ -548,7 +543,6 @@ class _JobBillingManagerState extends State<_JobBillingManager>
   }
 
   void _onReschedule() async {
-    // Pick Date
     final d = await showDatePicker(
       context: context,
       initialDate: widget.job.startDateTime,
@@ -556,7 +550,6 @@ class _JobBillingManagerState extends State<_JobBillingManager>
       lastDate: DateTime(2030),
     );
     if (d != null) {
-      // Pick Time (Fixed: Added time picker)
       final t = await showTimePicker(
         context: context,
         initialTime: TimeOfDay.fromDateTime(widget.job.startDateTime),
@@ -835,74 +828,71 @@ class _JobBillingManagerState extends State<_JobBillingManager>
 
   @override
   Widget build(BuildContext context) {
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        return Dialog(
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(16),
-          ),
-          child: Container(
-            width: 500,
-            height: constraints.maxHeight * 0.8,
-            color: Colors.white,
-            child: Column(
-              children: [
-                // Header
-                Container(
-                  padding: const EdgeInsets.fromLTRB(24, 24, 24, 0),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+    // FIX: Using MediaQuery for stable sizing
+    final size = MediaQuery.of(context).size;
+    final isMobile = size.width < 600;
+
+    return Dialog(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      child: Container(
+        width: 500,
+        height: size.height * 0.85,
+        color: Colors.white,
+        child: Column(
+          children: [
+            Container(
+              padding: const EdgeInsets.fromLTRB(24, 24, 24, 0),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Expanded(
-                            child: Text(
-                              widget.job.clientName,
-                              style: const TextStyle(
-                                fontSize: 22,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
+                      Expanded(
+                        child: Text(
+                          widget.job.clientName,
+                          style: const TextStyle(
+                            fontSize: 22,
+                            fontWeight: FontWeight.bold,
                           ),
-                          IconButton(
-                            onPressed: () => Navigator.pop(context),
-                            icon: const Icon(Icons.close),
-                          ),
-                        ],
+                        ),
                       ),
-                      Text(
-                        "${widget.job.jobType} • ${widget.job.displayId}",
-                        style: const TextStyle(color: Colors.grey),
-                      ),
-                      const SizedBox(height: 16),
-                      TabBar(
-                        controller: _tabController,
-                        labelColor: Colors.blue,
-                        unselectedLabelColor: Colors.grey,
-                        indicatorColor: Colors.blue,
-                        tabs: const [
-                          Tab(text: "Details & Actions"),
-                          Tab(text: "Billing & Payment"),
-                        ],
+                      IconButton(
+                        onPressed: () => Navigator.pop(context),
+                        icon: const Icon(Icons.close),
                       ),
                     ],
                   ),
-                ),
-                const Divider(height: 1),
-                Expanded(
-                  child: _isLoading
-                      ? const Center(child: CircularProgressIndicator())
-                      : TabBarView(
-                          controller: _tabController,
-                          children: [_buildDetailsTab(), _buildBillingTab()],
-                        ),
-                ),
-              ],
+                  Text(
+                    "${widget.job.jobType} • ${widget.job.displayId}",
+                    style: const TextStyle(color: Colors.grey),
+                  ),
+                  const SizedBox(height: 16),
+                  TabBar(
+                    controller: _tabController,
+                    labelColor: Colors.blue,
+                    unselectedLabelColor: Colors.grey,
+                    indicatorColor: Colors.blue,
+                    tabs: const [
+                      Tab(text: "Details & Actions"),
+                      Tab(text: "Billing & Payment"),
+                    ],
+                  ),
+                ],
+              ),
             ),
-          ),
-        );
-      },
+            const Divider(height: 1),
+            Expanded(
+              child: _isLoading
+                  ? const Center(child: CircularProgressIndicator())
+                  : TabBarView(
+                      controller: _tabController,
+                      children: [_buildDetailsTab(), _buildBillingTab()],
+                    ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 
@@ -910,7 +900,6 @@ class _JobBillingManagerState extends State<_JobBillingManager>
     return ListView(
       padding: const EdgeInsets.all(24),
       children: [
-        // FIX: Added Time formatting (h:mm a)
         _infoSection("Schedule", [
           _infoRow(
             Icons.calendar_today,
@@ -919,7 +908,6 @@ class _JobBillingManagerState extends State<_JobBillingManager>
           _infoRow(Icons.location_on, widget.job.location),
         ]),
         const SizedBox(height: 24),
-        // FIX: Displaying Notes from DB
         _infoSection("Notes", [
           _infoRow(
             Icons.note,
@@ -1203,6 +1191,7 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
   List<Map<String, dynamic>> _existingClients = [];
   List<String> _brandOptions = [];
   List<Map<String, dynamic>> _airconTypes = [];
+
   int? _selectedClientId;
   List<Map<String, dynamic>> _clientAircons = [];
   final List<int> _selectedAirconIds = [];
@@ -1242,7 +1231,6 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
         .from('customers')
         .select('id, first_name, last_name, company_name, city, barangay')
         .order('last_name', ascending: true);
-
     final types = await _supabase.from('job_types').select();
     final brands = await _supabase
         .from('brands')
@@ -1276,7 +1264,6 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
         .from('aircons')
         .select('id, remarks, brands(brand_name), aircon_types(type_name)')
         .eq('customer_id', clientId);
-
     if (mounted) {
       setState(() {
         _clientAircons = List<Map<String, dynamic>>.from(units);
@@ -1285,7 +1272,6 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
     }
   }
 
-  // --- ACTIONS: ADD UNIT ---
   void _addNewUnitDialog() {
     showDialog(
       context: context,
@@ -1295,30 +1281,23 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
           mainAxisSize: MainAxisSize.min,
           children: [
             Autocomplete<String>(
-              optionsBuilder: (TextEditingValue textEditingValue) {
-                if (textEditingValue.text == '')
-                  return const Iterable<String>.empty();
-                return _brandOptions.where(
-                  (String option) => option.toLowerCase().contains(
-                    textEditingValue.text.toLowerCase(),
+              optionsBuilder: (v) => v.text == ''
+                  ? const Iterable<String>.empty()
+                  : _brandOptions.where(
+                      (o) => o.toLowerCase().contains(v.text.toLowerCase()),
+                    ),
+              onSelected: (s) => _selectedBrandName = s,
+              fieldViewBuilder: (ctx, c, f, o) {
+                c.addListener(() => _selectedBrandName = c.text);
+                return TextField(
+                  controller: c,
+                  focusNode: f,
+                  decoration: const InputDecoration(
+                    labelText: "Brand",
+                    border: OutlineInputBorder(),
                   ),
                 );
               },
-              onSelected: (String selection) => _selectedBrandName = selection,
-              fieldViewBuilder:
-                  (context, controller, focusNode, onFieldSubmitted) {
-                    controller.addListener(
-                      () => _selectedBrandName = controller.text,
-                    );
-                    return TextField(
-                      controller: controller,
-                      focusNode: focusNode,
-                      decoration: const InputDecoration(
-                        labelText: "Brand",
-                        border: OutlineInputBorder(),
-                      ),
-                    );
-                  },
             ),
             const SizedBox(height: 12),
             DropdownButtonFormField<int>(
@@ -1355,19 +1334,17 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
           ElevatedButton(
             onPressed: () async {
               if (_selectedClientId == null) return;
-              // Add Unit Logic
               final brandName = _selectedBrandName.trim();
               if (brandName.isEmpty) return;
-
               int brandId;
               final brandCheck = await _supabase
                   .from('brands')
                   .select('id')
                   .ilike('brand_name', brandName)
                   .maybeSingle();
-              if (brandCheck != null) {
+              if (brandCheck != null)
                 brandId = brandCheck['id'];
-              } else {
+              else {
                 final newBrand = await _supabase
                     .from('brands')
                     .insert({'brand_name': brandName})
@@ -1375,17 +1352,15 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
                     .single();
                 brandId = newBrand['id'];
               }
-
               await _supabase.from('aircons').insert({
                 'customer_id': _selectedClientId,
                 'brand_id': brandId,
                 'aircon_type_id': _selectedAirconTypeId ?? 1,
                 'remarks': _unitRemarkController.text,
               });
-
               if (mounted) {
                 Navigator.pop(context);
-                _fetchClientAircons(_selectedClientId!); // Refresh list
+                _fetchClientAircons(_selectedClientId!);
               }
             },
             child: const Text("Save Unit"),
@@ -1399,9 +1374,7 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
   String? _validatePhone(String? value) {
     if (value == null || value.isEmpty) return 'Required';
     final trimmed = value.trim();
-    if (!RegExp(r'^(09\d{9}|\d{7,10})$').hasMatch(trimmed)) {
-      return 'Invalid #';
-    }
+    if (!RegExp(r'^(09\d{9}|\d{7,10})$').hasMatch(trimmed)) return 'Invalid #';
     return null;
   }
 
@@ -1413,16 +1386,14 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
 
   // --- SUBMIT ---
   Future<void> _submit() async {
-    if (_isNewClient) {
-      if (!_formKey.currentState!.validate()) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text("Please fix errors in red"),
-            backgroundColor: Colors.red,
-          ),
-        );
-        return;
-      }
+    if (_isNewClient && !_formKey.currentState!.validate()) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text("Please fix errors in red"),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
     }
 
     setState(() => _isSubmitting = true);
@@ -1466,7 +1437,7 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
 
       if (finalCustomerId == null) throw "Customer ID missing";
 
-      // 2. CREATE AIRCON (Now Optional for New Clients)
+      // 2. CREATE AIRCON
       if (_isNewClient && _selectedBrandName.isNotEmpty) {
         final brandName = _selectedBrandName.trim();
         int brandId;
@@ -1475,9 +1446,9 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
             .select('id')
             .ilike('brand_name', brandName)
             .maybeSingle();
-        if (brandCheck != null) {
+        if (brandCheck != null)
           brandId = brandCheck['id'];
-        } else {
+        else {
           final newBrand = await _supabase
               .from('brands')
               .insert({'brand_name': brandName})
@@ -1527,7 +1498,6 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
             'user_id': _supabase.auth.currentUser?.id,
             'client_jo_number':
                 'JO-${DateTime.now().millisecondsSinceEpoch.toString().substring(9)}',
-            // FIX: SAVING NOTES
             'notes': _notesController.text.isNotEmpty
                 ? _notesController.text
                 : null,
@@ -1563,100 +1533,92 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
 
   @override
   Widget build(BuildContext context) {
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        return Dialog(
-          insetPadding: constraints.maxWidth < 600
-              ? EdgeInsets.zero
-              : const EdgeInsets.all(40),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(16),
-          ),
-          child: Container(
-            width: constraints.maxWidth < 600 ? double.infinity : 600,
-            height: constraints.maxHeight * 0.85,
-            color: Colors.white,
-            child: Column(
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(20),
-                  decoration: const BoxDecoration(
-                    border: Border(
-                      bottom: BorderSide(color: Color(0xFFE2E8F0)),
+    // FIX: Optimized for keyboard avoidance using MediaQuery
+    final size = MediaQuery.of(context).size;
+    final isMobile = size.width < 600;
+
+    return Dialog(
+      insetPadding: isMobile ? EdgeInsets.zero : const EdgeInsets.all(40),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      child: Container(
+        width: isMobile ? double.infinity : 600,
+        height: size.height * 0.85,
+        color: Colors.white,
+        child: Column(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(20),
+              decoration: const BoxDecoration(
+                border: Border(bottom: BorderSide(color: Color(0xFFE2E8F0))),
+              ),
+              child: Row(
+                children: [
+                  if (_currentStep > 0)
+                    IconButton(
+                      icon: const Icon(Icons.arrow_back),
+                      onPressed: () => setState(() => _currentStep--),
+                    ),
+                  Expanded(
+                    child: Text(
+                      _currentStep == 0
+                          ? "Service Type"
+                          : _currentStep == 1
+                          ? "Customer & Asset"
+                          : "Schedule",
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                      ),
                     ),
                   ),
-                  child: Row(
-                    children: [
-                      if (_currentStep > 0)
-                        IconButton(
-                          icon: const Icon(Icons.arrow_back),
-                          onPressed: () => setState(() => _currentStep--),
-                        ),
-                      Expanded(
-                        child: Text(
-                          _currentStep == 0
-                              ? "Service Type"
-                              : _currentStep == 1
-                              ? "Customer & Asset"
-                              : "Schedule",
-                          textAlign: TextAlign.center,
+                  IconButton(
+                    icon: const Icon(Icons.close),
+                    onPressed: () => Navigator.pop(context),
+                  ),
+                ],
+              ),
+            ),
+
+            Expanded(
+              child: Padding(
+                padding: const EdgeInsets.all(24),
+                child: _buildCurrentStep(),
+              ),
+            ),
+
+            Padding(
+              padding: const EdgeInsets.all(24),
+              child: SizedBox(
+                width: double.infinity,
+                height: 50,
+                child: ElevatedButton(
+                  onPressed: _isSubmitting
+                      ? null
+                      : (_currentStep == 2
+                            ? _submit
+                            : () => setState(() => _currentStep++)),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF2563EB),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                  child: _isSubmitting
+                      ? const CircularProgressIndicator(color: Colors.white)
+                      : Text(
+                          _currentStep == 2 ? 'Create Job Order' : 'Next Step',
                           style: const TextStyle(
-                            fontSize: 18,
+                            color: Colors.white,
                             fontWeight: FontWeight.bold,
                           ),
                         ),
-                      ),
-                      IconButton(
-                        icon: const Icon(Icons.close),
-                        onPressed: () => Navigator.pop(context),
-                      ),
-                    ],
-                  ),
                 ),
-
-                Expanded(
-                  child: Padding(
-                    padding: const EdgeInsets.all(24),
-                    child: _buildCurrentStep(),
-                  ),
-                ),
-
-                Padding(
-                  padding: const EdgeInsets.all(24),
-                  child: SizedBox(
-                    width: double.infinity,
-                    height: 50,
-                    child: ElevatedButton(
-                      onPressed: _isSubmitting
-                          ? null
-                          : (_currentStep == 2
-                                ? _submit
-                                : () => setState(() => _currentStep++)),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: const Color(0xFF2563EB),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                      ),
-                      child: _isSubmitting
-                          ? const CircularProgressIndicator(color: Colors.white)
-                          : Text(
-                              _currentStep == 2
-                                  ? 'Create Job Order'
-                                  : 'Next Step',
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                    ),
-                  ),
-                ),
-              ],
+              ),
             ),
-          ),
-        );
-      },
+          ],
+        ),
+      ),
     );
   }
 
@@ -1745,43 +1707,36 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
             ),
             const SizedBox(height: 8),
             Autocomplete<Map<String, dynamic>>(
-              optionsBuilder: (TextEditingValue textEditingValue) {
-                if (textEditingValue.text == '')
-                  return const Iterable<Map<String, dynamic>>.empty();
-                return _existingClients.where((Map<String, dynamic> option) {
-                  final name =
-                      option['company_name'] ??
-                      '${option['first_name']} ${option['last_name']}';
-                  return name.toLowerCase().contains(
-                    textEditingValue.text.toLowerCase(),
-                  );
-                });
-              },
-              displayStringForOption: (Map<String, dynamic> option) =>
-                  option['company_name'] ??
-                  '${option['first_name']} ${option['last_name']}',
-              onSelected: (Map<String, dynamic> selection) {
+              optionsBuilder: (v) => v.text == ''
+                  ? const Iterable<Map<String, dynamic>>.empty()
+                  : _existingClients.where(
+                      (o) =>
+                          (o['company_name'] ??
+                                  '${o['first_name']} ${o['last_name']}')
+                              .toLowerCase()
+                              .contains(v.text.toLowerCase()),
+                    ),
+              displayStringForOption: (o) =>
+                  o['company_name'] ?? '${o['first_name']} ${o['last_name']}',
+              onSelected: (s) {
                 setState(() {
-                  _selectedClientId = selection['id'];
+                  _selectedClientId = s['id'];
                   _fetchClientAircons(_selectedClientId!);
                 });
               },
-              fieldViewBuilder:
-                  (context, controller, focusNode, onFieldSubmitted) {
-                    return TextField(
-                      controller: controller,
-                      focusNode: focusNode,
-                      decoration: const InputDecoration(
-                        hintText: "Type client name...",
-                        prefixIcon: Icon(Icons.search),
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.all(Radius.circular(12)),
-                        ),
-                        filled: true,
-                        fillColor: Colors.white,
-                      ),
-                    );
-                  },
+              fieldViewBuilder: (ctx, c, f, o) => TextField(
+                controller: c,
+                focusNode: f,
+                decoration: const InputDecoration(
+                  hintText: "Type client name...",
+                  prefixIcon: Icon(Icons.search),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.all(Radius.circular(12)),
+                  ),
+                  filled: true,
+                  fillColor: Colors.white,
+                ),
+              ),
             ),
 
             if (_selectedClientId != null) ...[
@@ -1813,14 +1768,11 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
                     title: Text("$brand $type"),
                     subtitle: Text(unit['remarks'] ?? ''),
                     value: _selectedAirconIds.contains(unit['id']),
-                    onChanged: (v) {
-                      setState(() {
-                        if (v == true)
-                          _selectedAirconIds.add(unit['id']);
-                        else
-                          _selectedAirconIds.remove(unit['id']);
-                      });
-                    },
+                    onChanged: (v) => setState(
+                      () => v == true
+                          ? _selectedAirconIds.add(unit['id'])
+                          : _selectedAirconIds.remove(unit['id']),
+                    ),
                   );
                 })
               else
@@ -1918,7 +1870,6 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
                       ),
                     ],
                   ),
-
                   const SizedBox(height: 24),
                   const Text(
                     "Detailed Address",
@@ -1985,7 +1936,6 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
                     icon: Icons.flag,
                     textCapitalization: TextCapitalization.sentences,
                   ),
-
                   const SizedBox(height: 24),
                   const Text(
                     "First Aircon Unit (Optional)",
@@ -2000,53 +1950,33 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
                     children: [
                       Expanded(
                         child: LayoutBuilder(
-                          builder: (context, constraints) {
-                            return Autocomplete<String>(
-                              optionsBuilder:
-                                  (TextEditingValue textEditingValue) {
-                                    if (textEditingValue.text == '')
-                                      return const Iterable<String>.empty();
-                                    return _brandOptions.where((String option) {
-                                      return option.toLowerCase().contains(
-                                        textEditingValue.text.toLowerCase(),
-                                      );
-                                    });
-                                  },
-                              onSelected: (String selection) {
-                                _selectedBrandName = selection;
-                              },
-                              fieldViewBuilder:
-                                  (
-                                    context,
-                                    textEditingController,
-                                    focusNode,
-                                    onFieldSubmitted,
-                                  ) {
-                                    textEditingController.addListener(() {
-                                      _selectedBrandName =
-                                          textEditingController.text;
-                                    });
-                                    return TextFormField(
-                                      controller: textEditingController,
-                                      focusNode: focusNode,
-                                      decoration: const InputDecoration(
-                                        label: Text("Brand (Search/Add)"),
-                                        border: OutlineInputBorder(
-                                          borderRadius: BorderRadius.all(
-                                            Radius.circular(12),
-                                          ),
-                                        ),
-                                        filled: true,
-                                        fillColor: Colors.white,
-                                        contentPadding: EdgeInsets.symmetric(
-                                          horizontal: 16,
-                                          vertical: 14,
-                                        ),
-                                      ),
-                                    );
-                                  },
-                            );
-                          },
+                          builder: (ctx, c) => Autocomplete<String>(
+                            optionsBuilder: (v) => v.text == ''
+                                ? const Iterable<String>.empty()
+                                : _brandOptions.where(
+                                    (o) => o.toLowerCase().contains(
+                                      v.text.toLowerCase(),
+                                    ),
+                                  ),
+                            onSelected: (s) => _selectedBrandName = s,
+                            fieldViewBuilder: (ctx, c, f, o) {
+                              c.addListener(() => _selectedBrandName = c.text);
+                              return TextFormField(
+                                controller: c,
+                                focusNode: f,
+                                decoration: const InputDecoration(
+                                  label: Text("Brand (Search/Add)"),
+                                  border: OutlineInputBorder(
+                                    borderRadius: BorderRadius.all(
+                                      Radius.circular(12),
+                                    ),
+                                  ),
+                                  filled: true,
+                                  fillColor: Colors.white,
+                                ),
+                              );
+                            },
+                          ),
                         ),
                       ),
                       const SizedBox(width: 12),
@@ -2062,10 +1992,6 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
                             ),
                             filled: true,
                             fillColor: Colors.white,
-                            contentPadding: EdgeInsets.symmetric(
-                              horizontal: 16,
-                              vertical: 14,
-                            ),
                           ),
                           items: _airconTypes
                               .map(
@@ -2163,7 +2089,6 @@ class _BigVisualOption extends StatelessWidget {
   final Color color;
   final bool isSelected;
   final VoidCallback onTap;
-
   const _BigVisualOption({
     required this.icon,
     required this.title,
@@ -2171,7 +2096,6 @@ class _BigVisualOption extends StatelessWidget {
     required this.isSelected,
     required this.onTap,
   });
-
   @override
   Widget build(BuildContext context) {
     return GestureDetector(
@@ -2215,7 +2139,6 @@ class _ToggleOption extends StatelessWidget {
     required this.isSelected,
     required this.onTap,
   });
-
   @override
   Widget build(BuildContext context) {
     return GestureDetector(
@@ -2247,7 +2170,6 @@ class _ToggleOption extends StatelessWidget {
   }
 }
 
-// UPDATED: Now uses TextFormField for Validation
 class _SimpleInput extends StatelessWidget {
   final TextEditingController controller;
   final IconData? icon;
@@ -2256,7 +2178,6 @@ class _SimpleInput extends StatelessWidget {
   final String? Function(String?)? validator;
   final TextInputType? keyboardType;
   final TextCapitalization textCapitalization;
-
   const _SimpleInput({
     required this.controller,
     this.icon,
@@ -2266,7 +2187,6 @@ class _SimpleInput extends StatelessWidget {
     this.keyboardType,
     this.textCapitalization = TextCapitalization.none,
   });
-
   @override
   Widget build(BuildContext context) {
     return TextFormField(
@@ -2274,12 +2194,9 @@ class _SimpleInput extends StatelessWidget {
       keyboardType: keyboardType,
       textCapitalization: textCapitalization,
       validator: (value) {
-        if (isRequired && (value == null || value.isEmpty)) {
+        if (isRequired && (value == null || value.isEmpty))
           return '$hint is required';
-        }
-        if (validator != null) {
-          return validator!(value);
-        }
+        if (validator != null) return validator!(value);
         return null;
       },
       decoration: InputDecoration(
@@ -2312,19 +2229,14 @@ class _SimpleInput extends StatelessWidget {
 class _JobCard extends StatelessWidget {
   final JobOrder order;
   const _JobCard({required this.order});
-
   @override
   Widget build(BuildContext context) {
-    // FIX: Show Specific Time (h:mm a)
     String dateText = "${order.startDateTime.month}/${order.startDateTime.day}";
     String timeText = TimeOfDay.fromDateTime(
       order.startDateTime,
     ).format(context);
-
-    if (order.endDateTime != null) {
+    if (order.endDateTime != null)
       dateText += " - ${order.endDateTime!.month}/${order.endDateTime!.day}";
-    }
-
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(16),
