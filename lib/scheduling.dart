@@ -140,73 +140,9 @@ class _SchedulingScreenState extends State<SchedulingScreen> {
   void _showJobDetails(JobOrder job) {
     showDialog(
       context: context,
-      builder: (context) => _JobDetailDialog(
+      builder: (context) => _JobBillingManager(
         job: job,
-        onEdit: () {
-          Navigator.pop(context);
-          _onAddOrEdit();
-        },
-        onDelete: () async {
-          final confirm = await showConfirmDialog(
-            context: context,
-            title: "Delete Job?",
-            message: "This will permanently remove this job and its links.",
-            confirmLabel: "Delete Forever",
-            isDestructive: true,
-          );
-
-          if (confirm == true) {
-            try {
-              // Try to delete
-              await Supabase.instance.client
-                  .from('job_orders')
-                  .delete()
-                  .eq('id', job.dbId);
-
-              if (mounted) {
-                Navigator.pop(context);
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Job deleted successfully')),
-                );
-                _fetchJobOrders();
-              }
-            } catch (e) {
-              // If it fails (likely DB constraint), tell the user
-              if (mounted) {
-                Navigator.pop(context);
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text(
-                      'Delete failed. Please run the SQL Fix script. Error: $e',
-                    ),
-                    backgroundColor: Colors.red,
-                    duration: const Duration(seconds: 5),
-                  ),
-                );
-              }
-            }
-          }
-        },
-        onReschedule: (newDate) async {
-          await Supabase.instance.client
-              .from('job_orders')
-              .update({'date_scheduled': newDate.toIso8601String()})
-              .eq('id', job.dbId);
-          if (mounted) {
-            Navigator.pop(context);
-            _fetchJobOrders();
-          }
-        },
-        onExtend: (newEndDate) async {
-          await Supabase.instance.client
-              .from('job_orders')
-              .update({'date_completed': newEndDate.toIso8601String()})
-              .eq('id', job.dbId);
-          if (mounted) {
-            Navigator.pop(context);
-            _fetchJobOrders();
-          }
-        },
+        onJobUpdated: _fetchJobOrders, // Refresh list when dialog closes
       ),
     );
   }
@@ -516,135 +452,421 @@ class _SchedulingScreenState extends State<SchedulingScreen> {
   }
 }
 
-// --- JOB DETAIL DIALOG (NEW) ---
+// --- JOB MANAGEMENT & BILLING HUB ---
 
-class _JobDetailDialog extends StatelessWidget {
+class _JobBillingManager extends StatefulWidget {
   final JobOrder job;
-  final VoidCallback onEdit;
-  final VoidCallback onDelete;
-  final Function(DateTime) onReschedule;
-  final Function(DateTime) onExtend;
+  final VoidCallback onJobUpdated;
 
-  const _JobDetailDialog({
-    required this.job,
-    required this.onEdit,
-    required this.onDelete,
-    required this.onReschedule,
-    required this.onExtend,
-  });
+  const _JobBillingManager({required this.job, required this.onJobUpdated});
+
+  @override
+  State<_JobBillingManager> createState() => _JobBillingManagerState();
+}
+
+class _JobBillingManagerState extends State<_JobBillingManager>
+    with SingleTickerProviderStateMixin {
+  late TabController _tabController;
+  bool _isLoading = true;
+  final _supabase = Supabase.instance.client;
+
+  // Billing Data
+  List<Map<String, dynamic>> _lineItems = [];
+  List<Map<String, dynamic>> _serviceCatalog = [];
+  double _totalAmount = 0.0;
+  double _totalPaid = 0.0;
+
+  @override
+  void initState() {
+    super.initState();
+    _tabController = TabController(length: 2, vsync: this);
+    _fetchBillingData();
+  }
+
+  Future<void> _fetchBillingData() async {
+    setState(() => _isLoading = true);
+    try {
+      // 1. Fetch Line Items for this Job
+      final items = await _supabase
+          .from('job_order_line_items')
+          .select('id, quantity, actual_price, service_items(item_name)')
+          .eq('job_order_id', widget.job.dbId);
+
+      // 2. Fetch Payments to see status
+      final payments = await _supabase
+          .from('payments')
+          .select('amount')
+          .eq('job_order_id', widget.job.dbId);
+
+      // 3. Fetch Service Catalog (for the dropdown)
+      final catalog = await _supabase
+          .from('service_items')
+          .select()
+          .order('item_name');
+
+      double total = 0;
+      for (var i in items) {
+        total += (i['actual_price'] * i['quantity']);
+      }
+
+      double paid = 0;
+      for (var p in payments) {
+        paid += p['amount'];
+      }
+
+      if (mounted) {
+        setState(() {
+          _lineItems = List<Map<String, dynamic>>.from(items);
+          _serviceCatalog = List<Map<String, dynamic>>.from(catalog);
+          _totalAmount = total;
+          _totalPaid = paid;
+        });
+      }
+    } catch (e) {
+      debugPrint('Error: $e');
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  // --- ACTIONS ---
+
+  void _addItemDialog() {
+    // Controller for custom values
+    int? selectedItemId;
+    final priceController = TextEditingController();
+    final qtyController = TextEditingController(text: '1');
+    final nameController = TextEditingController(); // For custom items
+    bool isCustom = false;
+
+    showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (context, setDialogState) {
+          return AlertDialog(
+            title: const Text("Add Service/Item"),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // Toggle Catalog vs Custom
+                Row(
+                  children: [
+                    Expanded(
+                      child: ChoiceChip(
+                        label: const Text("From Catalog"),
+                        selected: !isCustom,
+                        onSelected: (v) => setDialogState(() => isCustom = !v),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: ChoiceChip(
+                        label: const Text("Custom Item"),
+                        selected: isCustom,
+                        onSelected: (v) => setDialogState(() {
+                          isCustom = v;
+                          selectedItemId = null;
+                          priceController.clear();
+                        }),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+
+                if (!isCustom)
+                  DropdownButtonFormField<int>(
+                    value: selectedItemId,
+                    isExpanded: true,
+                    decoration: const InputDecoration(
+                      labelText: "Select Item",
+                      border: OutlineInputBorder(),
+                    ),
+                    items: _serviceCatalog
+                        .map(
+                          (item) => DropdownMenuItem(
+                            value: item['id'] as int,
+                            child: Text(
+                              "${item['item_name']} (₱${item['price']})",
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        )
+                        .toList(),
+                    onChanged: (val) {
+                      setDialogState(() {
+                        selectedItemId = val;
+                        final item = _serviceCatalog.firstWhere(
+                          (i) => i['id'] == val,
+                        );
+                        priceController.text = item['price']
+                            .toString(); // Auto-fill price
+                      });
+                    },
+                  )
+                else
+                  TextFormField(
+                    controller: nameController,
+                    decoration: const InputDecoration(
+                      labelText: "Item Name",
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    Expanded(
+                      child: TextFormField(
+                        controller: priceController,
+                        decoration: const InputDecoration(
+                          labelText: "Price (₱)",
+                          border: OutlineInputBorder(),
+                        ),
+                        keyboardType: TextInputType.number,
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: TextFormField(
+                        controller: qtyController,
+                        decoration: const InputDecoration(
+                          labelText: "Qty",
+                          border: OutlineInputBorder(),
+                        ),
+                        keyboardType: TextInputType.number,
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text("Cancel"),
+              ),
+              ElevatedButton(
+                onPressed: () async {
+                  await _saveLineItem(
+                    isCustom: isCustom,
+                    itemId: selectedItemId,
+                    customName: nameController.text,
+                    price: double.tryParse(priceController.text) ?? 0,
+                    qty: double.tryParse(qtyController.text) ?? 1,
+                  );
+                  if (mounted) Navigator.pop(context);
+                },
+                child: const Text("Add to Bill"),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  Future<void> _saveLineItem({
+    required bool isCustom,
+    int? itemId,
+    String? customName,
+    required double price,
+    required double qty,
+  }) async {
+    try {
+      int finalItemId;
+
+      if (isCustom) {
+        // 1. Create the custom item in catalog first (so we can reuse it later if needed, or just for integrity)
+        // Or simple hack: link to a generic "Custom" item ID if you have one.
+        // For this demo, let's assume we insert it as a new 'Material'
+        final res = await _supabase
+            .from('service_items')
+            .insert({
+              'item_name': customName ?? 'Custom Service',
+              'item_type': 'Custom',
+              'price': price,
+            })
+            .select('id')
+            .single();
+        finalItemId = res['id'];
+      } else {
+        if (itemId == null) return;
+        finalItemId = itemId;
+      }
+
+      // 2. Insert into Line Items
+      await _supabase.from('job_order_line_items').insert({
+        'job_order_id': widget.job.dbId,
+        'service_item_id': finalItemId,
+        'quantity': qty,
+        'actual_price': price, // This is where we capture the "Assessed" price
+      });
+
+      _fetchBillingData(); // Refresh UI
+    } catch (e) {
+      if (mounted)
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text("Error: $e")));
+    }
+  }
+
+  void _recordPaymentDialog() {
+    final amountController = TextEditingController(
+      text: (_totalAmount - _totalPaid).toString(),
+    );
+    String method = 'Cash';
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text("Record Payment"),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text("Record cash-in from client."),
+            const SizedBox(height: 16),
+            TextFormField(
+              controller: amountController,
+              decoration: const InputDecoration(
+                labelText: "Amount Received",
+                prefixText: "₱ ",
+                border: OutlineInputBorder(),
+              ),
+              keyboardType: TextInputType.number,
+            ),
+            const SizedBox(height: 12),
+            DropdownButtonFormField<String>(
+              value: method,
+              decoration: const InputDecoration(
+                labelText: "Payment Method",
+                border: OutlineInputBorder(),
+              ),
+              items: [
+                'Cash',
+                'GCash',
+                'Bank Transfer',
+                'Cheque',
+              ].map((m) => DropdownMenuItem(value: m, child: Text(m))).toList(),
+              onChanged: (v) => method = v!,
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text("Cancel"),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.green,
+              foregroundColor: Colors.white,
+            ),
+            onPressed: () async {
+              await _supabase.from('payments').insert({
+                'job_order_id': widget.job.dbId,
+                'amount': double.tryParse(amountController.text) ?? 0,
+                'payment_method': method,
+                'payment_date': DateTime.now().toIso8601String(),
+                'status':
+                    'Verified', // Auto-verify since Admin/Manager is entering it
+              });
+              if (mounted) {
+                Navigator.pop(context);
+                _fetchBillingData();
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text("Payment Recorded!")),
+                );
+              }
+            },
+            child: const Text("Confirm Payment"),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _deleteJob() async {
+    final confirm = await showConfirmDialog(
+      context: context,
+      title: "Delete Job?",
+      message: "This will remove the job and all billing records.",
+      confirmLabel: "Delete Forever",
+      isDestructive: true,
+    );
+
+    if (confirm == true) {
+      await _supabase.from('job_orders').delete().eq('id', widget.job.dbId);
+      if (mounted) {
+        Navigator.pop(context);
+        widget.onJobUpdated();
+      }
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
     return Dialog(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       child: Container(
-        padding: const EdgeInsets.all(24),
-        constraints: const BoxConstraints(maxWidth: 400),
+        width: 500,
+        height: 700,
+        color: Colors.white,
         child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    job.clientName,
-                    style: const TextStyle(
-                      fontSize: 20,
-                      fontWeight: FontWeight.bold,
-                    ),
+            // Header
+            Container(
+              padding: const EdgeInsets.fromLTRB(24, 24, 24, 0),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Expanded(
+                        child: Text(
+                          widget.job.clientName,
+                          style: const TextStyle(
+                            fontSize: 22,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                      IconButton(
+                        onPressed: () => Navigator.pop(context),
+                        icon: const Icon(Icons.close),
+                      ),
+                    ],
                   ),
-                ),
-                IconButton(
-                  onPressed: () => Navigator.pop(context),
-                  icon: const Icon(Icons.close),
-                ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            Text(
-              job.jobType,
-              style: const TextStyle(
-                fontSize: 16,
-                color: Colors.blue,
-                fontWeight: FontWeight.w600,
+                  Text(
+                    "${widget.job.jobType} • ${widget.job.displayId}",
+                    style: const TextStyle(color: Colors.grey),
+                  ),
+                  const SizedBox(height: 16),
+                  TabBar(
+                    controller: _tabController,
+                    labelColor: Colors.blue,
+                    unselectedLabelColor: Colors.grey,
+                    indicatorColor: Colors.blue,
+                    tabs: const [
+                      Tab(text: "Details & Actions"),
+                      Tab(text: "Billing & Payment"),
+                    ],
+                  ),
+                ],
               ),
             ),
-            const SizedBox(height: 16),
-            _infoRow(
-              Icons.calendar_today,
-              "${job.startDateTime.month}/${job.startDateTime.day} ${job.startDateTime.hour}:${job.startDateTime.minute.toString().padLeft(2, '0')}",
-            ),
-            if (job.endDateTime != null)
-              _infoRow(
-                Icons.event_repeat,
-                "Ends: ${job.endDateTime!.month}/${job.endDateTime!.day}",
-              ),
-            const SizedBox(height: 8),
-            _infoRow(Icons.numbers, job.displayId),
+            const Divider(height: 1),
 
-            const SizedBox(height: 24),
-            const Divider(),
-            const SizedBox(height: 16),
-            const Text(
-              "Actions",
-              style: TextStyle(
-                fontSize: 14,
-                color: Colors.grey,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-            const SizedBox(height: 12),
-
-            // ACTION BUTTONS GRID
-            Wrap(
-              spacing: 12,
-              runSpacing: 12,
-              children: [
-                _ActionButton(
-                  icon: Icons.edit,
-                  label: "Edit",
-                  color: Colors.blue,
-                  onTap: onEdit,
-                ),
-                _ActionButton(
-                  icon: Icons.calendar_month,
-                  label: "Reschedule",
-                  color: Colors.orange,
-                  onTap: () async {
-                    final d = await showDatePicker(
-                      context: context,
-                      initialDate: job.startDateTime,
-                      // FIX: Allow past dates (starting from 2020) so the picker doesn't crash on old jobs
-                      firstDate: DateTime(2020),
-                      lastDate: DateTime(2030),
-                    );
-                    if (d != null) onReschedule(d);
-                  },
-                ),
-                _ActionButton(
-                  icon: Icons.update,
-                  label: "Extend",
-                  color: Colors.purple,
-                  onTap: () async {
-                    final d = await showDatePicker(
-                      context: context,
-                      initialDate: job.endDateTime ?? job.startDateTime,
-                      firstDate: job.startDateTime,
-                      lastDate: DateTime(2030),
-                      helpText: "Select End Date",
-                    );
-                    if (d != null) onExtend(d);
-                  },
-                ),
-                _ActionButton(
-                  icon: Icons.delete,
-                  label: "Delete",
-                  color: Colors.red,
-                  onTap:
-                      onDelete, // FIX: The error logic was actually in the parent call, fixed below
-                ),
-              ],
+            // Body
+            Expanded(
+              child: _isLoading
+                  ? const Center(child: CircularProgressIndicator())
+                  : TabBarView(
+                      controller: _tabController,
+                      children: [_buildDetailsTab(), _buildBillingTab()],
+                    ),
             ),
           ],
         ),
@@ -652,17 +874,229 @@ class _JobDetailDialog extends StatelessWidget {
     );
   }
 
-  Widget _infoRow(IconData icon, String text) {
+  Widget _buildDetailsTab() {
+    return ListView(
+      padding: const EdgeInsets.all(24),
+      children: [
+        _infoSection("Schedule", [
+          _infoRow(
+            Icons.calendar_today,
+            "${widget.job.startDateTime.toLocal()}".split('.')[0],
+          ),
+          _infoRow(Icons.location_on, widget.job.location),
+        ]),
+        const SizedBox(height: 24),
+        const Text(
+          "Quick Actions",
+          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+        ),
+        const SizedBox(height: 12),
+        Wrap(
+          spacing: 12,
+          runSpacing: 12,
+          children: [
+            _ActionButton(
+              icon: Icons.calendar_month,
+              label: "Reschedule",
+              color: Colors.orange,
+              onTap: () async {
+                final d = await showDatePicker(
+                  context: context,
+                  initialDate: widget.job.startDateTime,
+                  firstDate: DateTime(2020),
+                  lastDate: DateTime(2030),
+                );
+                if (d != null) {
+                  await _supabase
+                      .from('job_orders')
+                      .update({'date_scheduled': d.toIso8601String()})
+                      .eq('id', widget.job.dbId);
+                  widget.onJobUpdated();
+                  if (mounted) Navigator.pop(context);
+                }
+              },
+            ),
+            _ActionButton(
+              icon: Icons.delete,
+              label: "Delete",
+              color: Colors.red,
+              onTap: _deleteJob,
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Widget _buildBillingTab() {
+    final balance = _totalAmount - _totalPaid;
+    final isPaid = balance <= 0 && _totalAmount > 0;
+
+    return Column(
+      children: [
+        // List of Items
+        Expanded(
+          child: _lineItems.isEmpty
+              ? EmptyState(
+                  icon: Icons.receipt_long,
+                  title: "No Items Yet",
+                  message: "Add services or parts to create the bill.",
+                  actionLabel: "Add Item",
+                  onAction: _addItemDialog,
+                )
+              : ListView.separated(
+                  padding: const EdgeInsets.all(24),
+                  itemCount: _lineItems.length,
+                  separatorBuilder: (ctx, i) => const Divider(),
+                  itemBuilder: (ctx, i) {
+                    final item = _lineItems[i];
+                    final name = item['service_items']['item_name'];
+                    final price = item['actual_price'];
+                    final qty = item['quantity'];
+                    return Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                name,
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                              Text(
+                                "$qty x ₱$price",
+                                style: const TextStyle(
+                                  fontSize: 12,
+                                  color: Colors.grey,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        Text(
+                          "₱${(price * qty).toStringAsFixed(2)}",
+                          style: const TextStyle(fontWeight: FontWeight.bold),
+                        ),
+                      ],
+                    );
+                  },
+                ),
+        ),
+
+        // Footer: Totals & Action
+        Container(
+          padding: const EdgeInsets.all(24),
+          decoration: BoxDecoration(
+            color: Colors.grey[50],
+            border: const Border(top: BorderSide(color: Color(0xFFE2E8F0))),
+          ),
+          child: Column(
+            children: [
+              _totalRow("Total Bill", _totalAmount),
+              _totalRow("Paid", _totalPaid, color: Colors.green),
+              const Divider(height: 24),
+              _totalRow(
+                "Balance Due",
+                balance,
+                isBold: true,
+                color: balance > 0 ? Colors.red : Colors.grey,
+              ),
+              const SizedBox(height: 20),
+
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: _addItemDialog,
+                      icon: const Icon(Icons.add),
+                      label: const Text("Add Item"),
+                      style: OutlinedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 16),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: ElevatedButton.icon(
+                      onPressed: isPaid ? null : _recordPaymentDialog,
+                      icon: const Icon(Icons.payment),
+                      label: Text(isPaid ? "Paid" : "Record Payment"),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.green,
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(vertical: 16),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _totalRow(
+    String label,
+    double value, {
+    bool isBold = false,
+    Color? color,
+  }) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(
+            label,
+            style: TextStyle(
+              fontWeight: isBold ? FontWeight.bold : FontWeight.normal,
+              fontSize: isBold ? 16 : 14,
+            ),
+          ),
+          Text(
+            "₱${value.toStringAsFixed(2)}",
+            style: TextStyle(
+              fontWeight: isBold ? FontWeight.bold : FontWeight.normal,
+              fontSize: isBold ? 18 : 14,
+              color: color,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _infoSection(String title, List<Widget> children) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          title,
+          style: const TextStyle(
+            color: Colors.grey,
+            fontWeight: FontWeight.bold,
+            fontSize: 12,
+          ),
+        ),
+        const SizedBox(height: 8),
+        ...children,
+      ],
+    );
+  }
+
+  Widget _infoRow(IconData icon, String text) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
       child: Row(
         children: [
           Icon(icon, size: 16, color: Colors.grey),
           const SizedBox(width: 8),
-          Text(
-            text,
-            style: const TextStyle(fontSize: 14, color: Colors.black87),
-          ),
+          Expanded(child: Text(text)),
         ],
       ),
     );
