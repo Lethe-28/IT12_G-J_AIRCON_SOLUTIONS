@@ -74,14 +74,7 @@ class _AppShellState extends State<AppShell> {
             appBar: AppBar(
               backgroundColor: Colors.white,
               elevation: 1,
-              title: const Text(
-                'G & J System',
-                style: TextStyle(
-                  color: Colors.black87,
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
+              title: _MobileAppBarTitle(selectedIndex: widget.selectedIndex),
               iconTheme: const IconThemeData(color: Colors.black87),
               leading: IconButton(
                 icon: const Icon(Icons.menu),
@@ -361,7 +354,7 @@ class _DesktopSidebarHeader extends StatelessWidget {
             : MainAxisAlignment.spaceBetween,
         children: [
           if (!isCollapsed) ...[
-            Container(
+            SizedBox(
               width: 32,
               height: 32,
               child: Image.asset(
@@ -436,6 +429,68 @@ class _UserFooter extends StatelessWidget {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _MobileAppBarTitle extends StatelessWidget {
+  final int selectedIndex;
+  const _MobileAppBarTitle({required this.selectedIndex});
+
+  String? _labelForIndex(int index) {
+    switch (index) {
+      case 0:
+        return 'Dashboard';
+      case 1:
+        return 'Job Order & Scheduling';
+      case 2:
+        return 'Expenses';
+      case 3:
+        return 'Documents';
+      case 4:
+        return 'Reports';
+      case 5:
+        return AppState.currentRole == UserRole.admin ? 'Customers' : 'Settings';
+      case 6:
+        return 'Technicians';
+      case 7:
+        return 'Aircon Units';
+      case 8:
+        return 'Service Items';
+      case 9:
+        return 'Master Data';
+      case 10:
+        return 'User Management';
+      case 11:
+        return 'Settings';
+      default:
+        return null;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final subtitle = _labelForIndex(selectedIndex);
+    // Show only the current section name on mobile (per user request).
+    if (subtitle != null) {
+      return Text(
+        subtitle,
+        style: const TextStyle(
+          color: Colors.black87,
+          fontSize: 18,
+          fontWeight: FontWeight.bold,
+        ),
+      );
+    }
+
+    // Fallback to company name if no section label is available.
+    return const Text(
+      'G & J System',
+      style: TextStyle(
+        color: Colors.black87,
+        fontSize: 18,
+        fontWeight: FontWeight.bold,
       ),
     );
   }

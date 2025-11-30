@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'data/app_state.dart';
 import 'data/models.dart';
@@ -115,10 +116,11 @@ class _SchedulingScreenState extends State<SchedulingScreen> {
 
       if (mounted) setState(() => _orders = loaded);
     } catch (e) {
-      if (mounted)
+      if (mounted) {
         ScaffoldMessenger.of(
           context,
         ).showSnackBar(SnackBar(content: Text('Error loading jobs: $e')));
+      }
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
@@ -258,9 +260,23 @@ class _SchedulingScreenState extends State<SchedulingScreen> {
       selectedIndex: 1,
       body: LoadingOverlay(
         isLoading: _isLoading,
-        child: Container(
-          color: const Color(0xFFF8FAFC),
-          child: Column(
+        child: RefreshIndicator(
+          onRefresh: () async {
+            HapticFeedback.lightImpact();
+            await _fetchJobOrders();
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('Schedule updated'),
+                  duration: Duration(seconds: 1),
+                  behavior: SnackBarBehavior.floating,
+                ),
+              );
+            }
+          },
+          child: Container(
+            color: const Color(0xFFF8FAFC),
+            child: Column(
             children: [
               // 1. Calendar Header
               Container(
@@ -276,7 +292,11 @@ class _SchedulingScreenState extends State<SchedulingScreen> {
                       children: [
                         IconButton(
                           icon: const Icon(Icons.chevron_left),
-                          onPressed: () => _changeMonth(-1),
+                          iconSize: isMobileView ? 28 : 24,
+                          onPressed: () {
+                            HapticFeedback.selectionClick();
+                            _changeMonth(-1);
+                          },
                         ),
                         Text(
                           "${_monthName(_focusedDate.month)} ${_focusedDate.year}",
@@ -288,15 +308,23 @@ class _SchedulingScreenState extends State<SchedulingScreen> {
                         ),
                         IconButton(
                           icon: const Icon(Icons.chevron_right),
-                          onPressed: () => _changeMonth(1),
+                          iconSize: isMobileView ? 28 : 24,
+                          onPressed: () {
+                            HapticFeedback.selectionClick();
+                            _changeMonth(1);
+                          },
                         ),
                       ],
                     ),
                     ElevatedButton.icon(
-                      onPressed: _onAddOrEdit,
+                      onPressed: () {
+                        HapticFeedback.lightImpact();
+                        _onAddOrEdit();
+                      },
                       style: ElevatedButton.styleFrom(
                         backgroundColor: const Color(0xFF2563EB),
                         foregroundColor: Colors.white,
+                        minimumSize: Size(isMobileView ? 100 : 120, isMobileView ? 48 : 44),
                         padding: const EdgeInsets.symmetric(
                           horizontal: 16,
                           vertical: 12,
@@ -305,7 +333,7 @@ class _SchedulingScreenState extends State<SchedulingScreen> {
                           borderRadius: BorderRadius.circular(12),
                         ),
                       ),
-                      icon: const Icon(Icons.add, size: 18),
+                      icon: Icon(Icons.add, size: isMobileView ? 20 : 18),
                       label: Text(
                         isMobileView ? 'Add' : 'Add Job',
                         style: const TextStyle(fontWeight: FontWeight.w700),
@@ -319,6 +347,7 @@ class _SchedulingScreenState extends State<SchedulingScreen> {
               // 2. The Content Area
               Expanded(
                 child: SingleChildScrollView(
+                  physics: const AlwaysScrollableScrollPhysics(),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
@@ -375,8 +404,10 @@ class _SchedulingScreenState extends State<SchedulingScreen> {
                                 separatorBuilder: (ctx, i) =>
                                     const SizedBox(height: 12),
                                 itemBuilder: (ctx, i) => GestureDetector(
-                                  onTap: () =>
-                                      _showJobDetails(selectedDayJobs[i]),
+                                  onTap: () {
+                                    HapticFeedback.selectionClick();
+                                    _showJobDetails(selectedDayJobs[i]);
+                                  },
                                   child: _JobCard(order: selectedDayJobs[i]),
                                 ),
                               ),
@@ -389,6 +420,7 @@ class _SchedulingScreenState extends State<SchedulingScreen> {
               ),
             ],
           ),
+        ),
         ),
       ),
     );
@@ -959,10 +991,11 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
         ).showSnackBar(const SnackBar(content: Text("Job Order Created!")));
       }
     } catch (e) {
-      if (mounted)
+      if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text("Error: $e"), backgroundColor: Colors.red),
         );
+      }
     } finally {
       if (mounted) setState(() => _isSubmitting = false);
     }
@@ -1166,7 +1199,7 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
             ),
             const SizedBox(height: 8),
             DropdownButtonFormField<int>(
-              value: _selectedClientId,
+              initialValue: _selectedClientId,
               isExpanded: true,
               decoration: InputDecoration(
                 hintText: "Select Customer...",
@@ -1210,10 +1243,11 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
                   value: _selectedAirconIds.contains(unit['id']),
                   onChanged: (v) {
                     setState(() {
-                      if (v == true)
+                      if (v == true) {
                         _selectedAirconIds.add(unit['id']);
-                      else
+                      } else {
                         _selectedAirconIds.remove(unit['id']);
+                      }
                     });
                   },
                 );
@@ -1389,8 +1423,9 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
                             return Autocomplete<String>(
                               optionsBuilder:
                                   (TextEditingValue textEditingValue) {
-                                    if (textEditingValue.text == '')
+                                    if (textEditingValue.text == '') {
                                       return const Iterable<String>.empty();
+                                    }
                                     return _brandOptions.where((String option) {
                                       return option.toLowerCase().contains(
                                         textEditingValue.text.toLowerCase(),
@@ -1458,7 +1493,7 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
                       const SizedBox(width: 12),
                       Expanded(
                         child: DropdownButtonFormField<int>(
-                          value: _selectedAirconTypeId,
+                          initialValue: _selectedAirconTypeId,
                           decoration: InputDecoration(
                             hintText: "Type",
                             border: OutlineInputBorder(
