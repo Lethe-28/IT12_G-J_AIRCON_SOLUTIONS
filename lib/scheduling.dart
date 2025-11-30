@@ -569,7 +569,7 @@ class _JobBillingManagerState extends State<_JobBillingManager>
         final newDate = DateTime(d.year, d.month, d.day, t.hour, t.minute);
         await _supabase
             .from('job_orders')
-            .update({'date_scheduled': newDate.toIso8601String()})
+            .update({'date_scheduled': newDate.toUtc().toIso8601String()})
             .eq('id', widget.job.dbId);
         widget.onJobUpdated();
         if (mounted) Navigator.pop(context);
@@ -588,7 +588,7 @@ class _JobBillingManagerState extends State<_JobBillingManager>
     if (d != null) {
       await _supabase
           .from('job_orders')
-          .update({'date_completed': d.toIso8601String()})
+          .update({'date_completed': d.toUtc().toIso8601String()})
           .eq('id', widget.job.dbId);
       widget.onJobUpdated();
       if (mounted) Navigator.pop(context);
@@ -1601,17 +1601,15 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
       print("Schedule DateTime: $scheduleDateTime");
       print("ISO String: ${scheduleDateTime.toIso8601String()}");
 
-      final jobData = <String, dynamic>{
+      final jobData = {
         'customer_id': finalCustomerId,
         'job_type_id': correctTypeId,
-        'date_scheduled': scheduleDateTime
-            .toIso8601String(), // This includes time
-        'status': widget.existingJob != null
-            ? widget.existingJob!.status
-            : 'Pending',
-        'notes': _notesController.text.trim().isEmpty
-            ? null
-            : _notesController.text.trim(),
+        // FIX: Add .toUtc() here
+        'date_scheduled': scheduleDateTime.toUtc().toIso8601String(),
+        'status': widget.existingJob?.status ?? 'Pending',
+        'notes': _notesController.text.isNotEmpty
+            ? _notesController.text
+            : null,
       };
 
       int newJoId;
