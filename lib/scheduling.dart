@@ -1423,12 +1423,44 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
   }
 
   // --- SUBMIT ---
+  // 2. FIXED SUBMIT METHOD
   Future<void> _submit() async {
+    // Pre-validation
+    if (!_isNewClient && _selectedClientId == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text("Please select a customer"),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+
     if (_isNewClient) {
-      if (!_formKey.currentState!.validate()) {
+      // Validate required fields explicitly
+      if (_firstNameController.text.trim().isEmpty ||
+          _lastNameController.text.trim().isEmpty ||
+          _phoneController.text.trim().isEmpty ||
+          _streetController.text.trim().isEmpty ||
+          _barangayController.text.trim().isEmpty ||
+          _cityController.text.trim().isEmpty) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text("Please fix errors in red"),
+            content: Text("Please fill in all required fields"),
+            backgroundColor: Colors.red,
+          ),
+        );
+        return;
+      }
+
+      // Validate brand if creating aircon
+      if (_selectedBrandName.trim().isEmpty ||
+          _unitRemarkController.text.trim().isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              "Please fill in Brand and Location for the aircon unit",
+            ),
             backgroundColor: Colors.red,
           ),
         );
@@ -1441,154 +1473,229 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
     try {
       int? finalCustomerId = _selectedClientId;
 
-      // 1. CREATE CUSTOMER
+      // 1. CREATE CUSTOMER (if new)
       if (_isNewClient) {
+        print("Creating new customer...");
+
         final newCustomerData = {
-          'first_name': _firstNameController.text,
-          'middle_name': _middleNameController.text.isNotEmpty
-              ? _middleNameController.text
-              : null,
-          'last_name': _lastNameController.text,
-          'company_name': _companyController.text.isNotEmpty
-              ? _companyController.text
-              : null,
-          'job_position': _jobPositionController.text.isNotEmpty
-              ? _jobPositionController.text
-              : null,
-          'contact_number': _phoneController.text,
-          'email': _emailController.text.isNotEmpty
-              ? _emailController.text
-              : null,
-          'unit_building_house_no': _unitController.text,
-          'street': _streetController.text,
-          'subdivision_village': _villageController.text,
-          'barangay': _barangayController.text,
-          'city': _cityController.text,
-          'landmark': _landmarkController.text,
-          'customer_type_id': _companyController.text.isNotEmpty ? 1 : 2,
+          'first_name': _firstNameController.text.trim(),
+          'middle_name': _middleNameController.text.trim().isEmpty
+              ? null
+              : _middleNameController.text.trim(),
+          'last_name': _lastNameController.text.trim(),
+          'company_name': _companyController.text.trim().isEmpty
+              ? null
+              : _companyController.text.trim(),
+          'job_position': _jobPositionController.text.trim().isEmpty
+              ? null
+              : _jobPositionController.text.trim(),
+          'contact_number': _phoneController.text.trim(),
+          'email': _emailController.text.trim().isEmpty
+              ? null
+              : _emailController.text.trim(),
+          'unit_building_house_no': _unitController.text.trim(),
+          'street': _streetController.text.trim(),
+          'subdivision_village': _villageController.text.trim(),
+          'barangay': _barangayController.text.trim(),
+          'city': _cityController.text.trim(),
+          'landmark': _landmarkController.text.trim().isEmpty
+              ? null
+              : _landmarkController.text.trim(),
+          'customer_type_id': _companyController.text.trim().isEmpty ? 2 : 1,
         };
+
+        print("Customer data: $newCustomerData");
+
         final custRes = await _supabase
             .from('customers')
             .insert(newCustomerData)
             .select('id')
             .single();
-        finalCustomerId = custRes['id'];
+
+        finalCustomerId = custRes['id'] as int;
+        print("Customer created with ID: $finalCustomerId");
       }
 
-      if (finalCustomerId == null) throw "Customer ID missing";
+      if (finalCustomerId == null) {
+        throw "Customer selection error. Please try again.";
+      }
 
-      // 2. CREATE AIRCON
-      if (_isNewClient && _selectedBrandName.isNotEmpty) {
+      // 2. CREATE AIRCON (if new client)
+      if (_isNewClient && _selectedBrandName.trim().isNotEmpty) {
+        print("Creating aircon unit...");
+
         final brandName = _selectedBrandName.trim();
         int brandId;
+
+        // Check if brand exists
         final brandCheck = await _supabase
             .from('brands')
             .select('id')
             .ilike('brand_name', brandName)
             .maybeSingle();
+
         if (brandCheck != null) {
-          brandId = brandCheck['id'];
+          brandId = brandCheck['id'] as int;
+          print("Using existing brand ID: $brandId");
         } else {
+          // Create new brand
+          print("Creating new brand: $brandName");
           final newBrand = await _supabase
               .from('brands')
               .insert({'brand_name': brandName})
               .select('id')
               .single();
-          brandId = newBrand['id'];
+          brandId = newBrand['id'] as int;
+          print("Brand created with ID: $brandId");
         }
+
+        // Create aircon unit
+        final airconData = {
+          'customer_id': finalCustomerId,
+          'brand_id': brandId,
+          'aircon_type_id': _selectedAirconTypeId ?? 1,
+          'remarks': _unitRemarkController.text.trim().isEmpty
+              ? 'New Unit'
+              : _unitRemarkController.text.trim(),
+        };
+
+        print("Aircon data: $airconData");
 
         final newAircon = await _supabase
             .from('aircons')
-            .insert({
-              'customer_id': finalCustomerId,
-              'brand_id': brandId,
-              'aircon_type_id': _selectedAirconTypeId ?? 1,
-              'remarks': _unitRemarkController.text.isNotEmpty
-                  ? _unitRemarkController.text
-                  : 'New Unit',
-            })
+            .insert(airconData)
             .select('id')
             .single();
-        _selectedAirconIds.add(newAircon['id']);
+
+        final airconId = newAircon['id'] as int;
+        _selectedAirconIds.add(airconId);
+        print("Aircon created with ID: $airconId");
       }
 
-      // 3. CREATE/UPDATE JOB
+      // 3. CREATE/UPDATE JOB ORDER
+      print("Creating/updating job order...");
+
+      // Get correct job type ID
       final typeRes = await _supabase
           .from('job_types')
           .select('id')
           .eq('job_type_name', _jobTypeName)
           .maybeSingle();
-      final correctTypeId = typeRes != null ? typeRes['id'] : _jobTypeId;
 
+      final correctTypeId = typeRes != null
+          ? (typeRes['id'] as int)
+          : _jobTypeId;
+      print("Job Type ID: $correctTypeId");
+
+      // CRITICAL FIX: Create DateTime with time, then convert to ISO string
+      // Supabase will handle the timestamp storage
       final scheduleDateTime = DateTime(
         _scheduleDate.year,
         _scheduleDate.month,
         _scheduleDate.day,
         _scheduleTime.hour,
         _scheduleTime.minute,
+        0, // seconds
       );
 
-      final jobData = {
+      print("Schedule DateTime: $scheduleDateTime");
+      print("ISO String: ${scheduleDateTime.toIso8601String()}");
+
+      final jobData = <String, dynamic>{
         'customer_id': finalCustomerId,
         'job_type_id': correctTypeId,
-        'date_scheduled': scheduleDateTime.toIso8601String(),
-        'status': widget.existingJob?.status ?? 'Pending',
-        'notes': _notesController.text.isNotEmpty
-            ? _notesController.text
-            : null,
+        'date_scheduled': scheduleDateTime
+            .toIso8601String(), // This includes time
+        'status': widget.existingJob != null
+            ? widget.existingJob!.status
+            : 'Pending',
+        'notes': _notesController.text.trim().isEmpty
+            ? null
+            : _notesController.text.trim(),
       };
 
       int newJoId;
+
       if (widget.existingJob != null) {
-        // UPDATE EXISTING
+        // UPDATE EXISTING JOB
+        print("Updating existing job: ${widget.existingJob!.dbId}");
+
         await _supabase
             .from('job_orders')
             .update(jobData)
             .eq('id', widget.existingJob!.dbId);
+
         newJoId = widget.existingJob!.dbId;
-        // Clear old links to aircons to replace them (simplified approach)
+
+        // Clear old aircon links before adding new ones
         await _supabase
             .from('job_order_aircons')
             .delete()
             .eq('job_order_id', newJoId);
+
+        print("Existing job updated");
       } else {
-        // INSERT NEW
+        // CREATE NEW JOB
+        print("Creating new job order...");
+
+        // Add fields only for new jobs
         jobData['user_id'] = _supabase.auth.currentUser?.id;
         jobData['client_jo_number'] =
             'JO-${DateTime.now().millisecondsSinceEpoch.toString().substring(9)}';
+
+        print("Job data: $jobData");
+
         final joRes = await _supabase
             .from('job_orders')
             .insert(jobData)
             .select('id')
             .single();
-        newJoId = joRes['id'];
+
+        newJoId = joRes['id'] as int;
+        print("Job order created with ID: $newJoId");
       }
 
-      // 4. LINK AIRCONS
-      for (int airconId in _selectedAirconIds) {
-        await _supabase.from('job_order_aircons').insert({
-          'job_order_id': newJoId,
-          'aircon_id': airconId,
-        });
+      // 4. LINK AIRCONS TO JOB ORDER
+      if (_selectedAirconIds.isNotEmpty) {
+        print("Linking ${_selectedAirconIds.length} aircon(s) to job order...");
+
+        for (int airconId in _selectedAirconIds) {
+          await _supabase.from('job_order_aircons').insert({
+            'job_order_id': newJoId,
+            'aircon_id': airconId,
+          });
+          print("Linked aircon ID: $airconId");
+        }
       }
 
+      // SUCCESS!
       if (mounted) {
         Navigator.pop(context, true);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
               widget.existingJob != null
-                  ? "Job Updated!"
-                  : "Job Order Created!",
+                  ? "Job Updated Successfully!"
+                  : "Job Order Created Successfully!",
             ),
+            backgroundColor: Colors.green,
+            duration: const Duration(seconds: 2),
           ),
         );
       }
-    } catch (e) {
-      if (mounted)
+    } catch (e, stackTrace) {
+      print("ERROR in _submit: $e");
+      print("Stack trace: $stackTrace");
+
+      if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text("Error: $e"), backgroundColor: Colors.red),
+          SnackBar(
+            content: Text("Error: ${e.toString()}"),
+            backgroundColor: Colors.red,
+            duration: const Duration(seconds: 5),
+          ),
         );
+      }
     } finally {
       if (mounted) setState(() => _isSubmitting = false);
     }
@@ -1663,9 +1770,49 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
                     child: ElevatedButton(
                       onPressed: _isSubmitting
                           ? null
-                          : (_currentStep == 2
-                                ? _submit
-                                : () => setState(() => _currentStep++)),
+                          : () {
+                              // Step 1 -> Step 2: Just advance
+                              if (_currentStep == 0) {
+                                setState(() => _currentStep++);
+                              }
+                              // Step 2 -> Step 3: Validate form if new client
+                              else if (_currentStep == 1) {
+                                if (_isNewClient) {
+                                  // Validate the form NOW while it is still on screen
+                                  if (_formKey.currentState!.validate()) {
+                                    setState(() => _currentStep++);
+                                  } else {
+                                    // Show error if validation fails
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      const SnackBar(
+                                        content: Text(
+                                          "Please fix errors in red",
+                                        ),
+                                        backgroundColor: Colors.red,
+                                      ),
+                                    );
+                                  }
+                                } else {
+                                  // Existing client - just check if selected
+                                  if (_selectedClientId == null) {
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      const SnackBar(
+                                        content: Text(
+                                          "Please select a customer",
+                                        ),
+                                        backgroundColor: Colors.red,
+                                      ),
+                                    );
+                                  } else {
+                                    setState(() => _currentStep++);
+                                  }
+                                }
+                              }
+                              // Step 3: Submit
+                              else if (_currentStep == 2) {
+                                _submit();
+                              }
+                            },
                       style: ElevatedButton.styleFrom(
                         backgroundColor: const Color(0xFF2563EB),
                         shape: RoundedRectangleBorder(
