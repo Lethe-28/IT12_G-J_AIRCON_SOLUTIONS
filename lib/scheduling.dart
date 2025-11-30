@@ -1269,6 +1269,8 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
   final _supabase = Supabase.instance.client;
   final _formKey = GlobalKey<FormState>();
   final _customerDisplayController = TextEditingController();
+  List<Map<String, dynamic>> _availableTechnicians = [];
+  final List<int> _selectedTechnicianIds = [];
 
   // Data
   String _jobTypeName = 'Installation';
@@ -1326,29 +1328,43 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
   }
 
   Future<void> _fetchInitialData() async {
+    // 1. Fetch Basic Data
     final customers = await _supabase
         .from('customers')
         .select('id, first_name, last_name, company_name, city, barangay')
         .order('last_name', ascending: true);
 
     final types = await _supabase.from('job_types').select();
-    final brands = await _supabase
-        .from('brands')
-        .select('brand_name')
-        .order('brand_name');
-    final acTypes = await _supabase
-        .from('aircon_types')
-        .select('id, type_name');
+    final brands = await _supabase.from('brands').select().order('brand_name');
+    final acTypes = await _supabase.from('aircon_types').select();
 
-    // NEW: Fetch linked aircons if editing
+    // NEW: Fetch Technicians
+    final techs = await _supabase
+        .from('technicians')
+        .select('id, first_name, last_name')
+        .order('first_name');
+
+    // 2. Fetch Existing Links (Aircons & Technicians) if Editing
     List<int> existingLinkedAircons = [];
+    List<int> existingLinkedTechs = [];
+
     if (widget.existingJob != null) {
-      final linkedRes = await _supabase
+      // Fetch Aircons
+      final linkedAcRes = await _supabase
           .from('job_order_aircons')
           .select('aircon_id')
           .eq('job_order_id', widget.existingJob!.dbId);
       existingLinkedAircons = List<int>.from(
-        linkedRes.map((e) => e['aircon_id']),
+        linkedAcRes.map((e) => e['aircon_id']),
+      );
+
+      // NEW: Fetch Technicians
+      final linkedTechRes = await _supabase
+          .from('job_order_technicians')
+          .select('technician_id')
+          .eq('job_order_id', widget.existingJob!.dbId);
+      existingLinkedTechs = List<int>.from(
+        linkedTechRes.map((e) => e['technician_id']),
       );
     }
 
@@ -1357,6 +1373,9 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
         _existingClients = List<Map<String, dynamic>>.from(customers);
         _brandOptions = List<String>.from(brands.map((b) => b['brand_name']));
         _airconTypes = List<Map<String, dynamic>>.from(acTypes);
+        _availableTechnicians = List<Map<String, dynamic>>.from(
+          techs,
+        ); // Set Techs
 
         if (widget.existingJob == null) {
           final installType = types.firstWhere(
@@ -1365,8 +1384,7 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
           );
           _jobTypeId = installType['id'];
         } else {
-          // SETUP EDIT MODE:
-          // 1. Pre-fill Customer Name
+          // EDIT MODE SETUP
           if (_selectedClientId != null) {
             final cust = _existingClients.firstWhere(
               (c) => c['id'] == _selectedClientId,
@@ -1377,11 +1395,11 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
                   cust['company_name'] ??
                   '${cust['first_name']} ${cust['last_name']}';
             }
-            // 2. Load their aircons
             _fetchClientAircons(_selectedClientId!);
           }
-          // 3. Check the boxes that were previously saved
+          // Restore selections
           _selectedAirconIds.addAll(existingLinkedAircons);
+          _selectedTechnicianIds.addAll(existingLinkedTechs); // Restore Techs
         }
 
         if (_airconTypes.isNotEmpty) {
@@ -1744,6 +1762,25 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
             'aircon_id': airconId,
           });
           print("Linked aircon ID: $airconId");
+        }
+      }
+
+      // 5. LINK TECHNICIANS
+      // First, remove existing links for this job (clean slate approach is easiest for edit)
+      await _supabase
+          .from('job_order_technicians')
+          .delete()
+          .eq('job_order_id', newJoId);
+
+      // Then insert new selections
+      if (_selectedTechnicianIds.isNotEmpty) {
+        print("Linking ${_selectedTechnicianIds.length} technicians...");
+        for (int techId in _selectedTechnicianIds) {
+          await _supabase.from('job_order_technicians').insert({
+            'job_order_id': newJoId,
+            'technician_id': techId,
+            'role': 'Technician', // Default role required by your DB
+          });
         }
       }
 
@@ -2387,60 +2424,124 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
   }
 
   Widget _stepThree() {
-    return Column(
-      children: [
-        const Text(
-          "Date & Time",
-          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-        ),
-        const SizedBox(height: 16),
-        ListTile(
-          tileColor: Colors.grey[50],
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
-            side: BorderSide(color: Colors.grey.shade300),
+    return SingleChildScrollView(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            "Date & Time",
+            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
           ),
-          leading: const Icon(Icons.calendar_month, color: Colors.blue),
-          title: Text("${_scheduleDate.toLocal()}".split(' ')[0]),
-          onTap: () async {
-            final d = await showDatePicker(
-              context: context,
-              initialDate: _scheduleDate,
-              firstDate: DateTime.now(),
-              lastDate: DateTime(2030),
-            );
-            if (d != null) setState(() => _scheduleDate = d);
-          },
-        ),
-        const SizedBox(height: 12),
-        ListTile(
-          tileColor: Colors.grey[50],
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
-            side: BorderSide(color: Colors.grey.shade300),
+          const SizedBox(height: 16),
+          // Date Picker
+          ListTile(
+            tileColor: Colors.grey[50],
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+              side: BorderSide(color: Colors.grey.shade300),
+            ),
+            leading: const Icon(Icons.calendar_month, color: Colors.blue),
+            title: Text("${_scheduleDate.toLocal()}".split(' ')[0]),
+            onTap: () async {
+              final d = await showDatePicker(
+                context: context,
+                initialDate: _scheduleDate,
+                firstDate: DateTime.now(),
+                lastDate: DateTime(2030),
+              );
+              if (d != null) setState(() => _scheduleDate = d);
+            },
           ),
-          leading: const Icon(Icons.access_time, color: Colors.orange),
-          title: Text(_scheduleTime.format(context)),
-          onTap: () async {
-            final t = await showTimePicker(
-              context: context,
-              initialTime: _scheduleTime,
-            );
-            if (t != null) setState(() => _scheduleTime = t);
-          },
-        ),
-        const SizedBox(height: 20),
-        TextField(
-          controller: _notesController,
-          maxLines: 3,
-          decoration: InputDecoration(
-            hintText: "Additional Notes...",
-            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-            filled: true,
-            fillColor: Colors.grey[50],
+          const SizedBox(height: 12),
+          // Time Picker
+          ListTile(
+            tileColor: Colors.grey[50],
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+              side: BorderSide(color: Colors.grey.shade300),
+            ),
+            leading: const Icon(Icons.access_time, color: Colors.orange),
+            title: Text(_scheduleTime.format(context)),
+            onTap: () async {
+              final t = await showTimePicker(
+                context: context,
+                initialTime: _scheduleTime,
+              );
+              if (t != null) setState(() => _scheduleTime = t);
+            },
           ),
-        ),
-      ],
+
+          const SizedBox(height: 24),
+          const Text(
+            "Assign Team (Optional)",
+            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+          ),
+          const SizedBox(height: 8),
+
+          // Technician Selection Area
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              border: Border.all(color: Colors.grey.shade300),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: _availableTechnicians.isEmpty
+                ? const Text("No technicians found in database.")
+                : Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: _availableTechnicians.map((tech) {
+                      final id = tech['id'] as int;
+                      final name =
+                          "${tech['first_name']} ${tech['last_name'][0]}.";
+                      final isSelected = _selectedTechnicianIds.contains(id);
+
+                      return FilterChip(
+                        label: Text(name),
+                        selected: isSelected,
+                        onSelected: (bool selected) {
+                          setState(() {
+                            if (selected) {
+                              _selectedTechnicianIds.add(id);
+                            } else {
+                              _selectedTechnicianIds.remove(id);
+                            }
+                          });
+                        },
+                        selectedColor: Colors.blue.withOpacity(0.2),
+                        checkmarkColor: Colors.blue,
+                        labelStyle: TextStyle(
+                          color: isSelected ? Colors.blue[900] : Colors.black87,
+                          fontWeight: isSelected
+                              ? FontWeight.bold
+                              : FontWeight.normal,
+                        ),
+                      );
+                    }).toList(),
+                  ),
+          ),
+
+          const SizedBox(height: 24),
+          const Text(
+            "Notes",
+            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+          ),
+          const SizedBox(height: 8),
+          TextField(
+            controller: _notesController,
+            maxLines: 3,
+            decoration: InputDecoration(
+              hintText: "Additional instructions...",
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+              filled: true,
+              fillColor: Colors.grey[50],
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
