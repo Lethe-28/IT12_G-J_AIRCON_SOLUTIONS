@@ -1,8 +1,9 @@
 import 'package:flutter/material.dart';
 import 'data/app_state.dart';
+import 'data/dashboard_provider.dart';
 import 'ui_app_shell.dart';
 import 'shared_header.dart';
-import 'shared/widgets.dart' show isMobile, isTablet;
+import 'shared/widgets.dart' show AnimatedCard, isMobile;
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
@@ -12,59 +13,223 @@ class DashboardScreen extends StatefulWidget {
 }
 
 class _DashboardScreenState extends State<DashboardScreen> {
-  // Sample data
-  final int _pendingJobs = 8;
-  final int _unfinishedDocuments = 3;
-  final double _totalRevenue = 125000.0;
-  final int _todayJobs = 5;
-
-  final List<_TodayJob> _todayJobOrders = [
-    _TodayJob(
-      'JO-2025-001',
-      'ABC Corporation',
-      '9:00 AM',
-      'Installation',
-      'In Progress',
-    ),
-    _TodayJob(
-      'JO-2025-002',
-      'XYZ Retail Store',
-      '11:30 AM',
-      'Maintenance',
-      'Pending',
-    ),
-    _TodayJob('JO-2025-003', 'Global Mall', '2:00 PM', 'Repair', 'Pending'),
-    _TodayJob(
-      'JO-2025-004',
-      'Maria Santos',
-      '3:30 PM',
-      'Installation',
-      'Scheduled',
-    ),
-  ];
-
-  final List<_AttentionItem> _attentionItems = [
-    _AttentionItem(
-      'Payment verification needed',
-      'JO-2025-002',
-      'High',
-      Colors.orange,
-    ),
-    _AttentionItem(
-      'Document pending review',
-      'JO-2025-001',
-      'Medium',
-      Colors.blue,
-    ),
-    _AttentionItem(
-      'Expense approval required',
-      'JO-2025-003',
-      'Medium',
-      Colors.purple,
-    ),
-  ];
+  final DashboardProvider _dashboardProvider = DashboardProvider();
+  bool _isLoading = true;
+  String _searchQuery = '';
+  String _dateRange = 'Today'; // Today, Weekly, Monthly, Yearly
 
   bool get _isServiceManager => AppState.currentRole == UserRole.serviceManager;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadData();
+  }
+
+  Future<void> _loadData() async {
+    setState(() => _isLoading = true);
+    await _dashboardProvider.fetchDashboardData(dateRange: _dateRange);
+    if (mounted) setState(() => _isLoading = false);
+  }
+
+  Future<void> _refreshData() async {
+    await _dashboardProvider.fetchDashboardData(dateRange: _dateRange);
+    if (mounted) setState(() {});
+  }
+
+  List<TodayJobItem> get _filteredTodayJobs {
+    if (_searchQuery.isEmpty) return _dashboardProvider.todayJobs;
+    return _dashboardProvider.todayJobs.where((job) {
+      return job.client.toLowerCase().contains(_searchQuery) ||
+             job.type.toLowerCase().contains(_searchQuery) ||
+             job.status.toLowerCase().contains(_searchQuery) ||
+             job.id.toLowerCase().contains(_searchQuery);
+    }).toList();
+  }
+
+  List<AttentionItem> get _filteredAttentionItems {
+    if (_searchQuery.isEmpty) return _dashboardProvider.attentionItems;
+    return _dashboardProvider.attentionItems.where((item) {
+      return item.title.toLowerCase().contains(_searchQuery) ||
+             item.reference.toLowerCase().contains(_searchQuery);
+    }).toList();
+  }
+
+  void _showNotificationsPanel() {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) => DraggableScrollableSheet(
+        initialChildSize: 0.7,
+        minChildSize: 0.5,
+        maxChildSize: 0.95,
+        builder: (context, scrollController) => Container(
+          decoration: const BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+          ),
+          child: Column(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(20),
+                decoration: const BoxDecoration(
+                  border: Border(bottom: BorderSide(color: Color(0xFFE2E8F0))),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.notifications, color: Color(0xFF2563EB)),
+                    const SizedBox(width: 12),
+                    const Text(
+                      'Notifications',
+                      style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700),
+                    ),
+                    const Spacer(),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFEFF6FF),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Text(
+                        '${_dashboardProvider.attentionItems.length}',
+                        style: const TextStyle(
+                          color: Color(0xFF2563EB),
+                          fontWeight: FontWeight.w600,
+                          fontSize: 12,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    IconButton(
+                      onPressed: () => Navigator.pop(context),
+                      icon: const Icon(Icons.close, size: 20),
+                      padding: EdgeInsets.zero,
+                      constraints: const BoxConstraints(),
+                    ),
+                  ],
+                ),
+              ),
+              Expanded(
+                child: _dashboardProvider.attentionItems.isEmpty
+                    ? const Center(
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(Icons.notifications_off_outlined, size: 64, color: Colors.black26),
+                            SizedBox(height: 16),
+                            Text(
+                              'No notifications',
+                              style: TextStyle(fontSize: 16, color: Colors.black54),
+                            ),
+                            SizedBox(height: 8),
+                            Text(
+                              'You\'re all caught up!',
+                              style: TextStyle(fontSize: 14, color: Colors.black38),
+                            ),
+                          ],
+                        ),
+                      )
+                    : ListView.separated(
+                        controller: scrollController,
+                        padding: const EdgeInsets.all(20),
+                        itemCount: _dashboardProvider.attentionItems.length,
+                        separatorBuilder: (_, __) => const SizedBox(height: 12),
+                        itemBuilder: (ctx, i) => _notificationItem(_dashboardProvider.attentionItems[i]),
+                      ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _notificationItem(AttentionItem item) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: () {
+          Navigator.pop(context);
+          switch (item.type) {
+            case AttentionType.payment:
+              Navigator.of(context).pushReplacementNamed('/payments');
+              break;
+            case AttentionType.expense:
+              Navigator.of(context).pushReplacementNamed('/expenses');
+              break;
+            case AttentionType.scheduling:
+              Navigator.of(context).pushReplacementNamed('/scheduling');
+              break;
+            case AttentionType.document:
+              Navigator.of(context).pushReplacementNamed('/documents');
+              break;
+          }
+        },
+        borderRadius: BorderRadius.circular(12),
+        child: Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: item.color.withOpacity(0.05),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: item.color.withOpacity(0.2)),
+          ),
+          child: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: item.color.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Icon(Icons.warning_amber_rounded, color: item.color, size: 24),
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      item.title,
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w600,
+                        fontSize: 14,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      item.reference,
+                      style: const TextStyle(
+                        fontSize: 12,
+                        color: Colors.black54,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: item.color.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                child: Text(
+                  item.priority,
+                  style: TextStyle(
+                    fontSize: 10,
+                    color: item.color,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Icon(Icons.chevron_right, size: 20, color: Colors.black26),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -77,10 +242,18 @@ class _DashboardScreenState extends State<DashboardScreen> {
           SharedHeader(
             welcomeText: AppState.headerWelcomeText(),
             subtitleText: AppState.headerSubtitle(),
-            notificationCount: _attentionItems.length,
+            notificationCount: _dashboardProvider.attentionItems.length,
+            onSearchChanged: (value) {
+              setState(() => _searchQuery = value.toLowerCase());
+            },
+            onNotificationTap: _showNotificationsPanel,
           ),
           Expanded(
-            child: SingleChildScrollView(
+            child: _isLoading
+                ? const Center(
+                    child: CircularProgressIndicator(),
+                  )
+                : SingleChildScrollView(
               // FIX: Add bottom padding so content isn't cut off
               padding: EdgeInsets.fromLTRB(
                 _isServiceManager ? 24 : 20,
@@ -102,34 +275,91 @@ class _DashboardScreenState extends State<DashboardScreen> {
                         ),
                       ),
                       const Spacer(),
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 12,
-                          vertical: 6,
-                        ),
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(8),
-                          border: Border.all(color: const Color(0xFFE2E8F0)),
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            const Icon(
-                              Icons.calendar_today,
-                              size: 14,
-                              color: Colors.black54,
+                      PopupMenuButton<String>(
+                        initialValue: _dateRange,
+                        onSelected: (value) {
+                          setState(() => _dateRange = value);
+                          _loadData();
+                        },
+                        offset: const Offset(0, 40),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                        itemBuilder: (context) => [
+                          const PopupMenuItem(
+                            value: 'Today',
+                            child: Row(
+                              children: [
+                                Icon(Icons.today, size: 18),
+                                SizedBox(width: 12),
+                                Text('Today'),
+                              ],
                             ),
-                            const SizedBox(width: 8),
-                            Text(
-                              'Today',
-                              style: TextStyle(
-                                fontSize: _isServiceManager ? 14.0 : 12.0,
-                                fontWeight: FontWeight.w600,
+                          ),
+                          const PopupMenuItem(
+                            value: 'Weekly',
+                            child: Row(
+                              children: [
+                                Icon(Icons.date_range, size: 18),
+                                SizedBox(width: 12),
+                                Text('This Week'),
+                              ],
+                            ),
+                          ),
+                          const PopupMenuItem(
+                            value: 'Monthly',
+                            child: Row(
+                              children: [
+                                Icon(Icons.calendar_month, size: 18),
+                                SizedBox(width: 12),
+                                Text('This Month'),
+                              ],
+                            ),
+                          ),
+                          const PopupMenuItem(
+                            value: 'Yearly',
+                            child: Row(
+                              children: [
+                                Icon(Icons.calendar_today, size: 18),
+                                SizedBox(width: 12),
+                                Text('This Year'),
+                              ],
+                            ),
+                          ),
+                        ],
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 6,
+                          ),
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(color: const Color(0xFFE2E8F0)),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const Icon(
+                                Icons.calendar_today,
+                                size: 14,
                                 color: Colors.black54,
                               ),
-                            ),
-                          ],
+                              const SizedBox(width: 8),
+                              Text(
+                                _dateRange,
+                                style: TextStyle(
+                                  fontSize: _isServiceManager ? 14.0 : 12.0,
+                                  fontWeight: FontWeight.w600,
+                                  color: Colors.black54,
+                                ),
+                              ),
+                              const SizedBox(width: 4),
+                              const Icon(
+                                Icons.arrow_drop_down,
+                                size: 18,
+                                color: Colors.black54,
+                              ),
+                            ],
+                          ),
                         ),
                       ),
                     ],
@@ -152,18 +382,36 @@ class _DashboardScreenState extends State<DashboardScreen> {
                         return Row(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Expanded(flex: 2, child: _todaysJobOrdersCard()),
+                            Expanded(
+                              flex: 2,
+                              child: AnimatedCard(
+                                delay: const Duration(milliseconds: 350),
+                                child: _todaysJobOrdersCard(),
+                              ),
+                            ),
                             const SizedBox(width: 24),
-                            Expanded(flex: 1, child: _attentionCard()),
+                            Expanded(
+                              flex: 1,
+                              child: AnimatedCard(
+                                delay: const Duration(milliseconds: 400),
+                                child: _attentionCard(),
+                              ),
+                            ),
                           ],
                         );
                       } else {
                         // Mobile: Stacked
                         return Column(
                           children: [
-                            _todaysJobOrdersCard(),
+                            AnimatedCard(
+                              delay: const Duration(milliseconds: 350),
+                              child: _todaysJobOrdersCard(),
+                            ),
                             const SizedBox(height: 20),
-                            _attentionCard(),
+                            AnimatedCard(
+                              delay: const Duration(milliseconds: 400),
+                              child: _attentionCard(),
+                            ),
                           ],
                         );
                       }
@@ -188,7 +436,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
         // Define Cards
         final pendingCard = _OverviewCard(
           title: 'Pending Jobs',
-          value: _pendingJobs.toString(),
+          value: _dashboardProvider.pendingJobsCount.toString(),
           icon: Icons.pending_actions,
           color: Colors.orange,
           fontSize: fontSize,
@@ -198,7 +446,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
         final paymentsCard = _OverviewCard(
           title: 'Total Revenue',
-          value: '₱${_totalRevenue.toStringAsFixed(0)}',
+          value: '₱${_dashboardProvider.totalRevenue.toStringAsFixed(0)}',
           icon: Icons.payments,
           color: Colors.green,
           fontSize: fontSize,
@@ -207,7 +455,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
         final documentsCard = _OverviewCard(
           title: 'Pending Docs',
-          value: _unfinishedDocuments.toString(),
+          value: _dashboardProvider.pendingDocsCount.toString(),
           icon: Icons.description,
           color: Colors.blue,
           fontSize: fontSize,
@@ -226,11 +474,29 @@ class _DashboardScreenState extends State<DashboardScreen> {
               // Add padding inside the list view so the first card aligns with text
               padding: const EdgeInsets.only(bottom: 4),
               children: [
-                SizedBox(width: 160, child: pendingCard),
+                SizedBox(
+                  width: 160,
+                  child: AnimatedCard(
+                    delay: const Duration(milliseconds: 200),
+                    child: pendingCard,
+                  ),
+                ),
                 const SizedBox(width: 12),
-                SizedBox(width: 180, child: paymentsCard),
+                SizedBox(
+                  width: 160,
+                  child: AnimatedCard(
+                    delay: const Duration(milliseconds: 250),
+                    child: paymentsCard,
+                  ),
+                ),
                 const SizedBox(width: 12),
-                SizedBox(width: 160, child: documentsCard),
+                SizedBox(
+                  width: 160,
+                  child: AnimatedCard(
+                    delay: const Duration(milliseconds: 300),
+                    child: documentsCard,
+                  ),
+                ),
               ],
             ),
           );
@@ -240,11 +506,26 @@ class _DashboardScreenState extends State<DashboardScreen> {
         return Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Expanded(child: pendingCard),
+            Expanded(
+              child: AnimatedCard(
+                delay: const Duration(milliseconds: 200),
+                child: pendingCard,
+              ),
+            ),
             const SizedBox(width: 16),
-            Expanded(child: paymentsCard),
+            Expanded(
+              child: AnimatedCard(
+                delay: const Duration(milliseconds: 250),
+                child: paymentsCard,
+              ),
+            ),
             const SizedBox(width: 16),
-            Expanded(child: documentsCard),
+            Expanded(
+              child: AnimatedCard(
+                delay: const Duration(milliseconds: 300),
+                child: documentsCard,
+              ),
+            ),
           ],
         );
       },
@@ -278,7 +559,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
               ),
               const Spacer(),
-              if (_attentionItems.isNotEmpty)
+              if (_filteredAttentionItems.isNotEmpty)
                 Container(
                   width: 8,
                   height: 8,
@@ -290,7 +571,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
             ],
           ),
           const SizedBox(height: 16),
-          if (_attentionItems.isEmpty)
+          if (_filteredAttentionItems.isEmpty)
             const Padding(
               padding: EdgeInsets.all(20),
               child: Center(
@@ -304,20 +585,36 @@ class _DashboardScreenState extends State<DashboardScreen> {
             ListView.separated(
               shrinkWrap: true,
               physics: const NeverScrollableScrollPhysics(),
-              itemCount: _attentionItems.length,
+              itemCount: _filteredAttentionItems.length,
               separatorBuilder: (_, __) => const SizedBox(height: 12),
-              itemBuilder: (ctx, i) => _attentionItemRow(_attentionItems[i]),
+              itemBuilder: (ctx, i) => _attentionItemRow(_filteredAttentionItems[i]),
             ),
         ],
       ),
     );
   }
 
-  Widget _attentionItemRow(_AttentionItem item) {
+  Widget _attentionItemRow(AttentionItem item) {
     return Material(
       color: Colors.transparent,
       child: InkWell(
-        onTap: () {},
+        onTap: () {
+          // Navigate to relevant screen based on type
+          switch (item.type) {
+            case AttentionType.payment:
+              Navigator.of(context).pushReplacementNamed('/payments');
+              break;
+            case AttentionType.expense:
+              Navigator.of(context).pushReplacementNamed('/expenses');
+              break;
+            case AttentionType.scheduling:
+              Navigator.of(context).pushReplacementNamed('/scheduling');
+              break;
+            case AttentionType.document:
+              Navigator.of(context).pushReplacementNamed('/documents');
+              break;
+          }
+        },
         borderRadius: BorderRadius.circular(8),
         child: Container(
           padding: const EdgeInsets.all(12),
@@ -383,7 +680,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   borderRadius: BorderRadius.circular(999),
                 ),
                 child: Text(
-                  '$_todayJobs Active',
+                  '${_filteredTodayJobs.length} Active',
                   style: const TextStyle(
                     color: Color(0xFF2563EB),
                     fontWeight: FontWeight.w600,
@@ -394,13 +691,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
             ],
           ),
           const SizedBox(height: 20),
-          if (_todayJobOrders.isEmpty)
-            const Padding(
-              padding: EdgeInsets.all(24),
+          if (_filteredTodayJobs.isEmpty)
+            Padding(
+              padding: const EdgeInsets.all(24),
               child: Center(
                 child: Text(
-                  'No jobs scheduled for today',
-                  style: TextStyle(color: Colors.black54),
+                  _searchQuery.isNotEmpty ? 'No jobs match your search' : 'No jobs scheduled for today',
+                  style: const TextStyle(color: Colors.black54),
                 ),
               ),
             )
@@ -408,16 +705,16 @@ class _DashboardScreenState extends State<DashboardScreen> {
             ListView.separated(
               shrinkWrap: true,
               physics: const NeverScrollableScrollPhysics(),
-              itemCount: _todayJobOrders.length,
+              itemCount: _filteredTodayJobs.length,
               separatorBuilder: (_, __) => const Divider(height: 24),
-              itemBuilder: (_, i) => _jobOrderRow(_todayJobOrders[i]),
+              itemBuilder: (_, i) => _jobOrderRow(_filteredTodayJobs[i]),
             ),
         ],
       ),
     );
   }
 
-  Widget _jobOrderRow(_TodayJob job) {
+  Widget _jobOrderRow(TodayJobItem job) {
     Color statusColor;
     switch (job.status.toLowerCase()) {
       case 'in progress':
@@ -572,23 +869,4 @@ class _OverviewCard extends StatelessWidget {
   }
 }
 
-// --- Data Models ---
 
-class _TodayJob {
-  final String id;
-  final String client;
-  final String time;
-  final String type;
-  final String status;
-
-  _TodayJob(this.id, this.client, this.time, this.type, this.status);
-}
-
-class _AttentionItem {
-  final String title;
-  final String reference;
-  final String priority;
-  final Color color;
-
-  _AttentionItem(this.title, this.reference, this.priority, this.color);
-}

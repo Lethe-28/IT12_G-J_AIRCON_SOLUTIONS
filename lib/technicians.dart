@@ -53,16 +53,20 @@ class _TechniciansScreenState extends State<TechniciansScreen> {
     if (_searchQuery.isEmpty) return _technicians;
     final q = _searchQuery.toLowerCase();
     return _technicians
-        .where((t) =>
-            t.firstName.toLowerCase().contains(q) ||
-            t.lastName.toLowerCase().contains(q) ||
-            t.contactNumber.contains(q))
+        .where(
+          (t) =>
+              t.firstName.toLowerCase().contains(q) ||
+              t.lastName.toLowerCase().contains(q) ||
+              t.contactNumber.contains(q),
+        )
         .toList();
   }
 
-  void _onAddOrEdit({TechnicianData? existing}) async {
-    final TechnicianData? result = await showDialog<TechnicianData>(
+  Future<void> _onAddOrEdit({TechnicianData? existing}) async {
+    final TechnicianData? result = await showModalBottomSheet<TechnicianData>(
       context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
       builder: (context) => _TechnicianDialog(technician: existing),
     );
     if (result == null) return;
@@ -70,13 +74,15 @@ class _TechniciansScreenState extends State<TechniciansScreen> {
     setState(() {
       if (existing == null) {
         final newId = _technicians.isNotEmpty ? _technicians.last.id + 1 : 1;
-        _technicians.add(TechnicianData(
-          id: newId,
-          firstName: result.firstName,
-          middleName: result.middleName,
-          lastName: result.lastName,
-          contactNumber: result.contactNumber,
-        ));
+        _technicians.add(
+          TechnicianData(
+            id: newId,
+            firstName: result.firstName,
+            middleName: result.middleName,
+            lastName: result.lastName,
+            contactNumber: result.contactNumber,
+          ),
+        );
       } else {
         final index = _technicians.indexWhere((t) => t.id == existing.id);
         if (index != -1) {
@@ -91,10 +97,18 @@ class _TechniciansScreenState extends State<TechniciansScreen> {
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Delete Technician'),
-        content: Text('Are you sure you want to delete ${technician.firstName} ${technician.lastName}?'),
+        content: Text(
+          'Are you sure you want to delete ${technician.firstName} ${technician.lastName}?',
+        ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
-          TextButton(onPressed: () => Navigator.pop(context, true), child: const Text('Delete')),
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Delete'),
+          ),
         ],
       ),
     );
@@ -105,7 +119,8 @@ class _TechniciansScreenState extends State<TechniciansScreen> {
   }
 
   String _getFullName(TechnicianData t) {
-    return '${t.firstName} ${t.middleName.isNotEmpty ? "${t.middleName} " : ""}${t.lastName}'.trim();
+    return '${t.firstName} ${t.middleName.isNotEmpty ? "${t.middleName} " : ""}${t.lastName}'
+        .trim();
   }
 
   @override
@@ -248,11 +263,37 @@ class _TechniciansScreenState extends State<TechniciansScreen> {
                             scrollDirection: Axis.horizontal,
                             child: DataTable(
                               columns: [
-                                DataColumn(label: Text('NAME', style: TextStyle(fontSize: fontSize, fontWeight: FontWeight.w700))),
-                                DataColumn(label: Text('CONTACT NUMBER', style: TextStyle(fontSize: fontSize, fontWeight: FontWeight.w700))),
-                                DataColumn(label: Text('ACTIONS', style: TextStyle(fontSize: fontSize, fontWeight: FontWeight.w700))),
+                                DataColumn(
+                                  label: Text(
+                                    'NAME',
+                                    style: TextStyle(
+                                      fontSize: fontSize,
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                                  ),
+                                ),
+                                DataColumn(
+                                  label: Text(
+                                    'CONTACT NUMBER',
+                                    style: TextStyle(
+                                      fontSize: fontSize,
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                                  ),
+                                ),
+                                DataColumn(
+                                  label: Text(
+                                    'ACTIONS',
+                                    style: TextStyle(
+                                      fontSize: fontSize,
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                                  ),
+                                ),
                               ],
-                              rows: technicians.map((t) => _dataRow(t)).toList(),
+                              rows: technicians
+                                  .map((t) => _dataRow(t))
+                                  .toList(),
                             ),
                           ),
                         ),
@@ -266,7 +307,7 @@ class _TechniciansScreenState extends State<TechniciansScreen> {
       ),
     );
   }
-  
+
   Widget _buildMobileCard(TechnicianData t) {
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
@@ -304,7 +345,10 @@ class _TechniciansScreenState extends State<TechniciansScreen> {
               children: [
                 Text(
                   _getFullName(t),
-                  style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
+                  style: const TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w700,
+                  ),
                 ),
                 const SizedBox(height: 4),
                 Row(
@@ -314,7 +358,10 @@ class _TechniciansScreenState extends State<TechniciansScreen> {
                     Expanded(
                       child: Text(
                         t.contactNumber,
-                        style: const TextStyle(fontSize: 14, color: Colors.black54),
+                        style: const TextStyle(
+                          fontSize: 14,
+                          color: Colors.black54,
+                        ),
                       ),
                     ),
                   ],
@@ -331,7 +378,11 @@ class _TechniciansScreenState extends State<TechniciansScreen> {
                   onPressed: () => _onAddOrEdit(existing: t),
                 ),
                 IconButton(
-                  icon: const Icon(Icons.delete_outline, size: 18, color: Colors.red),
+                  icon: const Icon(
+                    Icons.delete_outline,
+                    size: 18,
+                    color: Colors.red,
+                  ),
                   onPressed: () => _onDelete(t),
                 ),
               ],
@@ -353,11 +404,20 @@ class _TechniciansScreenState extends State<TechniciansScreen> {
                 backgroundColor: const Color(0xFFEAF2FF),
                 child: Text(
                   '${t.firstName[0]}${t.lastName[0]}',
-                  style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+                  style: const TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                  ),
                 ),
               ),
               const SizedBox(width: 12),
-              Text(_getFullName(t), style: TextStyle(fontSize: fontSize, fontWeight: FontWeight.w600)),
+              Text(
+                _getFullName(t),
+                style: TextStyle(
+                  fontSize: fontSize,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
             ],
           ),
         ),
@@ -367,22 +427,32 @@ class _TechniciansScreenState extends State<TechniciansScreen> {
               ? Row(
                   children: [
                     IconButton(
-                      icon: const Icon(Icons.edit_outlined, size: 18, color: Colors.black87),
+                      icon: const Icon(
+                        Icons.edit_outlined,
+                        size: 18,
+                        color: Colors.black87,
+                      ),
                       onPressed: () => _onAddOrEdit(existing: t),
                     ),
                     const SizedBox(width: 4),
                     IconButton(
-                      icon: const Icon(Icons.delete_outline, size: 18, color: Colors.red),
+                      icon: const Icon(
+                        Icons.delete_outline,
+                        size: 18,
+                        color: Colors.red,
+                      ),
                       onPressed: () => _onDelete(t),
                     ),
                   ],
                 )
-              : const Text('View only', style: TextStyle(fontSize: 12, color: Colors.black54)),
+              : const Text(
+                  'View only',
+                  style: TextStyle(fontSize: 12, color: Colors.black54),
+                ),
         ),
       ],
     );
   }
-
 }
 
 class _TechnicianDialog extends StatefulWidget {
@@ -419,7 +489,8 @@ class _TechnicianDialogState extends State<_TechnicianDialog> {
   }
 
   void _submit() {
-    if (_firstNameController.text.trim().isEmpty || _lastNameController.text.trim().isEmpty) {
+    if (_firstNameController.text.trim().isEmpty ||
+        _lastNameController.text.trim().isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('First name and last name are required')),
       );
@@ -438,70 +509,156 @@ class _TechnicianDialogState extends State<_TechnicianDialog> {
 
   @override
   Widget build(BuildContext context) {
-    return Dialog(
-      child: Container(
-        width: 500,
-        padding: const EdgeInsets.all(24),
-        child: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                widget.technician == null ? 'Add Technician' : 'Edit Technician',
-                style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w700),
-              ),
-              const SizedBox(height: 20),
-              Row(
+    return Container(
+      constraints: BoxConstraints(
+        maxHeight: MediaQuery.of(context).size.height * 0.92,
+      ),
+      decoration: const BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          // Header with drag handle
+          Container(
+            padding: const EdgeInsets.fromLTRB(24, 12, 24, 16),
+            decoration: const BoxDecoration(
+              border: Border(bottom: BorderSide(color: Color(0xFFE2E8F0))),
+            ),
+            child: Column(
+              children: [
+                Container(
+                  width: 40,
+                  height: 4,
+                  margin: const EdgeInsets.only(bottom: 12),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFE2E8F0),
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+                Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: Colors.orange.withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: const Icon(
+                        Icons.engineering,
+                        color: Colors.orange,
+                        size: 24,
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Text(
+                        widget.technician == null
+                            ? 'Add Technician'
+                            : 'Edit Technician',
+                        style: const TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
+                    IconButton(
+                      onPressed: () => Navigator.pop(context),
+                      icon: const Icon(Icons.close, size: 20),
+                      padding: EdgeInsets.zero,
+                      constraints: const BoxConstraints(),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          // Content
+          Flexible(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Expanded(
-                    child: TextField(
-                      controller: _firstNameController,
-                      decoration: const InputDecoration(labelText: 'First Name *'),
-                    ),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: TextField(
+                          controller: _firstNameController,
+                          decoration: const InputDecoration(
+                            labelText: 'First Name *',
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: TextField(
+                          controller: _middleNameController,
+                          decoration: const InputDecoration(
+                            labelText: 'Middle Name',
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: TextField(
+                          controller: _lastNameController,
+                          decoration: const InputDecoration(
+                            labelText: 'Last Name *',
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: TextField(
-                      controller: _middleNameController,
-                      decoration: const InputDecoration(labelText: 'Middle Name'),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: _contactController,
+                    decoration: const InputDecoration(
+                      labelText: 'Contact Number *',
                     ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: TextField(
-                      controller: _lastNameController,
-                      decoration: const InputDecoration(labelText: 'Last Name *'),
-                    ),
+                    keyboardType: TextInputType.phone,
                   ),
                 ],
               ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: _contactController,
-                decoration: const InputDecoration(labelText: 'Contact Number *'),
-                keyboardType: TextInputType.phone,
-              ),
-              const SizedBox(height: 24),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.end,
-                children: [
-                  TextButton(
+            ),
+          ),
+          // Footer
+          Container(
+            padding: const EdgeInsets.all(24),
+            decoration: const BoxDecoration(
+              color: Colors.white,
+              border: Border(top: BorderSide(color: Color(0xFFE2E8F0))),
+            ),
+            child: Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton(
                     onPressed: () => Navigator.of(context).pop(),
+                    style: OutlinedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                    ),
                     child: const Text('Cancel'),
                   ),
-                  const SizedBox(width: 12),
-                  ElevatedButton(
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  flex: 2,
+                  child: ElevatedButton(
                     onPressed: _submit,
-                    child: const Text('Save'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.orange,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                    ),
+                    child: const Text('Save Technician'),
                   ),
-                ],
-              ),
-            ],
+                ),
+              ],
+            ),
           ),
-        ),
+        ],
       ),
     );
   }
 }
-

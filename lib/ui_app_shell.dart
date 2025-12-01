@@ -393,21 +393,27 @@ class _UserFooter extends StatelessWidget {
       child: Column(
         children: [
           if (!isCollapsed)
-            const Row(
+            Row(
               children: [
-                CircleAvatar(radius: 16, child: Icon(Icons.person, size: 16)),
-                SizedBox(width: 12),
+                CircleAvatar(
+                  radius: 16,
+                  child: Text(
+                    AppState.roleInitials(),
+                    style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700),
+                  ),
+                ),
+                const SizedBox(width: 12),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(
+                      const Text(
                         'Signed in',
                         style: TextStyle(fontSize: 10, color: Colors.grey),
                       ),
                       Text(
-                        'Admin User',
-                        style: TextStyle(
+                        AppState.roleDisplayName(),
+                        style: const TextStyle(
                           fontSize: 12,
                           fontWeight: FontWeight.bold,
                         ),

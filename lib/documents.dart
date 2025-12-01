@@ -3,8 +3,9 @@ import 'package:flutter/material.dart';
 import 'package:printing/printing.dart';
 import 'package:intl/intl.dart';
 import 'ui_app_shell.dart';
-import 'shared/widgets.dart' show isMobile;
+import 'shared/widgets.dart' show AnimatedCard, HoverCard, AnimatedButton, isMobile;
 import 'dialogs/generate_soa_dialog.dart';
+import 'data/dashboard_provider.dart';
 
 // --- Design Constants (Moved to top-level for global access) ---
 const Color kPrimaryColor = Color(0xFF2563EB);
@@ -23,6 +24,7 @@ class DocumentItem {
   final String uploadedBy;
   final DateTime date;
   final List<String> tags;
+  final Uint8List? fileBytes; // Store actual file data for accurate storage
 
   DocumentItem({
     required this.title,
@@ -33,6 +35,7 @@ class DocumentItem {
     required this.uploadedBy,
     required this.date,
     required this.tags,
+    this.fileBytes,
   });
 }
 
@@ -51,7 +54,15 @@ class _DocumentsScreenState extends State<DocumentsScreen> {
   String _searchQuery = '';
   bool _isGridView = true; // Toggle state
   String? _statusFilter; // null, 'Pending', 'Verified'
-  String _sortBy = 'date'; // 'date', 'name'
+  final String _sortBy = 'date'; // 'date', 'name'
+  
+  // Dynamic categories - start with predefined ones
+  final List<String> _categories = [
+    'Invoices',
+    'Job Reports',
+    'Receipts',
+    'Contracts',
+  ];
 
   @override
   void initState() {
@@ -60,68 +71,172 @@ class _DocumentsScreenState extends State<DocumentsScreen> {
   }
 
   void _seedData() {
-    _documents.addAll([
-      DocumentItem(
-        title: 'Invoice_ABC_Corp_Nov2025.pdf',
-        type: 'pdf',
-        size: '245 KB',
-        status: 'Verified',
-        category: 'Invoices',
-        uploadedBy: 'John Doe',
-        date: DateTime(2025, 11, 10),
-        tags: ['Document', 'PDF'],
+    // Start with an empty documents list so the UI shows only real/generated
+    // documents (for example, SOAs created via the Generate dialog).
+    // Previously this method seeded demo/sample documents; those samples
+    // were removed to ensure only actual documents are displayed.
+    _documents.clear();
+    _updateDashboardPendingDocs();
+  }
+
+  void _updateDashboardPendingDocs() {
+    final pendingCount = _documents.where((d) => d.status == 'Pending').length;
+    DashboardProvider().updatePendingDocsCount(pendingCount);
+  }
+  
+  Future<void> _addNewCategory() async {
+    final controller = TextEditingController();
+    final result = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Add New Category'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          decoration: const InputDecoration(
+            labelText: 'Category Name',
+            hintText: 'e.g., Permits, Licenses',
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              final name = controller.text.trim();
+              if (name.isNotEmpty && !_categories.contains(name)) {
+                Navigator.pop(context, name);
+              }
+            },
+            child: const Text('Add'),
+          ),
+        ],
       ),
-      DocumentItem(
-        title: 'Job_Report_XYZ_Retail.xlsx',
-        type: 'excel',
-        size: '89 KB',
-        status: 'Pending',
-        category: 'Job Reports',
-        uploadedBy: 'Jane Smith',
-        date: DateTime(2025, 11, 10),
-        tags: ['Document', 'Excel'],
+    );
+    
+    if (result != null && result.isNotEmpty) {
+      setState(() {
+        _categories.add(result);
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Category "$result" added'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
+  }
+  
+  Future<void> _toggleDocumentStatus(DocumentItem doc) async {
+    final newStatus = doc.status == 'Verified' ? 'Pending' : 'Verified';
+    setState(() {
+      final index = _documents.indexWhere((d) => d == doc);
+      if (index != -1) {
+        _documents[index] = DocumentItem(
+          title: doc.title,
+          type: doc.type,
+          size: doc.size,
+          status: newStatus,
+          category: doc.category,
+          uploadedBy: doc.uploadedBy,
+          date: doc.date,
+          tags: doc.tags,
+        );
+      }
+    });
+    _updateDashboardPendingDocs();
+    
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('Document marked as $newStatus'),
+        behavior: SnackBarBehavior.floating,
       ),
-      DocumentItem(
-        title: 'Receipt_Fuel_20251110.jpg',
-        type: 'image',
-        size: '1.2 MB',
-        status: 'Pending',
-        category: 'Receipts',
-        uploadedBy: 'Mike Johnson',
-        date: DateTime(2025, 11, 10),
-        tags: ['Image', 'Receipt'],
+    );
+  }
+  
+  Future<void> _archiveDocument(DocumentItem doc) async {
+    // Check if it's a generated document
+    final isGenerated = doc.tags.contains('Generated') || doc.uploadedBy == 'System';
+    
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Archive Document'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Are you sure you want to archive "${doc.title}"?'),
+            if (isGenerated) ...[
+              const SizedBox(height: 12),
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.orange.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.orange),
+                ),
+                child: const Row(
+                  children: [
+                    Icon(Icons.warning_amber_rounded, color: Colors.orange, size: 20),
+                    SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'This is a generated document. Once archived, you may need to regenerate it.',
+                        style: TextStyle(fontSize: 13),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.red,
+              foregroundColor: Colors.white,
+            ),
+            child: const Text('Archive'),
+          ),
+        ],
       ),
-      DocumentItem(
-        title: 'Service_Contract_GlobalMall.docx',
-        type: 'word',
-        size: '156 KB',
-        status: 'Verified',
-        category: 'Contracts',
-        uploadedBy: 'Admin',
-        date: DateTime(2025, 11, 9),
-        tags: ['Contract', 'Legal'],
-      ),
-      DocumentItem(
-        title: 'Materials_Receipt_20251109.pdf',
-        type: 'pdf',
-        size: '312 KB',
-        status: 'Verified',
-        category: 'Receipts',
-        uploadedBy: 'Sarah Lee',
-        date: DateTime(2025, 11, 9),
-        tags: ['Receipt', 'PDF'],
-      ),
-      DocumentItem(
-        title: 'Safety_Guidelines_v2.pdf',
-        type: 'pdf',
-        size: '1.5 MB',
-        status: 'Verified',
-        category: 'All Documents',
-        uploadedBy: 'Admin',
-        date: DateTime(2025, 11, 1),
-        tags: ['Reference'],
-      ),
-    ]);
+    );
+    
+    if (confirmed == true) {
+      setState(() {
+        _documents.remove(doc);
+      });
+      _updateDashboardPendingDocs();
+      
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('${doc.title} archived'),
+            backgroundColor: Colors.orange,
+            behavior: SnackBarBehavior.floating,
+            action: SnackBarAction(
+              label: 'Undo',
+              textColor: Colors.white,
+              onPressed: () {
+                setState(() {
+                  _documents.insert(0, doc);
+                });
+                _updateDashboardPendingDocs();
+              },
+            ),
+          ),
+        );
+      }
+    }
   }
 
   List<DocumentItem> get _filteredDocs {
@@ -144,37 +259,64 @@ class _DocumentsScreenState extends State<DocumentsScreen> {
   }
 
   Future<void> _showGenerateModal() async {
-    final choice = await showDialog<String>(
+    final choice = await showModalBottomSheet<String>(
       context: context,
-      builder: (context) => Dialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        child: Container(
-          width: 400,
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  const Icon(Icons.add_circle_outline, color: kPrimaryColor, size: 28),
-                  const SizedBox(width: 12),
-                  const Text('Generate Document', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700)),
-                  const Spacer(),
-                  IconButton(onPressed: () => Navigator.pop(context), icon: const Icon(Icons.close)),
-                ],
+      backgroundColor: Colors.transparent,
+      builder: (context) => Container(
+        decoration: const BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        ),
+        padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Drag handle
+            Center(
+              child: Container(
+                width: 40,
+                height: 4,
+                margin: const EdgeInsets.only(bottom: 16),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFE2E8F0),
+                  borderRadius: BorderRadius.circular(2),
+                ),
               ),
-              const Divider(height: 24),
-              const Text('Select document type:', style: TextStyle(fontSize: 14, color: kTextSecondary)),
-              const SizedBox(height: 16),
-              _GenerateOptionTile(
-                icon: Icons.receipt_long,
-                title: 'Statement of Accounts (SOA)',
-                subtitle: 'Generate billing statement for clients',
-                onTap: () => Navigator.pop(context, 'soa'),
-              ),
-            ],
-          ),
+            ),
+            // Header
+            Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: kPrimaryColor.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: const Icon(Icons.add_circle_outline, color: kPrimaryColor, size: 24),
+                ),
+                const SizedBox(width: 12),
+                const Text('Generate Document', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
+                const Spacer(),
+                IconButton(
+                  onPressed: () => Navigator.pop(context),
+                  icon: const Icon(Icons.close, size: 20),
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            const Text('Select document type:', style: TextStyle(fontSize: 14, color: kTextSecondary)),
+            const SizedBox(height: 16),
+            _GenerateOptionTile(
+              icon: Icons.receipt_long,
+              title: 'Statement of Accounts (SOA)',
+              subtitle: 'Generate billing statement for clients',
+              onTap: () => Navigator.pop(context, 'soa'),
+            ),
+            const SizedBox(height: 20),
+          ],
         ),
       ),
     );
@@ -185,9 +327,11 @@ class _DocumentsScreenState extends State<DocumentsScreen> {
   }
 
   Future<void> _generateSOA() async {
-    // Show the generation dialog
-    final pdfBytes = await showDialog<Uint8List>(
+    // Show the generation bottom sheet
+    final pdfBytes = await showModalBottomSheet<Uint8List>(
       context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
       builder: (context) => const GenerateSOADialog(),
     );
 
@@ -209,13 +353,15 @@ class _DocumentsScreenState extends State<DocumentsScreen> {
         title: fileName,
         type: 'pdf',
         size: '$sizeKB KB',
-        status: 'Verified',
+        status: 'Pending',
         category: 'Invoices',
         uploadedBy: 'System',
         date: now,
         tags: ['SOA', 'Generated', 'PDF'],
+        fileBytes: pdfBytes, // Store actual bytes for storage calculation
       ));
     });
+    _updateDashboardPendingDocs();
 
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -320,17 +466,50 @@ class _DocumentsScreenState extends State<DocumentsScreen> {
                           color: Colors.white,
                           child: SingleChildScrollView(
                             scrollDirection: Axis.horizontal,
+                            padding: const EdgeInsets.symmetric(horizontal: 16),
                             child: Row(
                               children: [
                                 _buildMobileCategoryChip('All Documents', Icons.folder_open),
                                 const SizedBox(width: 8),
-                                _buildMobileCategoryChip('Invoices', Icons.receipt_long),
-                                const SizedBox(width: 8),
-                                _buildMobileCategoryChip('Job Reports', Icons.assessment_outlined),
-                                const SizedBox(width: 8),
-                                _buildMobileCategoryChip('Receipts', Icons.payment),
-                                const SizedBox(width: 8),
-                                _buildMobileCategoryChip('Contracts', Icons.gavel_outlined),
+                                ..._categories.map((cat) {
+                                  final categoryIcons = {
+                                    'Invoices': Icons.receipt_long,
+                                    'Job Reports': Icons.assessment_outlined,
+                                    'Receipts': Icons.payment,
+                                    'Contracts': Icons.gavel_outlined,
+                                  };
+                                  return Padding(
+                                    padding: const EdgeInsets.only(right: 8),
+                                    child: _buildMobileCategoryChip(cat, categoryIcons[cat] ?? Icons.folder),
+                                  );
+                                }),
+                                // Add Category button
+                                GestureDetector(
+                                  onTap: _addNewCategory,
+                                  child: Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                                    decoration: BoxDecoration(
+                                      color: Colors.white,
+                                      borderRadius: BorderRadius.circular(20),
+                                      border: Border.all(color: kPrimaryColor, width: 1.5),
+                                    ),
+                                    child: const Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Icon(Icons.add, size: 16, color: kPrimaryColor),
+                                        SizedBox(width: 6),
+                                        Text(
+                                          'Add Category',
+                                          style: TextStyle(
+                                            fontSize: 12,
+                                            color: kPrimaryColor,
+                                            fontWeight: FontWeight.w600,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
                               ],
                             ),
                           ),
@@ -395,14 +574,41 @@ class _DocumentsScreenState extends State<DocumentsScreen> {
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                _buildGenerateButton(),
-                                const SizedBox(height: 16),
                                 if (_filteredDocs.isEmpty)
-                                  const Center(child: Padding(padding: EdgeInsets.all(40), child: Text("No documents found.")))
-                                else if (_isGridView)
-                                  _buildGrid(_filteredDocs)
-                                else
-                                  _buildList(_filteredDocs),
+                                  Column(
+                                    children: [
+                                      _buildGenerateButton(),
+                                      const SizedBox(height: 24),
+                                      const Center(
+                                        child: Padding(
+                                          padding: EdgeInsets.all(40),
+                                          child: Column(
+                                            children: [
+                                              Icon(Icons.folder_open, size: 64, color: Color(0xFFCBD5E1)),
+                                              SizedBox(height: 16),
+                                              Text(
+                                                "No documents found",
+                                                style: TextStyle(fontSize: 16, color: Color(0xFF64748B), fontWeight: FontWeight.w500),
+                                              ),
+                                              SizedBox(height: 8),
+                                              Text(
+                                                "Generate your first document above",
+                                                style: TextStyle(fontSize: 13, color: Color(0xFF94A3B8)),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  )
+                                else ...[
+                                  if (_isGridView)
+                                    _buildGrid(_filteredDocs)
+                                  else
+                                    _buildList(_filteredDocs),
+                                  const SizedBox(height: 16),
+                                  _buildGenerateButton(),
+                                ],
                               ],
                             ),
                           ),
@@ -479,14 +685,41 @@ class _DocumentsScreenState extends State<DocumentsScreen> {
                                 child: Column(
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
-                                    _buildGenerateButton(),
-                                    const SizedBox(height: 24),
                                     if (_filteredDocs.isEmpty)
-                                      const Center(child: Padding(padding: EdgeInsets.all(40), child: Text("No documents found.")))
-                                    else if (_isGridView)
-                                      _buildGrid(_filteredDocs)
-                                    else
-                                      _buildList(_filteredDocs),
+                                      Column(
+                                        children: [
+                                          _buildGenerateButton(),
+                                          const SizedBox(height: 40),
+                                          const Center(
+                                            child: Padding(
+                                              padding: EdgeInsets.all(40),
+                                              child: Column(
+                                                children: [
+                                                  Icon(Icons.folder_open, size: 80, color: Color(0xFFCBD5E1)),
+                                                  SizedBox(height: 20),
+                                                  Text(
+                                                    "No documents found",
+                                                    style: TextStyle(fontSize: 18, color: Color(0xFF64748B), fontWeight: FontWeight.w600),
+                                                  ),
+                                                  SizedBox(height: 8),
+                                                  Text(
+                                                    "Generate your first document using the button above",
+                                                    style: TextStyle(fontSize: 14, color: Color(0xFF94A3B8)),
+                                                  ),
+                                                ],
+                                              ),
+                                            ),
+                                          ),
+                                        ],
+                                      )
+                                    else ...[
+                                      if (_isGridView)
+                                        _buildGrid(_filteredDocs)
+                                      else
+                                        _buildList(_filteredDocs),
+                                      const SizedBox(height: 24),
+                                      _buildGenerateButton(),
+                                    ],
                                   ],
                                 ),
                               ),
@@ -508,12 +741,19 @@ class _DocumentsScreenState extends State<DocumentsScreen> {
   // --- Widgets ---
 
   Widget _buildCategorySidebar() {
+    final categoryIcons = {
+      'Invoices': Icons.receipt_long,
+      'Job Reports': Icons.assessment_outlined,
+      'Receipts': Icons.payment,
+      'Contracts': Icons.gavel_outlined,
+    };
+    
     final categories = [
       {'name': 'All Documents', 'icon': Icons.folder_open},
-      {'name': 'Invoices', 'icon': Icons.receipt_long},
-      {'name': 'Job Reports', 'icon': Icons.assessment_outlined},
-      {'name': 'Receipts', 'icon': Icons.payment},
-      {'name': 'Contracts', 'icon': Icons.gavel_outlined},
+      ..._categories.map((cat) => {
+        'name': cat,
+        'icon': categoryIcons[cat] ?? Icons.folder,
+      }),
     ];
     
     return Container(
@@ -521,55 +761,85 @@ class _DocumentsScreenState extends State<DocumentsScreen> {
       padding: const EdgeInsets.symmetric(vertical: 16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
-        children: categories.map((cat) {
-          final name = cat['name'] as String;
-          final icon = cat['icon'] as IconData;
-          final isSelected = _selectedCategory == name;
-          final count = name == 'All Documents' 
-              ? _documents.length 
-              : _documents.where((d) => d.category == name).length;
-              
-          return InkWell(
-            onTap: () => setState(() => _selectedCategory = name),
+        children: [
+          ...categories.map((cat) {
+            final name = cat['name'] as String;
+            final icon = cat['icon'] as IconData;
+            final isSelected = _selectedCategory == name;
+            final count = name == 'All Documents' 
+                ? _documents.length 
+                : _documents.where((d) => d.category == name).length;
+                
+            return InkWell(
+              onTap: () => setState(() => _selectedCategory = name),
+              child: Container(
+                width: double.infinity,
+                margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                decoration: BoxDecoration(
+                  color: isSelected ? const Color(0xFFEFF6FF) : Colors.transparent,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Row(
+                  children: [
+                    Icon(icon, size: 18, color: isSelected ? kPrimaryColor : kTextSecondary),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Text(
+                        name,
+                        style: TextStyle(
+                          fontSize: 14,
+                          color: isSelected ? kPrimaryColor : kTextPrimary,
+                          fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
+                        ),
+                      ),
+                    ),
+                    if (count > 0)
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: isSelected ? Colors.white : const Color(0xFFF1F5F9),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: Text(
+                          count.toString(),
+                          style: TextStyle(fontSize: 10, color: isSelected ? kPrimaryColor : kTextSecondary, fontWeight: FontWeight.bold),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            );
+          }),
+          const SizedBox(height: 8),
+          InkWell(
+            onTap: _addNewCategory,
             child: Container(
               width: double.infinity,
               margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
               decoration: BoxDecoration(
-                color: isSelected ? const Color(0xFFEFF6FF) : Colors.transparent,
+                color: Colors.transparent,
                 borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: kPrimaryColor, width: 1.5),
               ),
-              child: Row(
+              child: const Row(
                 children: [
-                  Icon(icon, size: 18, color: isSelected ? kPrimaryColor : kTextSecondary),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Text(
-                      name,
-                      style: TextStyle(
-                        fontSize: 14,
-                        color: isSelected ? kPrimaryColor : kTextPrimary,
-                        fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
-                      ),
+                  Icon(Icons.add, size: 18, color: kPrimaryColor),
+                  SizedBox(width: 12),
+                  Text(
+                    'Add Category',
+                    style: TextStyle(
+                      fontSize: 14,
+                      color: kPrimaryColor,
+                      fontWeight: FontWeight.w600,
                     ),
                   ),
-                  if (count > 0)
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                      decoration: BoxDecoration(
-                        color: isSelected ? Colors.white : const Color(0xFFF1F5F9),
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                      child: Text(
-                        count.toString(),
-                        style: TextStyle(fontSize: 10, color: isSelected ? kPrimaryColor : kTextSecondary, fontWeight: FontWeight.bold),
-                      ),
-                    ),
                 ],
               ),
             ),
-          );
-        }).toList(),
+          ),
+        ],
       ),
     );
   }
@@ -632,10 +902,12 @@ class _DocumentsScreenState extends State<DocumentsScreen> {
   Widget _buildStatsRow() {
     final pending = _documents.where((d) => d.status == 'Pending').length;
     final verified = _documents.where((d) => d.status == 'Verified').length;
-    final totalSize = _documents.fold<double>(0, (sum, doc) {
-      final kb = double.tryParse(doc.size.replaceAll(RegExp(r'[^0-9.]'), '')) ?? 0;
-      return sum + kb;
-    }) / 1024; // Convert to MB
+    
+    // Calculate actual storage from file bytes
+    final totalBytes = _documents.fold<int>(0, (sum, doc) {
+      return sum + (doc.fileBytes?.length ?? 0);
+    });
+    final totalMB = totalBytes / (1024 * 1024);
     
     return SingleChildScrollView(
       scrollDirection: Axis.horizontal,
@@ -676,7 +948,7 @@ class _DocumentsScreenState extends State<DocumentsScreen> {
           const SizedBox(width: 12),
           _MiniStatChip(
             label: 'Storage Used',
-            value: '${totalSize.toStringAsFixed(1)} MB',
+            value: totalMB >= 1 ? '${totalMB.toStringAsFixed(2)} MB' : '${(totalBytes / 1024).toStringAsFixed(1)} KB',
             icon: Icons.cloud,
             color: Colors.blue,
           ),
@@ -686,43 +958,90 @@ class _DocumentsScreenState extends State<DocumentsScreen> {
   }
 
   Widget _buildGenerateButton() {
+    final isMobileView = isMobile(context);
+    
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.symmetric(vertical: 32, horizontal: 24),
+      padding: EdgeInsets.symmetric(
+        vertical: isMobileView ? 16 : 32,
+        horizontal: isMobileView ? 16 : 24,
+      ),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(12),
         border: Border.all(color: kBorderColor, style: BorderStyle.solid),
       ),
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Container(
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: kPrimaryColor.withOpacity(0.1),
-              shape: BoxShape.circle,
+      child: isMobileView
+          ? Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: kPrimaryColor.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: const Icon(Icons.add_circle_outline, size: 24, color: kPrimaryColor),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'Generate Documents',
+                        style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: kTextPrimary),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        'Create SOA, invoices, reports',
+                        style: TextStyle(fontSize: 12, color: kTextSecondary.withOpacity(0.8)),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 8),
+                ElevatedButton(
+                  onPressed: _showGenerateModal,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: kPrimaryColor,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                    elevation: 0,
+                  ),
+                  child: const Text('Create', style: TextStyle(fontSize: 14)),
+                ),
+              ],
+            )
+          : Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: kPrimaryColor.withOpacity(0.1),
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(Icons.add_circle_outline, size: 48, color: kPrimaryColor),
+                ),
+                const SizedBox(height: 16),
+                const Text('Generate Documents', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600, color: kTextPrimary)),
+                const SizedBox(height: 8),
+                const Text('Create statements, invoices, and reports', style: TextStyle(fontSize: 14, color: kTextSecondary)),
+                const SizedBox(height: 20),
+                ElevatedButton.icon(
+                  onPressed: _showGenerateModal,
+                  icon: const Icon(Icons.add),
+                  label: const Text('Generate'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: kPrimaryColor,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 16),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                  ),
+                ),
+              ],
             ),
-            child: const Icon(Icons.add_circle_outline, size: 48, color: kPrimaryColor),
-          ),
-          const SizedBox(height: 16),
-          const Text('Generate Documents', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600, color: kTextPrimary)),
-          const SizedBox(height: 8),
-          const Text('Create statements, invoices, and reports', style: TextStyle(fontSize: 14, color: kTextSecondary)),
-          const SizedBox(height: 20),
-          ElevatedButton.icon(
-            onPressed: _showGenerateModal,
-            icon: const Icon(Icons.add),
-            label: const Text('Generate'),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: kPrimaryColor,
-              foregroundColor: Colors.white,
-              padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 16),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-            ),
-          ),
-        ],
-      ),
     );
   }
 
@@ -745,7 +1064,14 @@ class _DocumentsScreenState extends State<DocumentsScreen> {
             childAspectRatio: 1.3, // More compact aspect ratio
           ),
           itemCount: docs.length,
-          itemBuilder: (context, index) => _DocumentGridCard(doc: docs[index]),
+          itemBuilder: (context, index) => AnimatedCard(
+            delay: Duration(milliseconds: 300 + (index * 50)),
+            child: _DocumentGridCard(
+              doc: docs[index],
+              onToggleStatus: _toggleDocumentStatus,
+              onArchive: _archiveDocument,
+            ),
+          ),
         );
       },
     );
@@ -759,7 +1085,9 @@ class _DocumentsScreenState extends State<DocumentsScreen> {
         if (isMobileView) {
           // Mobile: Card view
           return Column(
-            children: docs.map((doc) => Container(
+            children: docs.asMap().entries.map((entry) => AnimatedCard(
+              delay: Duration(milliseconds: 300 + (entry.key * 50)),
+              child: Container(
           margin: const EdgeInsets.only(bottom: 12),
           padding: const EdgeInsets.all(16),
           decoration: BoxDecoration(
@@ -772,24 +1100,92 @@ class _DocumentsScreenState extends State<DocumentsScreen> {
             children: [
               Row(
                 children: [
-                  Icon(_getFileIcon(doc.type), size: 24, color: _getFileColor(doc.type)),
+                  Icon(_getFileIcon(entry.value.type), size: 24, color: _getFileColor(entry.value.type)),
                   const SizedBox(width: 12),
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          doc.title,
+                          entry.value.title,
                           style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: kTextPrimary),
                           maxLines: 2,
                           overflow: TextOverflow.ellipsis,
                         ),
                         const SizedBox(height: 4),
-                        Text(doc.size, style: const TextStyle(fontSize: 11, color: kTextSecondary)),
+                        Text(entry.value.size, style: const TextStyle(fontSize: 11, color: kTextSecondary)),
                       ],
                     ),
                   ),
-                  _StatusBadge(status: doc.status),
+                  _StatusBadge(status: entry.value.status),
+                  PopupMenuButton<String>(
+                    icon: const Icon(Icons.more_vert, size: 18, color: kTextSecondary),
+                    itemBuilder: (context) => [
+                      if (entry.value.fileBytes != null) ...[
+                        const PopupMenuItem(
+                          value: 'edit',
+                          child: Row(
+                            children: [
+                              Icon(Icons.edit, size: 18, color: Colors.blue),
+                              SizedBox(width: 8),
+                              Text('Edit'),
+                            ],
+                          ),
+                        ),
+                        const PopupMenuItem(
+                          value: 'download',
+                          child: Row(
+                            children: [
+                              Icon(Icons.download, size: 18, color: Colors.green),
+                              SizedBox(width: 8),
+                              Text('Download'),
+                            ],
+                          ),
+                        ),
+                      ],
+                      PopupMenuItem(
+                        value: 'verify',
+                        child: Row(
+                          children: [
+                            Icon(
+                              entry.value.status == 'Verified' ? Icons.pending : Icons.verified,
+                              size: 18,
+                              color: entry.value.status == 'Verified' ? Colors.orange : Colors.green,
+                            ),
+                            const SizedBox(width: 8),
+                            Text(entry.value.status == 'Verified' ? 'Mark as Pending' : 'Mark as Verified'),
+                          ],
+                        ),
+                      ),
+                      const PopupMenuItem(
+                        value: 'archive',
+                        child: Row(
+                          children: [
+                            Icon(Icons.archive, size: 18, color: Colors.red),
+                            SizedBox(width: 8),
+                            Text('Archive'),
+                          ],
+                        ),
+                      ),
+                    ],
+                    onSelected: (value) async {
+                      if (value == 'edit') {
+                        await Printing.layoutPdf(
+                          onLayout: (format) async => entry.value.fileBytes!,
+                          name: entry.value.title,
+                        );
+                      } else if (value == 'download') {
+                        await Printing.sharePdf(
+                          bytes: entry.value.fileBytes!,
+                          filename: entry.value.title,
+                        );
+                      } else if (value == 'verify') {
+                        _toggleDocumentStatus(entry.value);
+                      } else if (value == 'archive') {
+                        _archiveDocument(entry.value);
+                      }
+                    },
+                  ),
                 ],
               ),
               const SizedBox(height: 12),
@@ -799,15 +1195,16 @@ class _DocumentsScreenState extends State<DocumentsScreen> {
                 children: [
                   const Icon(Icons.person_outline, size: 14, color: kTextSecondary),
                   const SizedBox(width: 6),
-                  Text(doc.uploadedBy, style: const TextStyle(fontSize: 12, color: kTextSecondary)),
+                  Text(entry.value.uploadedBy, style: const TextStyle(fontSize: 12, color: kTextSecondary)),
                   const Spacer(),
                   const Icon(Icons.calendar_today, size: 14, color: kTextSecondary),
                   const SizedBox(width: 6),
-                  Text('${doc.date.month}/${doc.date.day}/${doc.date.year}', style: const TextStyle(fontSize: 12, color: kTextSecondary)),
+                  Text('${entry.value.date.month}/${entry.value.date.day}/${entry.value.date.year}', style: const TextStyle(fontSize: 12, color: kTextSecondary)),
                 ],
               ),
             ],
           ),
+            ),
         )).toList(),
           );
         }
@@ -863,7 +1260,77 @@ class _DocumentsScreenState extends State<DocumentsScreen> {
                     SizedBox(width: 120, child: Text(doc.uploadedBy, style: const TextStyle(fontSize: 13, color: kTextSecondary))),
                     SizedBox(width: 100, child: Text('${doc.date.month}/${doc.date.day}/${doc.date.year}', style: const TextStyle(fontSize: 13, color: kTextSecondary))),
                     SizedBox(width: 100, child: _StatusBadge(status: doc.status)),
-                    const SizedBox(width: 40, child: Icon(Icons.more_vert, size: 18, color: kTextSecondary)),
+                    SizedBox(
+                      width: 40,
+                      child: PopupMenuButton<String>(
+                        icon: const Icon(Icons.more_vert, size: 18, color: kTextSecondary),
+                        itemBuilder: (context) => [
+                          if (doc.fileBytes != null) ...[
+                            const PopupMenuItem(
+                              value: 'edit',
+                              child: Row(
+                                children: [
+                                  Icon(Icons.edit, size: 18, color: Colors.blue),
+                                  SizedBox(width: 8),
+                                  Text('Edit'),
+                                ],
+                              ),
+                            ),
+                            const PopupMenuItem(
+                              value: 'download',
+                              child: Row(
+                                children: [
+                                  Icon(Icons.download, size: 18, color: Colors.green),
+                                  SizedBox(width: 8),
+                                  Text('Download'),
+                                ],
+                              ),
+                            ),
+                          ],
+                          PopupMenuItem(
+                            value: 'verify',
+                            child: Row(
+                              children: [
+                                Icon(
+                                  doc.status == 'Verified' ? Icons.pending : Icons.verified,
+                                  size: 18,
+                                  color: doc.status == 'Verified' ? Colors.orange : Colors.green,
+                                ),
+                                const SizedBox(width: 8),
+                                Text(doc.status == 'Verified' ? 'Mark as Pending' : 'Mark as Verified'),
+                              ],
+                            ),
+                          ),
+                          const PopupMenuItem(
+                            value: 'archive',
+                            child: Row(
+                              children: [
+                                Icon(Icons.archive, size: 18, color: Colors.red),
+                                SizedBox(width: 8),
+                                Text('Archive'),
+                              ],
+                            ),
+                          ),
+                        ],
+                        onSelected: (value) async {
+                          if (value == 'edit') {
+                            await Printing.layoutPdf(
+                              onLayout: (format) async => doc.fileBytes!,
+                              name: doc.title,
+                            );
+                          } else if (value == 'download') {
+                            await Printing.sharePdf(
+                              bytes: doc.fileBytes!,
+                              filename: doc.title,
+                            );
+                          } else if (value == 'verify') {
+                            _toggleDocumentStatus(doc);
+                          } else if (value == 'archive') {
+                            _archiveDocument(doc);
+                          }
+                        },
+                      ),
+                    ),
                   ],
                 ),
               )),
@@ -936,7 +1403,13 @@ class _MiniStatChip extends StatelessWidget {
 
 class _DocumentGridCard extends StatelessWidget {
   final DocumentItem doc;
-  const _DocumentGridCard({required this.doc});
+  final Function(DocumentItem) onToggleStatus;
+  final Function(DocumentItem) onArchive;
+  const _DocumentGridCard({
+    required this.doc,
+    required this.onToggleStatus,
+    required this.onArchive,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -986,6 +1459,78 @@ class _DocumentGridCard extends StatelessWidget {
               ),
               const Spacer(),
               _StatusBadge(status: doc.status),
+              PopupMenuButton<String>(
+                icon: const Icon(Icons.more_vert, size: 16, color: kTextSecondary),
+                padding: EdgeInsets.zero,
+                itemBuilder: (context) => [
+                  if (doc.fileBytes != null) ...[
+                    const PopupMenuItem(
+                      value: 'edit',
+                      child: Row(
+                        children: [
+                          Icon(Icons.edit, size: 16, color: Colors.blue),
+                          SizedBox(width: 8),
+                          Text('Edit', style: TextStyle(fontSize: 13)),
+                        ],
+                      ),
+                    ),
+                    const PopupMenuItem(
+                      value: 'download',
+                      child: Row(
+                        children: [
+                          Icon(Icons.download, size: 16, color: Colors.green),
+                          SizedBox(width: 8),
+                          Text('Download', style: TextStyle(fontSize: 13)),
+                        ],
+                      ),
+                    ),
+                  ],
+                  PopupMenuItem(
+                    value: 'verify',
+                    child: Row(
+                      children: [
+                        Icon(
+                          doc.status == 'Verified' ? Icons.pending : Icons.verified,
+                          size: 16,
+                          color: doc.status == 'Verified' ? Colors.orange : Colors.green,
+                        ),
+                        const SizedBox(width: 8),
+                        Text(
+                          doc.status == 'Verified' ? 'Pending' : 'Verify',
+                          style: const TextStyle(fontSize: 13),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const PopupMenuItem(
+                    value: 'archive',
+                    child: Row(
+                      children: [
+                        Icon(Icons.archive, size: 16, color: Colors.red),
+                        SizedBox(width: 8),
+                        Text('Archive', style: TextStyle(fontSize: 13)),
+                      ],
+                    ),
+                  ),
+                ],
+                onSelected: (value) async {
+                  if (value == 'edit') {
+                    await Printing.layoutPdf(
+                      onLayout: (format) async => doc.fileBytes!,
+                      name: doc.title,
+                    );
+                  } else if (value == 'download') {
+                    await Printing.sharePdf(
+                      bytes: doc.fileBytes!,
+                      filename: doc.title,
+                    );
+                  } else if (value == 'verify') {
+                    onToggleStatus(doc);
+                  } else if (value == 'archive') {
+                    onArchive(doc);
+                  }
+                },
+              ),
             ],
           ),
           const SizedBox(height: 12),

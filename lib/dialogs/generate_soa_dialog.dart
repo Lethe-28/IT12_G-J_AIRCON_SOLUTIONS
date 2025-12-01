@@ -129,154 +129,192 @@ class _GenerateSOADialogState extends State<GenerateSOADialog> {
 
   @override
   Widget build(BuildContext context) {
-    final isMobile = MediaQuery.of(context).size.width < 600;
-    
-    return Dialog(
-      child: Container(
-        width: isMobile ? MediaQuery.of(context).size.width * 0.95 : 800,
-        height: isMobile ? MediaQuery.of(context).size.height * 0.9 : 700,
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // Header
-            Row(
+    return Container(
+      constraints: BoxConstraints(
+        maxHeight: MediaQuery.of(context).size.height * 0.92,
+      ),
+      decoration: const BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          // Header with drag handle
+          Container(
+            padding: const EdgeInsets.fromLTRB(24, 12, 24, 16),
+            decoration: const BoxDecoration(
+              border: Border(bottom: BorderSide(color: Color(0xFFE2E8F0))),
+            ),
+            child: Column(
               children: [
-                const Icon(Icons.picture_as_pdf, color: Color(0xFF2563EB), size: 28),
-                const SizedBox(width: 12),
-                const Text(
-                  'Generate Statement of Account',
-                  style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700),
+                // Drag handle
+                Container(
+                  width: 40,
+                  height: 4,
+                  margin: const EdgeInsets.only(bottom: 12),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFE2E8F0),
+                    borderRadius: BorderRadius.circular(2),
+                  ),
                 ),
-                const Spacer(),
-                IconButton(
-                  onPressed: () => Navigator.pop(context),
-                  icon: const Icon(Icons.close),
+                // Header
+                Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF2563EB).withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: const Icon(Icons.picture_as_pdf, color: Color(0xFF2563EB), size: 24),
+                    ),
+                    const SizedBox(width: 12),
+                    const Expanded(
+                      child: Text(
+                        'Generate Statement of Account',
+                        style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
+                      ),
+                    ),
+                    IconButton(
+                      onPressed: () => Navigator.pop(context),
+                      icon: const Icon(Icons.close, size: 20),
+                      padding: EdgeInsets.zero,
+                      constraints: const BoxConstraints(),
+                    ),
+                  ],
                 ),
               ],
             ),
-            const Divider(height: 24),
+          ),
 
-            // Form
-            Expanded(
-              child: Form(
-                key: _formKey,
-                child: SingleChildScrollView(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      // Customer Information
-                      _buildSectionTitle('Customer Information'),
-                      const SizedBox(height: 12),
-                      TextFormField(
-                        controller: _customerNameController,
-                        decoration: _inputDecor('Customer Name *'),
-                        validator: (v) => v?.trim().isEmpty ?? true ? 'Required' : null,
-                      ),
-                      const SizedBox(height: 12),
-                      TextFormField(
-                        controller: _customerAddressController,
-                        decoration: _inputDecor('Address *'),
-                        validator: (v) => v?.trim().isEmpty ?? true ? 'Required' : null,
-                        maxLines: 2,
-                      ),
-                      const SizedBox(height: 24),
+          // Form
+          Flexible(
+            child: Form(
+              key: _formKey,
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.all(24),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // Customer Information
+                    _buildSectionTitle('Customer Information'),
+                    const SizedBox(height: 12),
+                    TextFormField(
+                      controller: _customerNameController,
+                      decoration: _inputDecor('Customer Name *'),
+                      validator: (v) => v?.trim().isEmpty ?? true ? 'Required' : null,
+                    ),
+                    const SizedBox(height: 12),
+                    TextFormField(
+                      controller: _customerAddressController,
+                      decoration: _inputDecor('Address *'),
+                      validator: (v) => v?.trim().isEmpty ?? true ? 'Required' : null,
+                      maxLines: 2,
+                    ),
+                    const SizedBox(height: 24),
 
-                      // SOA Details
-                      _buildSectionTitle('SOA Details'),
-                      const SizedBox(height: 12),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: TextFormField(
-                              controller: _soaNumberController,
-                              decoration: _inputDecor('Reference Number *'),
-                              validator: (v) => v?.trim().isEmpty ?? true ? 'Required' : null,
-                            ),
+                    // SOA Details
+                    _buildSectionTitle('SOA Details'),
+                    const SizedBox(height: 12),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: TextFormField(
+                            controller: _soaNumberController,
+                            decoration: _inputDecor('Reference Number *'),
+                            validator: (v) => v?.trim().isEmpty ?? true ? 'Required' : null,
                           ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: InkWell(
-                              onTap: _pickDate,
-                              child: InputDecorator(
-                                decoration: _inputDecor('Date *'),
-                                child: Row(
-                                  children: [
-                                    const Icon(Icons.calendar_today, size: 16),
-                                    const SizedBox(width: 8),
-                                    Text(DateFormat('MMMM dd, yyyy').format(_soaDate)),
-                                  ],
-                                ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: InkWell(
+                            onTap: _pickDate,
+                            child: InputDecorator(
+                              decoration: _inputDecor('Date *'),
+                              child: Row(
+                                children: [
+                                  const Icon(Icons.calendar_today, size: 16),
+                                  const SizedBox(width: 8),
+                                  Text(DateFormat('MMMM dd, yyyy').format(_soaDate)),
+                                ],
                               ),
                             ),
                           ),
-                        ],
-                      ),
-                      const SizedBox(height: 24),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 24),
 
-                      // Items
-                      Row(
-                        children: [
-                          _buildSectionTitle('Items'),
-                          const Spacer(),
-                          TextButton.icon(
-                            onPressed: _addItem,
-                            icon: const Icon(Icons.add, size: 18),
-                            label: const Text('Add Item'),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 12),
-                      ..._items.asMap().entries.map((entry) {
-                        final index = entry.key;
-                        final item = entry.value;
-                        return Padding(
-                          padding: const EdgeInsets.only(bottom: 12),
-                          child: _buildItemRow(item, index),
-                        );
-                      }),
-
-                    ],
-                  ),
+                    // Items
+                    Row(
+                      children: [
+                        _buildSectionTitle('Items'),
+                        const Spacer(),
+                        TextButton.icon(
+                          onPressed: _addItem,
+                          icon: const Icon(Icons.add, size: 18),
+                          label: const Text('Add Item'),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    ..._items.asMap().entries.map((entry) {
+                      final index = entry.key;
+                      final item = entry.value;
+                      return Padding(
+                        padding: const EdgeInsets.only(bottom: 12),
+                        child: _buildItemRow(item, index),
+                      );
+                    }),
+                  ],
                 ),
               ),
             ),
+          ),
 
-            // Actions
-            const Divider(height: 24),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.end,
+          // Actions Footer
+          Container(
+            padding: const EdgeInsets.all(24),
+            decoration: const BoxDecoration(
+              color: Colors.white,
+              border: Border(top: BorderSide(color: Color(0xFFE2E8F0))),
+            ),
+            child: Row(
               children: [
-                OutlinedButton(
-                  onPressed: _isGenerating ? null : () => Navigator.pop(context),
-                  child: const Padding(
-                    padding: EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                    child: Text('Cancel'),
+                Expanded(
+                  child: OutlinedButton(
+                    onPressed: _isGenerating ? null : () => Navigator.pop(context),
+                    style: OutlinedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                    ),
+                    child: const Text('Cancel'),
                   ),
                 ),
                 const SizedBox(width: 12),
-                ElevatedButton.icon(
-                  onPressed: _isGenerating ? null : _generatePDF,
-                  icon: _isGenerating
-                      ? const SizedBox(
-                          width: 16,
-                          height: 16,
-                          child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
-                        )
-                      : const Icon(Icons.picture_as_pdf),
-                  label: Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                    child: Text(_isGenerating ? 'Generating...' : 'Generate PDF'),
-                  ),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF2563EB),
-                    foregroundColor: Colors.white,
+                Expanded(
+                  flex: 2,
+                  child: ElevatedButton.icon(
+                    onPressed: _isGenerating ? null : _generatePDF,
+                    icon: _isGenerating
+                        ? const SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                          )
+                        : const Icon(Icons.picture_as_pdf, size: 20),
+                    label: Text(_isGenerating ? 'Generating...' : 'Generate PDF'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF2563EB),
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                    ),
                   ),
                 ),
               ],
             ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
@@ -293,54 +331,100 @@ class _GenerateSOADialogState extends State<GenerateSOADialog> {
   }
 
   Widget _buildItemRow(_ItemRow item, int index) {
-    return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        border: Border.all(color: const Color(0xFFE2E8F0)),
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Expanded(
-            flex: 2,
-            child: TextFormField(
-              controller: item.clientController,
-              decoration: _inputDecor('Client *', dense: true),
-              validator: (v) => v?.trim().isEmpty ?? true ? 'Required' : null,
-            ),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final isNarrow = constraints.maxWidth < 500;
+        
+        return Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            border: Border.all(color: const Color(0xFFE2E8F0)),
+            borderRadius: BorderRadius.circular(8),
           ),
-          const SizedBox(width: 8),
-          Expanded(
-            flex: 3,
-            child: TextFormField(
-              controller: item.workController,
-              decoration: _inputDecor('Work Description *', dense: true),
-              validator: (v) => v?.trim().isEmpty ?? true ? 'Required' : null,
-            ),
-          ),
-          const SizedBox(width: 8),
-          SizedBox(
-            width: 120,
-            child: TextFormField(
-              controller: item.amountController,
-              decoration: _inputDecor('Amount *', dense: true),
-              keyboardType: const TextInputType.numberWithOptions(decimal: true),
-              inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'^\d*\.?\d{0,2}'))],
-              validator: (v) => (double.tryParse(v ?? '') ?? 0) <= 0 ? 'Invalid' : null,
-            ),
-          ),
-          const SizedBox(width: 8),
-          IconButton(
-            onPressed: _items.length > 1 ? () => _removeItem(index) : null,
-            icon: Icon(
-              Icons.delete_outline,
-              color: _items.length > 1 ? Colors.red : Colors.grey,
-            ),
-            tooltip: 'Remove item',
-          ),
-        ],
-      ),
+          child: isNarrow
+              ? Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    TextFormField(
+                      controller: item.clientController,
+                      decoration: _inputDecor('Client *', dense: true),
+                      validator: (v) => v?.trim().isEmpty ?? true ? 'Required' : null,
+                    ),
+                    const SizedBox(height: 10),
+                    TextFormField(
+                      controller: item.workController,
+                      decoration: _inputDecor('Work Description *', dense: true),
+                      validator: (v) => v?.trim().isEmpty ?? true ? 'Required' : null,
+                    ),
+                    const SizedBox(height: 10),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: TextFormField(
+                            controller: item.amountController,
+                            decoration: _inputDecor('Amount *', dense: true),
+                            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                            inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'^\d*\.?\d{0,2}'))],
+                            validator: (v) => (double.tryParse(v ?? '') ?? 0) <= 0 ? 'Invalid' : null,
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        IconButton(
+                          onPressed: _items.length > 1 ? () => _removeItem(index) : null,
+                          icon: Icon(
+                            Icons.delete_outline,
+                            color: _items.length > 1 ? Colors.red : Colors.grey,
+                          ),
+                          tooltip: 'Remove item',
+                        ),
+                      ],
+                    ),
+                  ],
+                )
+              : Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(
+                      flex: 2,
+                      child: TextFormField(
+                        controller: item.clientController,
+                        decoration: _inputDecor('Client *', dense: true),
+                        validator: (v) => v?.trim().isEmpty ?? true ? 'Required' : null,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      flex: 3,
+                      child: TextFormField(
+                        controller: item.workController,
+                        decoration: _inputDecor('Work Description *', dense: true),
+                        validator: (v) => v?.trim().isEmpty ?? true ? 'Required' : null,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    SizedBox(
+                      width: 120,
+                      child: TextFormField(
+                        controller: item.amountController,
+                        decoration: _inputDecor('Amount *', dense: true),
+                        keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                        inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'^\d*\.?\d{0,2}'))],
+                        validator: (v) => (double.tryParse(v ?? '') ?? 0) <= 0 ? 'Invalid' : null,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    IconButton(
+                      onPressed: _items.length > 1 ? () => _removeItem(index) : null,
+                      icon: Icon(
+                        Icons.delete_outline,
+                        color: _items.length > 1 ? Colors.red : Colors.grey,
+                      ),
+                      tooltip: 'Remove item',
+                    ),
+                  ],
+                ),
+        );
+      },
     );
   }
 

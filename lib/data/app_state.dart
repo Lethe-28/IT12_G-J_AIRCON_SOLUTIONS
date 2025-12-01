@@ -40,7 +40,10 @@ class AppState {
   }
 
   static String roleDisplayName() {
-    final label = currentRole == UserRole.serviceManager ? 'Service Manager' : 'Admin User';
-    return currentUserName.isEmpty ? label : label;
+    // If a username is set, show it. Otherwise fall back to role label.
+    if (currentUserName.trim().isNotEmpty) {
+      return currentUserName;
+    }
+    return currentRole == UserRole.serviceManager ? 'Service Manager' : 'Admin User';
   }
 }

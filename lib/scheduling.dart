@@ -1,11 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import 'data/app_state.dart';
-import 'data/models.dart';
 import 'ui_app_shell.dart';
 import 'shared/widgets.dart'
     show
+        AnimatedCard,
+        HoverCard,
+        AnimatedButton,
         LoadingOverlay,
         LoadingButton,
         EmptyState,
@@ -129,8 +130,10 @@ class _SchedulingScreenState extends State<SchedulingScreen> {
   // --- ACTIONS ---
 
   void _onAddOrEdit() async {
-    final result = await showDialog(
+    final result = await showModalBottomSheet(
       context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
       builder: (context) => _JobOrderDialog(initialDate: _selectedDate),
     );
 
@@ -140,8 +143,10 @@ class _SchedulingScreenState extends State<SchedulingScreen> {
   }
 
   void _showJobDetails(JobOrder job) {
-    showDialog(
+    showModalBottomSheet(
       context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
       builder: (context) => _JobDetailDialog(
         job: job,
         onEdit: () {
@@ -403,12 +408,15 @@ class _SchedulingScreenState extends State<SchedulingScreen> {
                                 itemCount: selectedDayJobs.length,
                                 separatorBuilder: (ctx, i) =>
                                     const SizedBox(height: 12),
-                                itemBuilder: (ctx, i) => GestureDetector(
-                                  onTap: () {
-                                    HapticFeedback.selectionClick();
-                                    _showJobDetails(selectedDayJobs[i]);
-                                  },
-                                  child: _JobCard(order: selectedDayJobs[i]),
+                                itemBuilder: (ctx, i) => AnimatedCard(
+                                  delay: Duration(milliseconds: 300 + (i * 50)),
+                                  child: GestureDetector(
+                                    onTap: () {
+                                      HapticFeedback.selectionClick();
+                                      _showJobDetails(selectedDayJobs[i]);
+                                    },
+                                    child: _JobCard(order: selectedDayJobs[i]),
+                                  ),
                                 ),
                               ),
                           ],
@@ -567,119 +575,208 @@ class _JobDetailDialog extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Dialog(
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      child: Container(
-        padding: const EdgeInsets.all(24),
-        constraints: const BoxConstraints(maxWidth: 400),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
+    return Container(
+      constraints: BoxConstraints(
+        maxHeight: MediaQuery.of(context).size.height * 0.92,
+      ),
+      decoration: const BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.only(
+          topLeft: Radius.circular(20),
+          topRight: Radius.circular(20),
+        ),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          // Header Section
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+            decoration: const BoxDecoration(
+              border: Border(
+                bottom: BorderSide(color: Color(0xFFE2E8F0)),
+              ),
+            ),
+            child: Column(
               children: [
-                Expanded(
-                  child: Text(
-                    job.clientName,
-                    style: const TextStyle(
-                      fontSize: 20,
-                      fontWeight: FontWeight.bold,
+                // Drag Handle
+                Center(
+                  child: Container(
+                    width: 40,
+                    height: 4,
+                    margin: const EdgeInsets.only(bottom: 16),
+                    decoration: BoxDecoration(
+                      color: Colors.grey[300],
+                      borderRadius: BorderRadius.circular(2),
                     ),
                   ),
                 ),
-                IconButton(
-                  onPressed: () => Navigator.pop(context),
-                  icon: const Icon(Icons.close),
+                // Title Row
+                Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: Colors.blue.withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: const Icon(
+                        Icons.event_note,
+                        color: Colors.blue,
+                        size: 24,
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Text(
+                        job.clientName,
+                        style: const TextStyle(
+                          fontSize: 20,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                    IconButton(
+                      onPressed: () => Navigator.pop(context),
+                      icon: const Icon(Icons.close),
+                      padding: EdgeInsets.zero,
+                      constraints: const BoxConstraints(),
+                    ),
+                  ],
                 ),
               ],
             ),
-            const SizedBox(height: 8),
-            Text(
-              job.jobType,
-              style: const TextStyle(
-                fontSize: 16,
-                color: Colors.blue,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-            const SizedBox(height: 16),
-            _infoRow(
-              Icons.calendar_today,
-              "${job.startDateTime.month}/${job.startDateTime.day} ${job.startDateTime.hour}:${job.startDateTime.minute.toString().padLeft(2, '0')}",
-            ),
-            if (job.endDateTime != null)
-              _infoRow(
-                Icons.event_repeat,
-                "Ends: ${job.endDateTime!.month}/${job.endDateTime!.day}",
-              ),
-            const SizedBox(height: 8),
-            _infoRow(Icons.numbers, job.displayId),
+          ),
 
-            const SizedBox(height: 24),
-            const Divider(),
-            const SizedBox(height: 16),
-            const Text(
-              "Actions",
-              style: TextStyle(
-                fontSize: 14,
-                color: Colors.grey,
-                fontWeight: FontWeight.bold,
+          // Content Section
+          Flexible(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    job.jobType,
+                    style: const TextStyle(
+                      fontSize: 16,
+                      color: Colors.blue,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  _infoRow(
+                    Icons.calendar_today,
+                    "${job.startDateTime.month}/${job.startDateTime.day} ${job.startDateTime.hour}:${job.startDateTime.minute.toString().padLeft(2, '0')}",
+                  ),
+                  if (job.endDateTime != null)
+                    _infoRow(
+                      Icons.event_repeat,
+                      "Ends: ${job.endDateTime!.month}/${job.endDateTime!.day}",
+                    ),
+                  const SizedBox(height: 8),
+                  _infoRow(Icons.numbers, job.displayId),
+
+                  const SizedBox(height: 24),
+                  const Divider(),
+                  const SizedBox(height: 16),
+                  const Text(
+                    "Actions",
+                    style: TextStyle(
+                      fontSize: 14,
+                      color: Colors.grey,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+
+                  // ACTION BUTTONS GRID
+                  Wrap(
+                    spacing: 12,
+                    runSpacing: 12,
+                    children: [
+                      _ActionButton(
+                        icon: Icons.edit,
+                        label: "Edit",
+                        color: Colors.blue,
+                        onTap: onEdit,
+                      ),
+                      _ActionButton(
+                        icon: Icons.calendar_month,
+                        label: "Reschedule",
+                        color: Colors.orange,
+                        onTap: () async {
+                          final d = await showDatePicker(
+                            context: context,
+                            initialDate: job.startDateTime,
+                            // FIX: Allow past dates (starting from 2020) so the picker doesn't crash on old jobs
+                            firstDate: DateTime(2020),
+                            lastDate: DateTime(2030),
+                          );
+                          if (d != null) onReschedule(d);
+                        },
+                      ),
+                      _ActionButton(
+                        icon: Icons.update,
+                        label: "Extend",
+                        color: Colors.purple,
+                        onTap: () async {
+                          final d = await showDatePicker(
+                            context: context,
+                            initialDate: job.endDateTime ?? job.startDateTime,
+                            firstDate: job.startDateTime,
+                            lastDate: DateTime(2030),
+                            helpText: "Select End Date",
+                          );
+                          if (d != null) onExtend(d);
+                        },
+                      ),
+                      _ActionButton(
+                        icon: Icons.delete,
+                        label: "Delete",
+                        color: Colors.red,
+                        onTap:
+                            onDelete, // FIX: The error logic was actually in the parent call, fixed below
+                      ),
+                    ],
+                  ),
+                ],
               ),
             ),
-            const SizedBox(height: 12),
+          ),
 
-            // ACTION BUTTONS GRID
-            Wrap(
-              spacing: 12,
-              runSpacing: 12,
+          // Footer Section
+          Container(
+            padding: const EdgeInsets.all(24),
+            decoration: const BoxDecoration(
+              border: Border(
+                top: BorderSide(color: Color(0xFFE2E8F0)),
+              ),
+            ),
+            child: Row(
               children: [
-                _ActionButton(
-                  icon: Icons.edit,
-                  label: "Edit",
-                  color: Colors.blue,
-                  onTap: onEdit,
-                ),
-                _ActionButton(
-                  icon: Icons.calendar_month,
-                  label: "Reschedule",
-                  color: Colors.orange,
-                  onTap: () async {
-                    final d = await showDatePicker(
-                      context: context,
-                      initialDate: job.startDateTime,
-                      // FIX: Allow past dates (starting from 2020) so the picker doesn't crash on old jobs
-                      firstDate: DateTime(2020),
-                      lastDate: DateTime(2030),
-                    );
-                    if (d != null) onReschedule(d);
-                  },
-                ),
-                _ActionButton(
-                  icon: Icons.update,
-                  label: "Extend",
-                  color: Colors.purple,
-                  onTap: () async {
-                    final d = await showDatePicker(
-                      context: context,
-                      initialDate: job.endDateTime ?? job.startDateTime,
-                      firstDate: job.startDateTime,
-                      lastDate: DateTime(2030),
-                      helpText: "Select End Date",
-                    );
-                    if (d != null) onExtend(d);
-                  },
-                ),
-                _ActionButton(
-                  icon: Icons.delete,
-                  label: "Delete",
-                  color: Colors.red,
-                  onTap:
-                      onDelete, // FIX: The error logic was actually in the parent call, fixed below
+                Expanded(
+                  child: OutlinedButton(
+                    onPressed: () => Navigator.pop(context),
+                    style: OutlinedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(vertical: 16),
+                      side: const BorderSide(color: Color(0xFF94A3B8)),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                    ),
+                    child: const Text(
+                      'Close',
+                      style: TextStyle(
+                        color: Color(0xFF475569),
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
                 ),
               ],
             ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
@@ -1003,113 +1100,188 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
 
   @override
   Widget build(BuildContext context) {
-    final isMobile = MediaQuery.of(context).size.width < 600;
-
-    return Dialog(
-      insetPadding: isMobile ? EdgeInsets.zero : const EdgeInsets.all(40),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      child: Container(
-        width: isMobile ? double.infinity : 600,
-        height: isMobile ? double.infinity : 750,
+    return Container(
+      constraints: BoxConstraints(
+        maxHeight: MediaQuery.of(context).size.height * 0.92,
+      ),
+      decoration: const BoxDecoration(
         color: Colors.white,
-        child: Column(
-          children: [
-            Container(
-              padding: const EdgeInsets.all(20),
-              decoration: const BoxDecoration(
-                border: Border(bottom: BorderSide(color: Color(0xFFE2E8F0))),
+        borderRadius: BorderRadius.only(
+          topLeft: Radius.circular(20),
+          topRight: Radius.circular(20),
+        ),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          // Header Section
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+            decoration: const BoxDecoration(
+              border: Border(
+                bottom: BorderSide(color: Color(0xFFE2E8F0)),
               ),
-              child: Row(
-                children: [
-                  if (_currentStep > 0)
-                    IconButton(
-                      icon: const Icon(Icons.arrow_back),
-                      onPressed: () => setState(() => _currentStep--),
+            ),
+            child: Column(
+              children: [
+                // Drag Handle
+                Center(
+                  child: Container(
+                    width: 40,
+                    height: 4,
+                    margin: const EdgeInsets.only(bottom: 16),
+                    decoration: BoxDecoration(
+                      color: Colors.grey[300],
+                      borderRadius: BorderRadius.circular(2),
                     ),
-                  Expanded(
-                    child: Text(
-                      _currentStep == 0
-                          ? "Service Type"
-                          : _currentStep == 1
-                          ? "Customer & Asset"
-                          : "Schedule",
-                      textAlign: TextAlign.center,
-                      style: const TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
+                  ),
+                ),
+                // Title Row
+                Row(
+                  children: [
+                    if (_currentStep > 0)
+                      IconButton(
+                        icon: const Icon(Icons.arrow_back),
+                        onPressed: () => setState(() => _currentStep--),
+                        padding: EdgeInsets.zero,
+                        constraints: const BoxConstraints(),
+                      ),
+                    if (_currentStep > 0) const SizedBox(width: 12),
+                    Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: Colors.green.withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: const Icon(
+                        Icons.add_task,
+                        color: Colors.green,
+                        size: 24,
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Text(
+                        _currentStep == 0
+                            ? "Service Type"
+                            : _currentStep == 1
+                            ? "Customer & Asset"
+                            : "Schedule",
+                        style: const TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.close),
+                      onPressed: () => Navigator.pop(context),
+                      padding: EdgeInsets.zero,
+                      constraints: const BoxConstraints(),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+
+          // Content Section
+          Flexible(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.all(24),
+              child: _buildCurrentStep(),
+            ),
+          ),
+
+          // Footer Section
+          Container(
+            padding: const EdgeInsets.all(24),
+            decoration: const BoxDecoration(
+              border: Border(
+                top: BorderSide(color: Color(0xFFE2E8F0)),
+              ),
+            ),
+            child: Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton(
+                    onPressed: () => Navigator.pop(context),
+                    style: OutlinedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(vertical: 16),
+                      side: const BorderSide(color: Color(0xFF94A3B8)),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                    ),
+                    child: const Text(
+                      'Cancel',
+                      style: TextStyle(
+                        color: Color(0xFF475569),
+                        fontWeight: FontWeight.w600,
                       ),
                     ),
                   ),
-                  IconButton(
-                    icon: const Icon(Icons.close),
-                    onPressed: () => Navigator.pop(context),
-                  ),
-                ],
-              ),
-            ),
-
-            Expanded(
-              child: Padding(
-                padding: const EdgeInsets.all(24),
-                child: _buildCurrentStep(),
-              ),
-            ),
-
-            Padding(
-              padding: const EdgeInsets.all(24),
-              child: SizedBox(
-                width: double.infinity,
-                height: 50,
-                child: // In build method, scroll down to the ElevatedButton
-                ElevatedButton(
-                  // UPDATE THIS ONPRESSED LOGIC
-                  onPressed: _isSubmitting
-                      ? null
-                      : () {
-                          // Logic for Step 2 (Customer Info) -> Step 3
-                          if (_currentStep == 1 && _isNewClient) {
-                            // Validate the form NOW while it is still on screen
-                            if (_formKey.currentState!.validate()) {
-                              setState(() => _currentStep++);
-                            } else {
-                              // Show error if validation fails
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(
-                                  content: Text("Please fix errors in red"),
-                                  backgroundColor: Colors.red,
-                                ),
-                              );
-                            }
-                          }
-                          // Logic for Final Step (Submit)
-                          else if (_currentStep == 2) {
-                            _submit();
-                          }
-                          // Logic for Step 1 -> Step 2
-                          else {
-                            setState(() => _currentStep++);
-                          }
-                        },
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF2563EB),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                  ),
-                  child: _isSubmitting
-                      ? const CircularProgressIndicator(color: Colors.white)
-                      : Text(
-                          _currentStep == 2 ? 'Create Job Order' : 'Next Step',
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
                 ),
-              ),
+                const SizedBox(width: 12),
+                Expanded(
+                  flex: 2,
+                  child: ElevatedButton(
+                    onPressed: _isSubmitting
+                        ? null
+                        : () {
+                            // Logic for Step 2 (Customer Info) -> Step 3
+                            if (_currentStep == 1 && _isNewClient) {
+                              // Validate the form NOW while it is still on screen
+                              if (_formKey.currentState!.validate()) {
+                                setState(() => _currentStep++);
+                              } else {
+                                // Show error if validation fails
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(
+                                    content: Text("Please fix errors in red"),
+                                    backgroundColor: Colors.red,
+                                  ),
+                                );
+                              }
+                            }
+                            // Logic for Final Step (Submit)
+                            else if (_currentStep == 2) {
+                              _submit();
+                            }
+                            // Logic for Step 1 -> Step 2
+                            else {
+                              setState(() => _currentStep++);
+                            }
+                          },
+                    style: ElevatedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(vertical: 16),
+                      backgroundColor: const Color(0xFF2563EB),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                    ),
+                    child: _isSubmitting
+                        ? const SizedBox(
+                            height: 20,
+                            width: 20,
+                            child: CircularProgressIndicator(
+                              color: Colors.white,
+                              strokeWidth: 2,
+                            ),
+                          )
+                        : Text(
+                            _currentStep == 2 ? 'Create Job Order' : 'Next Step',
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                  ),
+                ),
+              ],
             ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }

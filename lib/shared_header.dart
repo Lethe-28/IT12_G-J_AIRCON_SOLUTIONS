@@ -7,6 +7,8 @@ class SharedHeader extends StatelessWidget {
   final bool showGreeting;
   final bool showSearch;
   final bool showNotifications;
+  final ValueChanged<String>? onSearchChanged;
+  final VoidCallback? onNotificationTap;
 
   const SharedHeader({
     super.key,
@@ -16,6 +18,8 @@ class SharedHeader extends StatelessWidget {
     this.showGreeting = true,
     this.showSearch = true,
     this.showNotifications = true,
+    this.onSearchChanged,
+    this.onNotificationTap,
   });
 
   Color _getNotificationColor(int count) {
@@ -76,6 +80,7 @@ class SharedHeader extends StatelessWidget {
                               border: Border.all(color: const Color(0xFFE2E8F0)),
                             ),
                             child: TextField(
+                              onChanged: onSearchChanged,
                               style: TextStyle(fontSize: searchFontSize),
                               decoration: InputDecoration(
                                 hintText: 'Search anything...',
@@ -92,44 +97,48 @@ class SharedHeader extends StatelessWidget {
                         ),
                       if (showNotifications) ...[
                         const SizedBox(width: 12),
-                        Container(
-                          width: 52,
-                          height: 52,
-                          decoration: BoxDecoration(
-                            color: Colors.white,
-                            borderRadius: BorderRadius.circular(10),
-                            border: Border.all(color: const Color(0xFFE2E8F0)),
-                          ),
-                          child: Stack(
-                            children: [
-                              const Center(
-                                child: Icon(
-                                  Icons.notifications_none,
-                                  color: Colors.black54,
-                                  size: 24,
+                        InkWell(
+                          onTap: onNotificationTap,
+                          borderRadius: BorderRadius.circular(10),
+                          child: Container(
+                            width: 52,
+                            height: 52,
+                            decoration: BoxDecoration(
+                              color: Colors.white,
+                              borderRadius: BorderRadius.circular(10),
+                              border: Border.all(color: const Color(0xFFE2E8F0)),
+                            ),
+                            child: Stack(
+                              children: [
+                                const Center(
+                                  child: Icon(
+                                    Icons.notifications_none,
+                                    color: Colors.black54,
+                                    size: 24,
+                                  ),
                                 ),
-                              ),
-                              if (notificationCount > 0)
-                                Positioned(
-                                  right: 8,
-                                  top: 8,
-                                  child: Container(
-                                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                                    decoration: BoxDecoration(
-                                      color: notificationColor,
-                                      borderRadius: BorderRadius.circular(10),
-                                    ),
-                                    child: Text(
-                                      notificationCount > 99 ? '99+' : notificationCount.toString(),
-                                      style: const TextStyle(
-                                        color: Colors.white,
-                                        fontSize: 10,
-                                        fontWeight: FontWeight.w600,
+                                if (notificationCount > 0)
+                                  Positioned(
+                                    right: 8,
+                                    top: 8,
+                                    child: Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                      decoration: BoxDecoration(
+                                        color: notificationColor,
+                                        borderRadius: BorderRadius.circular(10),
+                                      ),
+                                      child: Text(
+                                        notificationCount > 99 ? '99+' : notificationCount.toString(),
+                                        style: const TextStyle(
+                                          color: Colors.white,
+                                          fontSize: 10,
+                                          fontWeight: FontWeight.w600,
+                                        ),
                                       ),
                                     ),
                                   ),
-                                ),
-                            ],
+                              ],
+                            ),
                           ),
                         ),
                       ],

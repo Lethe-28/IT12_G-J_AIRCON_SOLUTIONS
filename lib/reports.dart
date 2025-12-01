@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'ui_app_shell.dart';
-import 'shared/widgets.dart' show isMobile;
+import 'shared/widgets.dart' show AnimatedCard, HoverCard, AnimatedButton, isMobile;
 
 // --- Design Constants ---
 const Color kPrimaryColor = Color(0xFF2563EB);
@@ -160,37 +160,49 @@ class _ReportsScreenState extends State<ReportsScreen> {
           spacing: gap,
           runSpacing: gap,
           children: [
-            _KpiCard(
-              title: 'Total Jobs',
-              value: report.totalJobs.toString(),
-              trend: '+12%',
-              icon: Icons.work_outline,
-              color: kPrimaryColor,
-              width: width,
+            AnimatedCard(
+              delay: const Duration(milliseconds: 200),
+              child: _KpiCard(
+                title: 'Total Jobs',
+                value: report.totalJobs.toString(),
+                trend: '+12%',
+                icon: Icons.work_outline,
+                color: kPrimaryColor,
+                width: width,
+              ),
             ),
-            _KpiCard(
-              title: 'Installations',
-              value: report.installations.toString(),
-              trend: '+8%',
-              icon: Icons.construction,
-              color: kSuccessColor,
-              width: width,
+            AnimatedCard(
+              delay: const Duration(milliseconds: 250),
+              child: _KpiCard(
+                title: 'Installations',
+                value: report.installations.toString(),
+                trend: '+8%',
+                icon: Icons.construction,
+                color: kSuccessColor,
+                width: width,
+              ),
             ),
-            _KpiCard(
-              title: 'Maintenance',
-              value: report.maintenance.toString(),
-              trend: '+15%',
-              icon: Icons.cleaning_services,
-              color: Colors.teal,
-              width: width,
+            AnimatedCard(
+              delay: const Duration(milliseconds: 300),
+              child: _KpiCard(
+                title: 'Maintenance',
+                value: report.maintenance.toString(),
+                trend: '+15%',
+                icon: Icons.cleaning_services,
+                color: Colors.teal,
+                width: width,
+              ),
             ),
-            _KpiCard(
-              title: 'Repairs',
-              value: report.repairs.toString(),
-              trend: '-5%',
-              icon: Icons.build_circle_outlined,
-              color: kWarningColor,
-              width: width,
+            AnimatedCard(
+              delay: const Duration(milliseconds: 350),
+              child: _KpiCard(
+                title: 'Repairs',
+                value: report.repairs.toString(),
+                trend: '-5%',
+                icon: Icons.build_circle_outlined,
+                color: kWarningColor,
+                width: width,
+              ),
             ),
           ],
         );
@@ -211,24 +223,33 @@ class _ReportsScreenState extends State<ReportsScreen> {
           spacing: gap,
           runSpacing: gap,
           children: [
-            _FinancialCard(
-              label: 'Total Payments',
-              amount: report.totalPaymentsFormatted,
-              subtext: 'Cash-in',
-              width: width,
+            AnimatedCard(
+              delay: const Duration(milliseconds: 400),
+              child: _FinancialCard(
+                label: 'Total Payments',
+                amount: report.totalPaymentsFormatted,
+                subtext: 'Cash-in',
+                width: width,
+              ),
             ),
-            _FinancialCard(
-              label: 'Total Expenses',
-              amount: report.totalExpensesFormatted,
-              subtext: 'Cash-out',
-              isExpense: true,
-              width: width,
+            AnimatedCard(
+              delay: const Duration(milliseconds: 450),
+              child: _FinancialCard(
+                label: 'Total Expenses',
+                amount: report.totalExpensesFormatted,
+                subtext: 'Cash-out',
+                isExpense: true,
+                width: width,
+              ),
             ),
-            _FinancialCard(
-              label: 'Net Cash',
-              amount: report.netCashFormatted,
-              subtext: 'Difference',
-              width: width,
+            AnimatedCard(
+              delay: const Duration(milliseconds: 500),
+              child: _FinancialCard(
+                label: 'Net Cash',
+                amount: report.netCashFormatted,
+                subtext: 'Difference',
+                width: width,
+              ),
             ),
           ],
         );
@@ -243,7 +264,9 @@ class _ReportsScreenState extends State<ReportsScreen> {
     final maintenance = [17.0, 22.0, 19.0, 25.0, 30.0, 33.0];
     final repairs = [8.0, 12.0, 10.0, 15.0, 18.0, 20.0];
 
-    return Container(
+    return AnimatedCard(
+      delay: const Duration(milliseconds: 550),
+      child: Container(
       padding: const EdgeInsets.all(24),
       decoration: BoxDecoration(
         color: Colors.white,
@@ -362,6 +385,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
             },
           )
         ],
+      ),
       ),
     );
   }
