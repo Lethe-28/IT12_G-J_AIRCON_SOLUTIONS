@@ -59,6 +59,18 @@ class _LoginScreenState extends State<LoginScreen> {
         );
 
         if (mounted) {
+          // Extract user's full name from metadata
+          final user = response.user;
+          if (user != null) {
+            final fullName = user.userMetadata?['full_name'] as String?;
+            if (fullName != null && fullName.isNotEmpty) {
+              AppState.currentUserName = fullName;
+            } else {
+              // Fallback to email username if no full name
+              AppState.currentUserName = email.split('@')[0];
+            }
+          }
+          
           // TODO: In the future, we will fetch the User Role from the database here
           // For now, we default to Admin for testing
           AppState.currentRole = UserRole.admin;
@@ -107,8 +119,6 @@ class _LoginScreenState extends State<LoginScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
     // HCI: Input decoration simplified for reuse
     InputDecoration inputDecor(String label, IconData icon) {
       return InputDecoration(

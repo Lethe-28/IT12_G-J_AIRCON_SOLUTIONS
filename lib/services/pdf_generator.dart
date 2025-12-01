@@ -1,4 +1,3 @@
-import 'dart:typed_data';
 import 'package:flutter/services.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
@@ -41,7 +40,7 @@ class PDFGeneratorService {
   
   static String formatCurrency(double amount) {
     final formatter = NumberFormat('#,##0.00', 'en_US');
-    return '₱ ${formatter.format(amount)}';
+    return 'PHP ${formatter.format(amount)}';
   }
 
   static Future<Uint8List> generateSOA(SOAData data) async {
@@ -89,7 +88,12 @@ class PDFGeneratorService {
                 crossAxisAlignment: pw.CrossAxisAlignment.start,
                 children: [
                   pw.Text('Bill to:', style: const pw.TextStyle(fontSize: 10)),
+                  pw.SizedBox(height: 3),
+                  pw.Text(data.customerName, style: pw.TextStyle(fontSize: 11, fontWeight: pw.FontWeight.bold)),
+                  pw.SizedBox(height: 8),
                   pw.Text('Address:', style: const pw.TextStyle(fontSize: 10)),
+                  pw.SizedBox(height: 3),
+                  pw.Text(data.customerAddress, style: const pw.TextStyle(fontSize: 11)),
                 ],
               ),
               pw.SizedBox(height: 20),

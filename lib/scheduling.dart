@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'ui_app_shell.dart';
-// REMOVED: import 'calendar_view.dart'; (This was causing the error)
 import 'shared/widgets.dart'
     show
+        AnimatedCard,
+        HoverCard,
+        AnimatedButton,
         LoadingOverlay,
         LoadingButton,
         EmptyState,

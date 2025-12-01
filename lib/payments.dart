@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'data/app_state.dart';
 import 'ui_app_shell.dart';
 import 'shared_header.dart';
+import 'shared/widgets.dart' show AnimatedCard, HoverCard, AnimatedButton, isMobile;
 
 class PaymentRecord {
   final int id;
@@ -86,8 +87,10 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
   }
 
   void _onAddOrEdit({PaymentRecord? existing}) async {
-    final PaymentRecord? result = await showDialog<PaymentRecord>(
+    final PaymentRecord? result = await showModalBottomSheet<PaymentRecord>(
       context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
       builder: (context) => _PaymentDialog(record: existing),
     );
     if (result == null) return;
@@ -171,25 +174,30 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
                           style: TextStyle(fontSize: 24, fontWeight: FontWeight.w700)),
                       const Spacer(),
                       if (_isAdmin)
-                        ElevatedButton.icon(
+                        AnimatedButton(
                           onPressed: () => _onAddOrEdit(),
-                          icon: const Icon(Icons.add),
-                          label: const Text('Add Payment'),
+                          icon: Icons.add,
+                          backgroundColor: Theme.of(context).colorScheme.primary,
+                          foregroundColor: Colors.white,
+                          child: const Text('Add Payment'),
                         ),
                     ],
                   ),
                   const SizedBox(height: 14),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: _statCard(
-                          'Total Collected',
-                          _formatAmount(_totalAmount),
-                          '${payments.length} payments recorded',
-                          Colors.green,
+                  AnimatedCard(
+                    delay: const Duration(milliseconds: 200),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: _statCard(
+                            'Total Collected',
+                            _formatAmount(_totalAmount),
+                            '${payments.length} payments recorded',
+                            Colors.green,
+                          ),
                         ),
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
                   const SizedBox(height: 14),
                   Container(
@@ -198,50 +206,122 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Row(
-                          children: [
-                            const Text('Payment Records',
-                                style: TextStyle(
-                                    fontSize: 18, fontWeight: FontWeight.w700)),
-                            const Spacer(),
-                            SizedBox(
-                              width: 260,
-                              child: TextField(
-                                onChanged: (v) => setState(() => _searchQuery = v),
-                                decoration: InputDecoration(
-                                  hintText: 'Search by JO, customer, method, or status...',
-                                  prefixIcon: const Icon(Icons.search),
-                                  filled: true,
-                                  fillColor: const Color(0xFFF8FAFC),
-                                  border: OutlineInputBorder(
-                                    borderRadius: BorderRadius.circular(10),
-                                    borderSide: BorderSide.none,
+                        LayoutBuilder(
+                          builder: (context, constraints) {
+                            final isNarrow = constraints.maxWidth < 600;
+                            if (isNarrow) {
+                              return Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  const Text('Payment Records',
+                                      style: TextStyle(
+                                          fontSize: 18, fontWeight: FontWeight.w700)),
+                                  const SizedBox(height: 12),
+                                  AnimatedCard(
+                                    delay: const Duration(milliseconds: 250),
+                                    child: HoverCard(
+                                      padding: EdgeInsets.zero,
+                                      child: TextField(
+                                        onChanged: (v) => setState(() => _searchQuery = v),
+                                        decoration: InputDecoration(
+                                          hintText: 'Search by JO, customer...',
+                                          prefixIcon: const Icon(Icons.search, size: 18),
+                                          filled: true,
+                                          fillColor: const Color(0xFFF8FAFC),
+                                          border: OutlineInputBorder(
+                                            borderRadius: BorderRadius.circular(10),
+                                            borderSide: BorderSide.none,
+                                          ),
+                                          contentPadding: const EdgeInsets.symmetric(vertical: 12),
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              );
+                            }
+                            return Row(
+                              children: [
+                                const Text('Payment Records',
+                                    style: TextStyle(
+                                        fontSize: 18, fontWeight: FontWeight.w700)),
+                                const Spacer(),
+                                AnimatedCard(
+                                  delay: const Duration(milliseconds: 250),
+                                  child: Flexible(
+                                    child: HoverCard(
+                                      padding: EdgeInsets.zero,
+                                      child: ConstrainedBox(
+                                        constraints: const BoxConstraints(maxWidth: 340),
+                                        child: TextField(
+                                          onChanged: (v) => setState(() => _searchQuery = v),
+                                          decoration: InputDecoration(
+                                            hintText: 'Search by JO, customer, method, or status...',
+                                            prefixIcon: const Icon(Icons.search, size: 18),
+                                            filled: true,
+                                            fillColor: const Color(0xFFF8FAFC),
+                                            border: OutlineInputBorder(
+                                              borderRadius: BorderRadius.circular(10),
+                                              borderSide: BorderSide.none,
+                                            ),
+                                            contentPadding: const EdgeInsets.symmetric(vertical: 12),
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            );
+                          },
+                        ),
+                        const SizedBox(height: 12),
+                        // Mobile card view vs desktop table
+                        if (MediaQuery.of(context).size.width < 600)
+                          Column(
+                            children: payments.isEmpty
+                                ? [
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(vertical: 40),
+                                      child: const Center(
+                                        child: Text(
+                                          'No payments found',
+                                          style: TextStyle(color: Color(0xFF64748B)),
+                                        ),
+                                      ),
+                                    ),
+                                  ]
+                                : payments.asMap().entries.map((e) => AnimatedCard(
+                                    delay: Duration(milliseconds: 300 + (e.key * 50)),
+                                    child: _buildMobileCard(e.value),
+                                  )).toList(),
+                          )
+                        else
+                          AnimatedCard(
+                            delay: const Duration(milliseconds: 300),
+                            child: HoverCard(
+                              padding: EdgeInsets.zero,
+                              child: SingleChildScrollView(
+                                scrollDirection: Axis.horizontal,
+                                child: ConstrainedBox(
+                                  constraints: const BoxConstraints(minWidth: 900),
+                                  child: DataTable(
+                                columns: const [
+                                  DataColumn(label: Text('JO NUMBER')),
+                                  DataColumn(label: Text('CUSTOMER')),
+                                  DataColumn(label: Text('DATE')),
+                                  DataColumn(label: Text('AMOUNT')),
+                                  DataColumn(label: Text('METHOD')),
+                                  DataColumn(label: Text('REF / OR')),
+                                  DataColumn(label: Text('STATUS')),
+                                  DataColumn(label: Text('ACTIONS')),
+                                ],
+                                rows: payments.map(_dataRow).toList(),
                                   ),
                                 ),
                               ),
                             ),
-                          ],
-                        ),
-                        const SizedBox(height: 12),
-                        SingleChildScrollView(
-                          scrollDirection: Axis.horizontal,
-                          child: ConstrainedBox(
-                            constraints: const BoxConstraints(minWidth: 900),
-                            child: DataTable(
-                              columns: const [
-                                DataColumn(label: Text('JO NUMBER')),
-                                DataColumn(label: Text('CUSTOMER')),
-                                DataColumn(label: Text('DATE')),
-                                DataColumn(label: Text('AMOUNT')),
-                                DataColumn(label: Text('METHOD')),
-                                DataColumn(label: Text('REF / OR')),
-                                DataColumn(label: Text('STATUS')),
-                                DataColumn(label: Text('ACTIONS')),
-                              ],
-                              rows: payments.map(_dataRow).toList(),
-                            ),
                           ),
-                        ),
                       ],
                     ),
                   ),
@@ -335,6 +415,265 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
     );
   }
 
+  Widget _buildMobileCard(PaymentRecord p) {
+    final isVerified = p.status.toLowerCase() == 'verified';
+    final statusColor = isVerified ? const Color(0xFF059669) : const Color(0xFFB45309);
+    final statusBgColor = isVerified ? const Color(0xFFE8FFF3) : const Color(0xFFFFF4E5);
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.05),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Header: JO ID + Status Badge
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFF1F5F9),
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      child: Text(
+                        p.jobOrderId,
+                        style: const TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                          color: Color(0xFF64748B),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      p.customerName,
+                      style: const TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w700,
+                        color: Color(0xFF1E293B),
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                decoration: BoxDecoration(
+                  color: statusBgColor,
+                  borderRadius: BorderRadius.circular(999),
+                ),
+                child: Text(
+                  p.status,
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: statusColor,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          // Key Info Row
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      _formatAmount(p.amount),
+                      style: const TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w700,
+                        color: Color(0xFF1E293B),
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    const Text(
+                      'Amount',
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: Color(0xFF64748B),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      p.method,
+                      style: const TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                        color: Color(0xFF1E293B),
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    const Text(
+                      'Method',
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: Color(0xFF64748B),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      _formatDate(p.date),
+                      style: const TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                        color: Color(0xFF1E293B),
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    const Text(
+                      'Date',
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: Color(0xFF64748B),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          // Details section (expandable look)
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: const Color(0xFFF8FAFC),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    const Text(
+                      'Ref #: ',
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                        color: Color(0xFF64748B),
+                      ),
+                    ),
+                    Expanded(
+                      child: Text(
+                        p.referenceNumber,
+                        style: const TextStyle(
+                          fontSize: 12,
+                          color: Color(0xFF1E293B),
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 6),
+                Row(
+                  children: [
+                    const Text(
+                      'OR #: ',
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                        color: Color(0xFF64748B),
+                      ),
+                    ),
+                    Expanded(
+                      child: Text(
+                        p.orNumber,
+                        style: const TextStyle(
+                          fontSize: 12,
+                          color: Color(0xFF1E293B),
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 12),
+          // Action buttons
+          if (_isAdmin)
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: () => _onAddOrEdit(existing: p),
+                    icon: const Icon(Icons.edit_outlined, size: 16),
+                    label: const Text('Edit', style: TextStyle(fontSize: 12)),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: () => _onDelete(p),
+                    icon: const Icon(Icons.delete_outline, size: 16),
+                    label: const Text('Delete', style: TextStyle(fontSize: 12)),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: Colors.red,
+                      side: const BorderSide(color: Colors.red),
+                    ),
+                  ),
+                ),
+              ],
+            )
+          else
+            Container(
+              padding: const EdgeInsets.symmetric(vertical: 8),
+              child: const Center(
+                child: Text(
+                  'View Only',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: Color(0xFF64748B),
+                  ),
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
   BoxDecoration _cardDeco() => BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(12),
@@ -423,12 +762,69 @@ class _PaymentDialogState extends State<_PaymentDialog> {
 
   @override
   Widget build(BuildContext context) {
-    return AlertDialog(
-      title: Text(widget.record == null ? 'Add Payment' : 'Edit Payment'),
-      content: SingleChildScrollView(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
+    return Container(
+      constraints: BoxConstraints(
+        maxHeight: MediaQuery.of(context).size.height * 0.9,
+      ),
+      decoration: const BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          // Header with drag handle
+          Container(
+            padding: const EdgeInsets.fromLTRB(24, 12, 24, 16),
+            decoration: const BoxDecoration(
+              border: Border(bottom: BorderSide(color: Color(0xFFE2E8F0))),
+            ),
+            child: Column(
+              children: [
+                Container(
+                  width: 40,
+                  height: 4,
+                  margin: const EdgeInsets.only(bottom: 12),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFE2E8F0),
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+                Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: Colors.green.withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: const Icon(Icons.payments, color: Colors.green, size: 24),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Text(
+                        widget.record == null ? 'Add Payment' : 'Edit Payment',
+                        style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
+                      ),
+                    ),
+                    IconButton(
+                      onPressed: () => Navigator.pop(context),
+                      icon: const Icon(Icons.close, size: 20),
+                      padding: EdgeInsets.zero,
+                      constraints: const BoxConstraints(),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          // Content
+          Flexible(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
             TextField(
               controller: _joController,
               decoration: const InputDecoration(labelText: 'Job Order Number'),
@@ -496,19 +892,46 @@ class _PaymentDialogState extends State<_PaymentDialog> {
                 ),
               ],
             ),
-          ],
-        ),
+                ],
+              ),
+            ),
+          ),
+          // Footer actions
+          Container(
+            padding: const EdgeInsets.all(24),
+            decoration: const BoxDecoration(
+              color: Colors.white,
+              border: Border(top: BorderSide(color: Color(0xFFE2E8F0))),
+            ),
+            child: Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton(
+                    onPressed: () => Navigator.of(context).pop(),
+                    style: OutlinedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                    ),
+                    child: const Text('Cancel'),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  flex: 2,
+                  child: ElevatedButton(
+                    onPressed: _submit,
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.green,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                    ),
+                    child: const Text('Save Payment'),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
       ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.of(context).pop(),
-          child: const Text('Cancel'),
-        ),
-        TextButton(
-          onPressed: _submit,
-          child: const Text('Save'),
-        ),
-      ],
     );
   }
 }

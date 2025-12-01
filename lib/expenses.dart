@@ -3,7 +3,15 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'data/app_state.dart';
 import 'ui_app_shell.dart';
 import 'shared/widgets.dart'
-    show LoadingOverlay, showConfirmDialog, AppDesignTokens;
+    show
+        AnimatedCard,
+        HoverCard,
+        LoadingOverlay,
+        EmptyState,
+        showConfirmDialog,
+        showUndoSnackBar,
+        AppDesignTokens,
+        isMobile;
 
 // --- Data Model ---
 class ExpenseRecord {

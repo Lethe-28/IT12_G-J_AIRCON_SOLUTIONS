@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'data/app_state.dart';
 import 'data/models.dart';
 import 'ui_app_shell.dart';
-import 'shared/widgets.dart';
+import 'shared/widgets.dart' show AnimatedCard, HoverCard, AnimatedButton, EmptyState, isMobile;
 
 class ServiceItemsScreen extends StatefulWidget {
   const ServiceItemsScreen({super.key});
@@ -80,9 +80,11 @@ class _ServiceItemsScreenState extends State<ServiceItemsScreen> {
     return filtered;
   }
 
-  void _onAddOrEdit({ServiceItemData? existing}) async {
-    final ServiceItemData? result = await showDialog<ServiceItemData>(
+  Future<void> _onAddOrEdit({ServiceItemData? existing}) async {
+    final ServiceItemData? result = await showModalBottomSheet<ServiceItemData>(
       context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
       builder: (context) => _ServiceItemDialog(item: existing),
     );
     if (result == null) return;
@@ -164,13 +166,12 @@ class _ServiceItemsScreenState extends State<ServiceItemsScreen> {
                     if (_isAdmin)
                       SizedBox(
                         width: double.infinity,
-                        child: ElevatedButton.icon(
+                        child: AnimatedButton(
                           onPressed: () => _onAddOrEdit(),
-                          icon: const Icon(Icons.add),
-                          label: const Text('Add Service Item'),
-                          style: ElevatedButton.styleFrom(
-                            padding: const EdgeInsets.symmetric(vertical: 12),
-                          ),
+                          icon: Icons.add,
+                          backgroundColor: Theme.of(context).colorScheme.primary,
+                          foregroundColor: Colors.white,
+                          child: const Text('Add Service Item'),
                         ),
                       ),
                   ] else ...[
@@ -185,10 +186,12 @@ class _ServiceItemsScreenState extends State<ServiceItemsScreen> {
                         ),
                         const Spacer(),
                         if (_isAdmin)
-                          ElevatedButton.icon(
+                          AnimatedButton(
                             onPressed: () => _onAddOrEdit(),
-                            icon: const Icon(Icons.add),
-                            label: const Text('Add Service Item'),
+                            icon: Icons.add,
+                            backgroundColor: Theme.of(context).colorScheme.primary,
+                            foregroundColor: Colors.white,
+                            child: const Text('Add Service Item'),
                           ),
                       ],
                     ),
@@ -198,60 +201,76 @@ class _ServiceItemsScreenState extends State<ServiceItemsScreen> {
 
                   // FIX: Responsive Filters
                   if (isMobileView) ...[
-                    TextField(
-                      onChanged: (v) => setState(() => _searchQuery = v),
-                      style: TextStyle(fontSize: fontSize),
-                      decoration: InputDecoration(
-                        hintText: 'Search by name or type...',
-                        prefixIcon: const Icon(Icons.search),
-                        filled: true,
-                        fillColor: Colors.white,
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(10),
-                          borderSide: BorderSide.none,
+                    AnimatedCard(
+                      delay: const Duration(milliseconds: 200),
+                      child: HoverCard(
+                        padding: EdgeInsets.zero,
+                        child: TextField(
+                          onChanged: (v) => setState(() => _searchQuery = v),
+                          style: TextStyle(fontSize: fontSize),
+                          decoration: InputDecoration(
+                            hintText: 'Search by name or type...',
+                            prefixIcon: const Icon(Icons.search),
+                            filled: true,
+                            fillColor: Colors.white,
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(10),
+                              borderSide: BorderSide.none,
+                            ),
+                          ),
                         ),
                       ),
                     ),
                     const SizedBox(height: 12),
-                    Container(
-                      width: double.infinity,
-                      padding: const EdgeInsets.symmetric(horizontal: 12),
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        borderRadius: BorderRadius.circular(10),
-                        border: Border.all(color: const Color(0xFFE2E8F0)),
-                      ),
-                      child: DropdownButtonHideUnderline(
-                        child: DropdownButton<String>(
-                          value: _filterType,
-                          isExpanded: true,
-                          items: const [
-                            DropdownMenuItem(
-                              value: 'All',
-                              child: Text('All Types'),
+                    AnimatedCard(
+                      delay: const Duration(milliseconds: 250),
+                      child: HoverCard(
+                        padding: EdgeInsets.zero,
+                        child: Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.symmetric(horizontal: 12),
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(10),
+                            border: Border.all(color: const Color(0xFFE2E8F0)),
+                          ),
+                          child: DropdownButtonHideUnderline(
+                            child: DropdownButton<String>(
+                              value: _filterType,
+                              isExpanded: true,
+                              items: const [
+                                DropdownMenuItem(
+                                  value: 'All',
+                                  child: Text('All Types'),
+                                ),
+                                DropdownMenuItem(
+                                  value: 'Service',
+                                  child: Text('Service'),
+                                ),
+                                DropdownMenuItem(
+                                  value: 'Material',
+                                  child: Text('Material'),
+                                ),
+                              ],
+                              onChanged: (v) =>
+                                  setState(() => _filterType = v ?? 'All'),
                             ),
-                            DropdownMenuItem(
-                              value: 'Service',
-                              child: Text('Service'),
-                            ),
-                            DropdownMenuItem(
-                              value: 'Material',
-                              child: Text('Material'),
-                            ),
-                          ],
-                          onChanged: (v) =>
-                              setState(() => _filterType = v ?? 'All'),
+                          ),
                         ),
                       ),
                     ),
                   ] else ...[
-                    Row(
-                      children: [
-                        Expanded(
-                          child: TextField(
-                            onChanged: (v) => setState(() => _searchQuery = v),
-                            style: TextStyle(fontSize: fontSize),
-                            decoration: InputDecoration(
+                    AnimatedCard(
+                      delay: const Duration(milliseconds: 200),
+                      child: HoverCard(
+                        padding: EdgeInsets.zero,
+                        child: Row(
+                          children: [
+                            Expanded(
+                              child: TextField(
+                                onChanged: (v) => setState(() => _searchQuery = v),
+                                style: TextStyle(fontSize: fontSize),
+                                decoration: InputDecoration(
                               hintText: 'Search by name or type...',
                               prefixIcon: const Icon(Icons.search),
                               filled: true,
@@ -294,15 +313,24 @@ class _ServiceItemsScreenState extends State<ServiceItemsScreen> {
                         ),
                       ],
                     ),
+                        ),
+                      ),
                   ],
 
                   const SizedBox(height: 16),
 
                   // FIX: Mobile Cards vs Desktop Table
                   if (isMobileView)
-                    ...items.map((i) => _buildMobileCard(i))
+                    ...items.asMap().entries.map((e) => AnimatedCard(
+                      delay: Duration(milliseconds: 300 + (e.key * 50)),
+                      child: _buildMobileCard(e.value),
+                    ))
                   else
-                    Container(
+                    AnimatedCard(
+                      delay: const Duration(milliseconds: 300),
+                      child: HoverCard(
+                        padding: EdgeInsets.zero,
+                        child: Container(
                       decoration: _cardDeco(),
                       child: SingleChildScrollView(
                         scrollDirection: Axis.horizontal,
@@ -349,6 +377,8 @@ class _ServiceItemsScreenState extends State<ServiceItemsScreen> {
                             ],
                             rows: items.map((i) => _dataRow(i)).toList(),
                           ),
+                        ),
+                      ),
                         ),
                       ),
                     ),
@@ -589,60 +619,146 @@ class _ServiceItemDialogState extends State<_ServiceItemDialog> {
 
   @override
   Widget build(BuildContext context) {
-    return Dialog(
-      child: Container(
-        width: 500,
-        padding: const EdgeInsets.all(24),
-        child: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                widget.item == null ? 'Add Service Item' : 'Edit Service Item',
-                style: const TextStyle(
-                  fontSize: 20,
-                  fontWeight: FontWeight.w700,
+    return Container(
+      constraints: BoxConstraints(
+        maxHeight: MediaQuery.of(context).size.height * 0.92,
+      ),
+      decoration: const BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          // Header with drag handle
+          Container(
+            padding: const EdgeInsets.fromLTRB(24, 12, 24, 16),
+            decoration: const BoxDecoration(
+              border: Border(bottom: BorderSide(color: Color(0xFFE2E8F0))),
+            ),
+            child: Column(
+              children: [
+                Container(
+                  width: 40,
+                  height: 4,
+                  margin: const EdgeInsets.only(bottom: 12),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFE2E8F0),
+                    borderRadius: BorderRadius.circular(2),
+                  ),
                 ),
-              ),
-              const SizedBox(height: 20),
-              TextField(
-                controller: _nameController,
-                decoration: const InputDecoration(labelText: 'Item Name *'),
-              ),
-              const SizedBox(height: 12),
-              DropdownButtonFormField<String>(
-                initialValue: _itemType,
-                decoration: const InputDecoration(labelText: 'Item Type *'),
-                items: const [
-                  DropdownMenuItem(value: 'Service', child: Text('Service')),
-                  DropdownMenuItem(value: 'Material', child: Text('Material')),
-                ],
-                onChanged: (v) => setState(() => _itemType = v ?? 'Service'),
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: _priceController,
-                decoration: const InputDecoration(labelText: 'Price (₱) *'),
-                keyboardType: const TextInputType.numberWithOptions(
-                  decimal: true,
+                Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: Colors.teal.withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: const Icon(
+                        Icons.build,
+                        color: Colors.teal,
+                        size: 24,
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Text(
+                        widget.item == null
+                            ? 'Add Service Item'
+                            : 'Edit Service Item',
+                        style: const TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
+                    IconButton(
+                      onPressed: () => Navigator.pop(context),
+                      icon: const Icon(Icons.close, size: 20),
+                      padding: EdgeInsets.zero,
+                      constraints: const BoxConstraints(),
+                    ),
+                  ],
                 ),
-              ),
-              const SizedBox(height: 24),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.end,
+              ],
+            ),
+          ),
+          // Content
+          Flexible(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  TextButton(
+                  TextField(
+                    controller: _nameController,
+                    decoration: const InputDecoration(labelText: 'Item Name *'),
+                  ),
+                  const SizedBox(height: 12),
+                  DropdownButtonFormField<String>(
+                    initialValue: _itemType,
+                    decoration: const InputDecoration(labelText: 'Item Type *'),
+                    items: const [
+                      DropdownMenuItem(
+                        value: 'Service',
+                        child: Text('Service'),
+                      ),
+                      DropdownMenuItem(
+                        value: 'Material',
+                        child: Text('Material'),
+                      ),
+                    ],
+                    onChanged: (v) =>
+                        setState(() => _itemType = v ?? 'Service'),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: _priceController,
+                    decoration: const InputDecoration(labelText: 'Price (₱) *'),
+                    keyboardType: const TextInputType.numberWithOptions(
+                      decimal: true,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          // Footer
+          Container(
+            padding: const EdgeInsets.all(24),
+            decoration: const BoxDecoration(
+              color: Colors.white,
+              border: Border(top: BorderSide(color: Color(0xFFE2E8F0))),
+            ),
+            child: Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton(
                     onPressed: () => Navigator.of(context).pop(),
+                    style: OutlinedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                    ),
                     child: const Text('Cancel'),
                   ),
-                  const SizedBox(width: 12),
-                  ElevatedButton(onPressed: _submit, child: const Text('Save')),
-                ],
-              ),
-            ],
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  flex: 2,
+                  child: ElevatedButton(
+                    onPressed: _submit,
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.teal,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                    ),
+                    child: const Text('Save Service Item'),
+                  ),
+                ),
+              ],
+            ),
           ),
-        ),
+        ],
       ),
     );
   }
