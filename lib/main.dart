@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:supabase_flutter/supabase_flutter.dart'; // NEW IMPORT
-
+import 'package:supabase_flutter/supabase_flutter.dart'; // REQUIRED IMPORT
 import 'login.dart';
 import 'dashboard.dart';
 import 'scheduling.dart';
@@ -17,16 +16,17 @@ import 'service_items.dart';
 import 'master_data.dart';
 
 Future<void> main() async {
-  // 1. Ensure Flutter is ready before we start the backend
+  // 1. Initialize the Flutter engine
   WidgetsFlutterBinding.ensureInitialized();
 
-  // 2. Connect to Supabase
-  // GO TO YOUR SUPABASE DASHBOARD -> SETTINGS -> API to find these keys.
+  // 2. Initialize Supabase (THE MISSING PIECE)
+  // You MUST replace these strings with your actual Supabase keys
   await Supabase.initialize(
     url: 'https://tuwiauhnstzocrbcfono.supabase.co',
     anonKey: 'sb_publishable_lRaDnJO0YkZCNwJS-6jBEA_LNXLRQ5S',
   );
 
+  // 3. Run the app
   runApp(const MyApp());
 }
 
@@ -44,7 +44,10 @@ class MyApp extends StatelessWidget {
         scaffoldBackgroundColor: const Color(0xFFF3F6FB),
         fontFamily: 'Roboto',
       ),
-      // We keep your existing routes exactly as they were
+      // Check if user is already logged in to decide initial route
+      initialRoute: Supabase.instance.client.auth.currentSession != null
+          ? '/dashboard'
+          : '/login',
       routes: {
         '/login': (_) => const LoginScreen(),
         '/dashboard': (_) => const DashboardScreen(),
@@ -61,7 +64,6 @@ class MyApp extends StatelessWidget {
         '/users': (_) => const UserManagementScreen(),
         '/settings': (_) => const SettingsScreen(),
       },
-      initialRoute: '/login',
     );
   }
 }

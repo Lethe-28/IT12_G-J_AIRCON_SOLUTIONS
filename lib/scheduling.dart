@@ -1,9 +1,7 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import 'data/app_state.dart';
-import 'data/models.dart';
 import 'ui_app_shell.dart';
+// REMOVED: import 'calendar_view.dart'; (This was causing the error)
 import 'shared/widgets.dart'
     show
         LoadingOverlay,
@@ -17,15 +15,23 @@ import 'shared/widgets.dart'
 
 // --- Data Classes ---
 class JobOrder {
-  final int dbId; // Actual Database Primary Key
-  final String displayId; // JO-2025-XXX
+  final int dbId;
+  final String displayId;
   String clientName;
   String jobType;
   DateTime startDateTime;
-  DateTime? endDateTime; // For multi-day jobs
+
+  // CHANGED: Renamed for clarity (maps to date_scheduled_end)
+  DateTime? scheduledEndDate;
+
+  // NEW: Maps to date_completed (Actual finish time)
+  DateTime? actualCompletionDate;
+
   String location;
   String status;
   String? notes;
+  final int? customerId;
+  final bool isCorporate;
 
   JobOrder({
     required this.dbId,
@@ -33,10 +39,13 @@ class JobOrder {
     required this.clientName,
     required this.jobType,
     required this.startDateTime,
-    this.endDateTime,
+    this.scheduledEndDate,
+    this.actualCompletionDate,
     required this.location,
     required this.status,
     this.notes,
+    this.customerId,
+    required this.isCorporate,
   });
 }
 
@@ -71,7 +80,8 @@ class _SchedulingScreenState extends State<SchedulingScreen> {
       final response = await supabase
           .from('job_orders')
           .select(
-            '*, customers(first_name, last_name, company_name), job_types(job_type_name)',
+            // UPDATED: Now selecting date_scheduled_end and date_completed
+            '*, customers(id, first_name, last_name, company_name, city, barangay, customer_type_id), job_types(job_type_name)',
           )
           .order('date_scheduled', ascending: false);
 
@@ -80,23 +90,41 @@ class _SchedulingScreenState extends State<SchedulingScreen> {
       for (var row in response) {
         final customer = row['customers'];
         String clientName = 'Unknown';
+        String location = 'Unknown';
+        int? custId;
+        bool isCorp = false;
+
         if (customer != null) {
+          custId = customer['id'];
+          // Check if Corporate (ID 1 = Corporate)
+          isCorp = customer['customer_type_id'] == 1;
           if (customer['company_name'] != null &&
               customer['company_name'].toString().isNotEmpty) {
             clientName = customer['company_name'];
           } else {
             clientName = '${customer['first_name']} ${customer['last_name']}';
           }
+          final city = customer['city'] ?? '';
+          final brgy = customer['barangay'] ?? '';
+          location = "$city $brgy".trim();
+          if (location.isEmpty) location = "View Details";
         }
 
         DateTime start = DateTime.now();
         if (row['date_scheduled'] != null) {
-          start = DateTime.parse(row['date_scheduled']);
+          start = DateTime.parse(row['date_scheduled']).toLocal();
         }
 
-        DateTime? end;
+        // 1. Parse Scheduled End (The extension date)
+        DateTime? schedEnd;
+        if (row['date_scheduled_end'] != null) {
+          schedEnd = DateTime.parse(row['date_scheduled_end']).toLocal();
+        }
+
+        // 2. Parse Actual Completion (History)
+        DateTime? actualEnd;
         if (row['date_completed'] != null) {
-          end = DateTime.parse(row['date_completed']);
+          actualEnd = DateTime.parse(row['date_completed']).toLocal();
         }
 
         loaded.add(
@@ -106,21 +134,23 @@ class _SchedulingScreenState extends State<SchedulingScreen> {
             clientName: clientName,
             jobType: row['job_types']?['job_type_name'] ?? 'Service',
             startDateTime: start,
-            endDateTime: end,
-            location: 'View Details',
+            scheduledEndDate: schedEnd, // New Field
+            actualCompletionDate: actualEnd, // New Field
+            location: location,
             status: row['status'] ?? 'Pending',
             notes: row['notes'],
+            customerId: custId,
+            isCorporate: isCorp,
           ),
         );
       }
 
       if (mounted) setState(() => _orders = loaded);
     } catch (e) {
-      if (mounted) {
+      if (mounted)
         ScaffoldMessenger.of(
           context,
         ).showSnackBar(SnackBar(content: Text('Error loading jobs: $e')));
-      }
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
@@ -128,10 +158,13 @@ class _SchedulingScreenState extends State<SchedulingScreen> {
 
   // --- ACTIONS ---
 
-  void _onAddOrEdit() async {
+  void _onAddOrEdit({JobOrder? existingJob}) async {
     final result = await showDialog(
       context: context,
-      builder: (context) => _JobOrderDialog(initialDate: _selectedDate),
+      builder: (context) => _JobOrderDialog(
+        initialDate: _selectedDate,
+        existingJob: existingJob, // Pass job for editing
+      ),
     );
 
     if (result == true) {
@@ -142,82 +175,21 @@ class _SchedulingScreenState extends State<SchedulingScreen> {
   void _showJobDetails(JobOrder job) {
     showDialog(
       context: context,
-      builder: (context) => _JobDetailDialog(
+      builder: (context) => _JobBillingManager(
         job: job,
-        onEdit: () {
+        onJobUpdated: _fetchJobOrders,
+        onEditRequest: () {
           Navigator.pop(context);
-          _onAddOrEdit();
-        },
-        onDelete: () async {
-          final confirm = await showConfirmDialog(
-            context: context,
-            title: "Delete Job?",
-            message: "This will permanently remove this job and its links.",
-            confirmLabel: "Delete Forever",
-            isDestructive: true,
-          );
-
-          if (confirm == true) {
-            try {
-              // Try to delete
-              await Supabase.instance.client
-                  .from('job_orders')
-                  .delete()
-                  .eq('id', job.dbId);
-
-              if (mounted) {
-                Navigator.pop(context);
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Job deleted successfully')),
-                );
-                _fetchJobOrders();
-              }
-            } catch (e) {
-              // If it fails (likely DB constraint), tell the user
-              if (mounted) {
-                Navigator.pop(context);
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text(
-                      'Delete failed. Please run the SQL Fix script. Error: $e',
-                    ),
-                    backgroundColor: Colors.red,
-                    duration: const Duration(seconds: 5),
-                  ),
-                );
-              }
-            }
-          }
-        },
-        onReschedule: (newDate) async {
-          await Supabase.instance.client
-              .from('job_orders')
-              .update({'date_scheduled': newDate.toIso8601String()})
-              .eq('id', job.dbId);
-          if (mounted) {
-            Navigator.pop(context);
-            _fetchJobOrders();
-          }
-        },
-        onExtend: (newEndDate) async {
-          await Supabase.instance.client
-              .from('job_orders')
-              .update({'date_completed': newEndDate.toIso8601String()})
-              .eq('id', job.dbId);
-          if (mounted) {
-            Navigator.pop(context);
-            _fetchJobOrders();
-          }
+          _onAddOrEdit(existingJob: job);
         },
       ),
     );
   }
 
-  // --- Calendar Logic Helpers ---
+  // --- Calendar Logic ---
 
   List<JobOrder> _getJobsForDay(DateTime day) {
     return _orders.where((o) {
-      // 1. Check if it starts on this day
       final start = DateTime(
         o.startDateTime.year,
         o.startDateTime.month,
@@ -225,19 +197,16 @@ class _SchedulingScreenState extends State<SchedulingScreen> {
       );
       final check = DateTime(day.year, day.month, day.day);
 
-      // 2. Check if it's a multi-day job and this day is in between
-      if (o.endDateTime != null) {
+      // UPDATED: Use scheduledEndDate for multi-day bars
+      if (o.scheduledEndDate != null) {
         final end = DateTime(
-          o.endDateTime!.year,
-          o.endDateTime!.month,
-          o.endDateTime!.day,
+          o.scheduledEndDate!.year,
+          o.scheduledEndDate!.month,
+          o.scheduledEndDate!.day,
         );
-        // Is day >= start AND day <= end?
         return (check.isAfter(start) || check.isAtSameMomentAs(start)) &&
             (check.isBefore(end) || check.isAtSameMomentAs(end));
       }
-
-      // Single day check
       return DateUtils.isSameDay(start, check);
     }).toList();
   }
@@ -260,25 +229,10 @@ class _SchedulingScreenState extends State<SchedulingScreen> {
       selectedIndex: 1,
       body: LoadingOverlay(
         isLoading: _isLoading,
-        child: RefreshIndicator(
-          onRefresh: () async {
-            HapticFeedback.lightImpact();
-            await _fetchJobOrders();
-            if (mounted) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text('Schedule updated'),
-                  duration: Duration(seconds: 1),
-                  behavior: SnackBarBehavior.floating,
-                ),
-              );
-            }
-          },
-          child: Container(
-            color: const Color(0xFFF8FAFC),
-            child: Column(
+        child: Container(
+          color: const Color(0xFFF8FAFC),
+          child: Column(
             children: [
-              // 1. Calendar Header
               Container(
                 padding: EdgeInsets.symmetric(
                   horizontal: isMobileView ? 16 : 32,
@@ -292,11 +246,7 @@ class _SchedulingScreenState extends State<SchedulingScreen> {
                       children: [
                         IconButton(
                           icon: const Icon(Icons.chevron_left),
-                          iconSize: isMobileView ? 28 : 24,
-                          onPressed: () {
-                            HapticFeedback.selectionClick();
-                            _changeMonth(-1);
-                          },
+                          onPressed: () => _changeMonth(-1),
                         ),
                         Text(
                           "${_monthName(_focusedDate.month)} ${_focusedDate.year}",
@@ -308,23 +258,15 @@ class _SchedulingScreenState extends State<SchedulingScreen> {
                         ),
                         IconButton(
                           icon: const Icon(Icons.chevron_right),
-                          iconSize: isMobileView ? 28 : 24,
-                          onPressed: () {
-                            HapticFeedback.selectionClick();
-                            _changeMonth(1);
-                          },
+                          onPressed: () => _changeMonth(1),
                         ),
                       ],
                     ),
                     ElevatedButton.icon(
-                      onPressed: () {
-                        HapticFeedback.lightImpact();
-                        _onAddOrEdit();
-                      },
+                      onPressed: () => _onAddOrEdit(),
                       style: ElevatedButton.styleFrom(
                         backgroundColor: const Color(0xFF2563EB),
                         foregroundColor: Colors.white,
-                        minimumSize: Size(isMobileView ? 100 : 120, isMobileView ? 48 : 44),
                         padding: const EdgeInsets.symmetric(
                           horizontal: 16,
                           vertical: 12,
@@ -333,7 +275,7 @@ class _SchedulingScreenState extends State<SchedulingScreen> {
                           borderRadius: BorderRadius.circular(12),
                         ),
                       ),
-                      icon: Icon(Icons.add, size: isMobileView ? 20 : 18),
+                      icon: const Icon(Icons.add, size: 18),
                       label: Text(
                         isMobileView ? 'Add' : 'Add Job',
                         style: const TextStyle(fontWeight: FontWeight.w700),
@@ -343,24 +285,17 @@ class _SchedulingScreenState extends State<SchedulingScreen> {
                 ),
               ),
               const Divider(height: 1),
-
-              // 2. The Content Area
               Expanded(
                 child: SingleChildScrollView(
-                  physics: const AlwaysScrollableScrollPhysics(),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      // A. Calendar Grid
                       Container(
                         color: Colors.white,
                         padding: const EdgeInsets.only(bottom: 16),
                         child: _buildCalendarGrid(),
                       ),
-
                       const Divider(height: 1),
-
-                      // B. Selected Day Details
                       Padding(
                         padding: const EdgeInsets.all(20),
                         child: Column(
@@ -375,7 +310,6 @@ class _SchedulingScreenState extends State<SchedulingScreen> {
                               ),
                             ),
                             const SizedBox(height: 16),
-
                             if (selectedDayJobs.isEmpty)
                               Center(
                                 child: Padding(
@@ -404,10 +338,8 @@ class _SchedulingScreenState extends State<SchedulingScreen> {
                                 separatorBuilder: (ctx, i) =>
                                     const SizedBox(height: 12),
                                 itemBuilder: (ctx, i) => GestureDetector(
-                                  onTap: () {
-                                    HapticFeedback.selectionClick();
-                                    _showJobDetails(selectedDayJobs[i]);
-                                  },
+                                  onTap: () =>
+                                      _showJobDetails(selectedDayJobs[i]),
                                   child: _JobCard(order: selectedDayJobs[i]),
                                 ),
                               ),
@@ -421,12 +353,9 @@ class _SchedulingScreenState extends State<SchedulingScreen> {
             ],
           ),
         ),
-        ),
       ),
     );
   }
-
-  // --- Calendar Builders ---
 
   Widget _buildCalendarGrid() {
     final daysInMonth = DateUtils.getDaysInMonth(
@@ -470,14 +399,12 @@ class _SchedulingScreenState extends State<SchedulingScreen> {
           ),
           itemBuilder: (context, index) {
             if (index < firstWeekday) return const SizedBox();
-
             final dayInt = index - firstWeekday + 1;
             final currentDay = DateTime(
               _focusedDate.year,
               _focusedDate.month,
               dayInt,
             );
-
             final isSelected = DateUtils.isSameDay(currentDay, _selectedDate);
             final isToday = DateUtils.isSameDay(currentDay, DateTime.now());
             final hasJobs = _getJobsForDay(currentDay).isNotEmpty;
@@ -548,153 +475,862 @@ class _SchedulingScreenState extends State<SchedulingScreen> {
   }
 }
 
-// --- JOB DETAIL DIALOG (NEW) ---
+// --- JOB MANAGEMENT & BILLING HUB ---
 
-class _JobDetailDialog extends StatelessWidget {
+class _JobBillingManager extends StatefulWidget {
   final JobOrder job;
-  final VoidCallback onEdit;
-  final VoidCallback onDelete;
-  final Function(DateTime) onReschedule;
-  final Function(DateTime) onExtend;
+  final VoidCallback onJobUpdated;
+  final VoidCallback onEditRequest;
 
-  const _JobDetailDialog({
+  const _JobBillingManager({
     required this.job,
-    required this.onEdit,
-    required this.onDelete,
-    required this.onReschedule,
-    required this.onExtend,
+    required this.onJobUpdated,
+    required this.onEditRequest,
   });
 
   @override
-  Widget build(BuildContext context) {
-    return Dialog(
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      child: Container(
-        padding: const EdgeInsets.all(24),
-        constraints: const BoxConstraints(maxWidth: 400),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
+  State<_JobBillingManager> createState() => _JobBillingManagerState();
+}
+
+class _JobBillingManagerState extends State<_JobBillingManager>
+    with SingleTickerProviderStateMixin {
+  late TabController _tabController;
+  bool _isLoading = true;
+  final _supabase = Supabase.instance.client;
+
+  List<Map<String, dynamic>> _lineItems = [];
+  List<Map<String, dynamic>> _serviceCatalog = [];
+  List<String> _assignedTechNames = [];
+  List<String> _assignedUnitDetails = [];
+  double _totalAmount = 0.0;
+  double _totalPaid = 0.0;
+
+  @override
+  void initState() {
+    super.initState();
+    _tabController = TabController(length: 2, vsync: this);
+    _fetchBillingData();
+  }
+
+  Future<void> _fetchBillingData() async {
+    setState(() => _isLoading = true);
+
+    try {
+      final jobId = widget.job.dbId;
+
+      // --- 1. FIRE ALL QUERIES AT ONCE (PARALLEL) ---
+      final results = await Future.wait([
+        // Index 0: Line Items
+        _supabase
+            .from('job_order_line_items')
+            .select('id, quantity, actual_price, service_items(item_name)')
+            .eq('job_order_id', jobId),
+
+        // Index 1: Payments
+        _supabase.from('payments').select('amount').eq('job_order_id', jobId),
+
+        // Index 2: Service Catalog
+        _supabase.from('service_items').select().order('item_name'),
+
+        // Index 3: Assigned Technicians
+        // Using 'maybeSingle' logic by fetching list and checking emptiness is safer
+        _supabase
+            .from('job_order_technicians')
+            .select('technicians(first_name, last_name)')
+            .eq('job_order_id', jobId),
+
+        // Index 4: Assigned Aircons
+        // We simplify the query to prevent 'deep join' hangs if data is missing
+        _supabase
+            .from('job_order_aircons')
+            .select(
+              'aircons(remarks, brands(brand_name), aircon_types(type_name))',
+            )
+            .eq('job_order_id', jobId),
+      ]);
+
+      // --- 2. EXTRACT RESULTS ---
+      final items = List<Map<String, dynamic>>.from(results[0] as List);
+      final payments = List<Map<String, dynamic>>.from(results[1] as List);
+      final catalog = List<Map<String, dynamic>>.from(results[2] as List);
+      final techRes = List<Map<String, dynamic>>.from(results[3] as List);
+      final acRes = List<Map<String, dynamic>>.from(results[4] as List);
+
+      // --- 3. PROCESS CALCULATIONS ---
+      double total = 0;
+      for (var i in items) total += (i['actual_price'] * i['quantity']);
+
+      double paid = 0;
+      for (var p in payments) paid += p['amount'];
+
+      // --- 4. SAFE PROCESS: TECHNICIANS ---
+      final List<String> loadedTechs = [];
+      for (var row in techRes) {
+        // Handle case where technician link exists but technician data is null/deleted
+        if (row['technicians'] != null) {
+          final t = row['technicians'];
+          loadedTechs.add("${t['first_name']} ${t['last_name']}");
+        }
+      }
+
+      // --- 5. SAFE PROCESS: AIRCONS ---
+      final List<String> loadedUnits = [];
+      for (var row in acRes) {
+        // Handle case where aircon data is missing (deleted but link remains)
+        final a = row['aircons'];
+        if (a != null) {
+          // Use '?' (null aware) operators everywhere to prevent crashes on blank brands/types
+          final brand = a['brands']?['brand_name'] ?? 'Unknown Brand';
+          final type = a['aircon_types']?['type_name'] ?? 'Unit';
+          final remark = a['remarks'] ?? '';
+
+          loadedUnits.add(
+            "$brand $type${remark.isNotEmpty ? ' ($remark)' : ''}",
+          );
+        }
+      }
+
+      if (mounted) {
+        setState(() {
+          _lineItems = items;
+          _serviceCatalog = catalog;
+          _assignedTechNames = loadedTechs;
+          _assignedUnitDetails = loadedUnits;
+          _totalAmount = total;
+          _totalPaid = paid;
+        });
+      }
+    } catch (e) {
+      debugPrint('Error loading details: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text("Network Error: Could not load full details."),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  void _deleteJob() async {
+    final confirm = await showConfirmDialog(
+      context: context,
+      title: "Delete Job?",
+      message: "This will remove the job and all billing records.",
+      confirmLabel: "Delete Forever",
+      isDestructive: true,
+    );
+
+    if (confirm == true) {
+      try {
+        await _supabase.from('job_orders').delete().eq('id', widget.job.dbId);
+        if (mounted) {
+          Navigator.pop(context);
+          widget.onJobUpdated();
+        }
+      } catch (e) {
+        if (mounted)
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(SnackBar(content: Text("Delete Error: $e")));
+      }
+    }
+  }
+
+  void _onReschedule() async {
+    final now = DateTime.now();
+    // Strip time to get strictly "Today at 00:00"
+    final today = DateTime(now.year, now.month, now.day);
+
+    // SAFETY CHECK:
+    // If the current job date is in the past, we can't use it as 'initialDate'
+    // because it would be before 'firstDate' (Today).
+    // So if it's past, we default the picker to Today.
+    final isPast = widget.job.startDateTime.isBefore(today);
+    final pickerInitialDate = isPast ? today : widget.job.startDateTime;
+
+    final d = await showDatePicker(
+      context: context,
+      initialDate: pickerInitialDate,
+      firstDate: today, // STRICT: Blocks previous dates
+      lastDate: DateTime(2030),
+    );
+
+    if (d != null) {
+      final t = await showTimePicker(
+        context: context,
+        initialTime: TimeOfDay.fromDateTime(widget.job.startDateTime),
+      );
+      if (t != null) {
+        final newDate = DateTime(d.year, d.month, d.day, t.hour, t.minute);
+
+        await _supabase
+            .from('job_orders')
+            .update({
+              'date_scheduled': newDate.toUtc().toIso8601String(),
+              'date_scheduled_end':
+                  null, // Keep the fix for the disappearing bug
+            })
+            .eq('id', widget.job.dbId);
+
+        widget.onJobUpdated();
+        if (mounted) Navigator.pop(context);
+      }
+    }
+  }
+
+  void _onExtend() async {
+    final d = await showDatePicker(
+      context: context,
+      // FIX: Changed endDateTime to scheduledEndDate
+      initialDate: widget.job.scheduledEndDate ?? widget.job.startDateTime,
+      firstDate: widget.job.startDateTime,
+      lastDate: DateTime(2030),
+      helpText: "Select End Date",
+    );
+    if (d != null) {
+      await _supabase
+          .from('job_orders')
+          .update({
+            // FIX: Now writing to the new column
+            'date_scheduled_end': d.toUtc().toIso8601String(),
+          })
+          .eq('id', widget.job.dbId);
+      widget.onJobUpdated();
+      if (mounted) Navigator.pop(context);
+    }
+  }
+
+  void _addItemDialog() {
+    int? selectedItemId;
+    final priceController = TextEditingController();
+    final qtyController = TextEditingController(text: '1');
+    final nameController = TextEditingController();
+    bool isCustom = false;
+
+    showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (context, setDialogState) {
+          return AlertDialog(
+            title: const Text("Add Service/Item"),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
               children: [
-                Expanded(
-                  child: Text(
-                    job.clientName,
-                    style: const TextStyle(
-                      fontSize: 20,
-                      fontWeight: FontWeight.bold,
+                Row(
+                  children: [
+                    Expanded(
+                      child: ChoiceChip(
+                        label: const Text("From Catalog"),
+                        selected: !isCustom,
+                        onSelected: (v) => setDialogState(() => isCustom = !v),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: ChoiceChip(
+                        label: const Text("Custom Item"),
+                        selected: isCustom,
+                        onSelected: (v) => setDialogState(() {
+                          isCustom = v;
+                          selectedItemId = null;
+                          priceController.clear();
+                        }),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                if (!isCustom)
+                  DropdownButtonFormField<int>(
+                    value: selectedItemId,
+                    isExpanded: true,
+                    decoration: const InputDecoration(
+                      labelText: "Select Item",
+                      border: OutlineInputBorder(),
+                    ),
+                    items: _serviceCatalog
+                        .map(
+                          (item) => DropdownMenuItem(
+                            value: item['id'] as int,
+                            child: Text(
+                              "${item['item_name']} (₱${item['price']})",
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        )
+                        .toList(),
+                    onChanged: (val) {
+                      setDialogState(() {
+                        selectedItemId = val;
+                        final item = _serviceCatalog.firstWhere(
+                          (i) => i['id'] == val,
+                        );
+                        priceController.text = item['price'].toString();
+                      });
+                    },
+                  )
+                else
+                  TextFormField(
+                    controller: nameController,
+                    decoration: const InputDecoration(
+                      labelText: "Item Name",
+                      border: OutlineInputBorder(),
                     ),
                   ),
-                ),
-                IconButton(
-                  onPressed: () => Navigator.pop(context),
-                  icon: const Icon(Icons.close),
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    Expanded(
+                      child: TextFormField(
+                        controller: priceController,
+                        decoration: const InputDecoration(
+                          labelText: "Price (₱)",
+                          border: OutlineInputBorder(),
+                        ),
+                        keyboardType: TextInputType.number,
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: TextFormField(
+                        controller: qtyController,
+                        decoration: const InputDecoration(
+                          labelText: "Qty",
+                          border: OutlineInputBorder(),
+                        ),
+                        keyboardType: TextInputType.number,
+                      ),
+                    ),
+                  ],
                 ),
               ],
             ),
-            const SizedBox(height: 8),
-            Text(
-              job.jobType,
-              style: const TextStyle(
-                fontSize: 16,
-                color: Colors.blue,
-                fontWeight: FontWeight.w600,
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text("Cancel"),
               ),
-            ),
-            const SizedBox(height: 16),
-            _infoRow(
-              Icons.calendar_today,
-              "${job.startDateTime.month}/${job.startDateTime.day} ${job.startDateTime.hour}:${job.startDateTime.minute.toString().padLeft(2, '0')}",
-            ),
-            if (job.endDateTime != null)
-              _infoRow(
-                Icons.event_repeat,
-                "Ends: ${job.endDateTime!.month}/${job.endDateTime!.day}",
+              ElevatedButton(
+                onPressed: () async {
+                  await _saveLineItem(
+                    isCustom: isCustom,
+                    itemId: selectedItemId,
+                    customName: nameController.text,
+                    price: double.tryParse(priceController.text) ?? 0,
+                    qty: double.tryParse(qtyController.text) ?? 1,
+                  );
+                  if (mounted) Navigator.pop(context);
+                },
+                child: const Text("Add to Bill"),
               ),
-            const SizedBox(height: 8),
-            _infoRow(Icons.numbers, job.displayId),
+            ],
+          );
+        },
+      ),
+    );
+  }
 
-            const SizedBox(height: 24),
-            const Divider(),
+  Future<void> _saveLineItem({
+    required bool isCustom,
+    int? itemId,
+    String? customName,
+    required double price,
+    required double qty,
+  }) async {
+    try {
+      int finalItemId;
+      if (isCustom) {
+        final res = await _supabase
+            .from('service_items')
+            .insert({
+              'item_name': customName ?? 'Custom Service',
+              'item_type': 'Custom',
+              'price': price,
+            })
+            .select('id')
+            .single();
+        finalItemId = res['id'];
+      } else {
+        if (itemId == null) return;
+        finalItemId = itemId;
+      }
+      await _supabase.from('job_order_line_items').insert({
+        'job_order_id': widget.job.dbId,
+        'service_item_id': finalItemId,
+        'quantity': qty,
+        'actual_price': price,
+      });
+      _fetchBillingData();
+    } catch (e) {
+      if (mounted)
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text("Error: $e")));
+    }
+  }
+
+  void _recordPaymentDialog() {
+    final amountController = TextEditingController(
+      text: (_totalAmount - _totalPaid).toString(),
+    );
+    String method = 'Cash';
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text("Record Payment"),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text("Record cash-in from client."),
             const SizedBox(height: 16),
-            const Text(
-              "Actions",
-              style: TextStyle(
-                fontSize: 14,
-                color: Colors.grey,
-                fontWeight: FontWeight.bold,
+            TextFormField(
+              controller: amountController,
+              decoration: const InputDecoration(
+                labelText: "Amount Received",
+                prefixText: "₱ ",
+                border: OutlineInputBorder(),
               ),
+              keyboardType: TextInputType.number,
             ),
             const SizedBox(height: 12),
-
-            // ACTION BUTTONS GRID
-            Wrap(
-              spacing: 12,
-              runSpacing: 12,
-              children: [
-                _ActionButton(
-                  icon: Icons.edit,
-                  label: "Edit",
-                  color: Colors.blue,
-                  onTap: onEdit,
-                ),
-                _ActionButton(
-                  icon: Icons.calendar_month,
-                  label: "Reschedule",
-                  color: Colors.orange,
-                  onTap: () async {
-                    final d = await showDatePicker(
-                      context: context,
-                      initialDate: job.startDateTime,
-                      // FIX: Allow past dates (starting from 2020) so the picker doesn't crash on old jobs
-                      firstDate: DateTime(2020),
-                      lastDate: DateTime(2030),
-                    );
-                    if (d != null) onReschedule(d);
-                  },
-                ),
-                _ActionButton(
-                  icon: Icons.update,
-                  label: "Extend",
-                  color: Colors.purple,
-                  onTap: () async {
-                    final d = await showDatePicker(
-                      context: context,
-                      initialDate: job.endDateTime ?? job.startDateTime,
-                      firstDate: job.startDateTime,
-                      lastDate: DateTime(2030),
-                      helpText: "Select End Date",
-                    );
-                    if (d != null) onExtend(d);
-                  },
-                ),
-                _ActionButton(
-                  icon: Icons.delete,
-                  label: "Delete",
-                  color: Colors.red,
-                  onTap:
-                      onDelete, // FIX: The error logic was actually in the parent call, fixed below
-                ),
-              ],
+            DropdownButtonFormField<String>(
+              value: method,
+              decoration: const InputDecoration(
+                labelText: "Payment Method",
+                border: OutlineInputBorder(),
+              ),
+              items: [
+                'Cash',
+                'GCash',
+                'Bank Transfer',
+                'Cheque',
+              ].map((m) => DropdownMenuItem(value: m, child: Text(m))).toList(),
+              onChanged: (v) => method = v!,
             ),
           ],
         ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text("Cancel"),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.green,
+              foregroundColor: Colors.white,
+            ),
+            onPressed: () async {
+              await _supabase.from('payments').insert({
+                'job_order_id': widget.job.dbId,
+                'amount': double.tryParse(amountController.text) ?? 0,
+                'payment_method': method,
+                'payment_date': DateTime.now().toIso8601String(),
+                'status': 'Verified',
+              });
+              if (mounted) {
+                Navigator.pop(context);
+                _fetchBillingData();
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text("Payment Recorded!")),
+                );
+              }
+            },
+            child: const Text("Confirm Payment"),
+          ),
+        ],
       ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        return Dialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+          ),
+          child: Container(
+            width: 500,
+            height: constraints.maxHeight * 0.8,
+            color: Colors.white,
+            child: Column(
+              children: [
+                // Header
+                Container(
+                  padding: const EdgeInsets.fromLTRB(24, 24, 24, 0),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Expanded(
+                            child: Text(
+                              widget.job.clientName,
+                              style: const TextStyle(
+                                fontSize: 22,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ),
+                          IconButton(
+                            onPressed: () => Navigator.pop(context),
+                            icon: const Icon(Icons.close),
+                          ),
+                        ],
+                      ),
+                      Text(
+                        "${widget.job.jobType} • ${widget.job.displayId}",
+                        style: const TextStyle(color: Colors.grey),
+                      ),
+                      const SizedBox(height: 16),
+                      TabBar(
+                        controller: _tabController,
+                        labelColor: Colors.blue,
+                        unselectedLabelColor: Colors.grey,
+                        indicatorColor: Colors.blue,
+                        tabs: const [
+                          Tab(text: "Details & Actions"),
+                          Tab(text: "Billing & Payment"),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+                const Divider(height: 1),
+                Expanded(
+                  child: _isLoading
+                      ? const Center(child: CircularProgressIndicator())
+                      : TabBarView(
+                          controller: _tabController,
+                          children: [_buildDetailsTab(), _buildBillingTab()],
+                        ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildDetailsTab() {
+    // Schedule Logic
+    String scheduleText;
+    final start = widget.job.startDateTime.toLocal();
+    final timeStr = TimeOfDay.fromDateTime(start).format(context);
+    final startDateStr = start.toString().split(' ')[0];
+
+    // FIX: Changed endDateTime to scheduledEndDate
+    if (widget.job.scheduledEndDate != null) {
+      final end = widget.job.scheduledEndDate!.toLocal();
+      final endDateStr = end.toString().split(' ')[0];
+      scheduleText = "$startDateStr - $endDateStr";
+    } else {
+      scheduleText = "$startDateStr at $timeStr";
+    }
+
+    return ListView(
+      padding: const EdgeInsets.all(24),
+      children: [
+        _infoSection("Schedule", [
+          _infoRow(Icons.calendar_today, scheduleText),
+          _infoRow(Icons.location_on, widget.job.location),
+        ]),
+        const SizedBox(height: 24),
+
+        // Team Section
+        _infoSection("Assigned Team", [
+          _infoRow(
+            Icons.people,
+            _assignedTechNames.isNotEmpty
+                ? _assignedTechNames.join('\n')
+                : "No technicians assigned",
+          ),
+        ]),
+        const SizedBox(height: 24),
+
+        // Assets Section
+        _infoSection("Assets / Units", [
+          _infoRow(
+            Icons.ac_unit,
+            _assignedUnitDetails.isNotEmpty
+                ? _assignedUnitDetails.join('\n')
+                : "No specific units linked",
+          ),
+        ]),
+        const SizedBox(height: 24),
+
+        _infoSection("Notes", [
+          _infoRow(
+            Icons.note,
+            widget.job.notes != null && widget.job.notes!.isNotEmpty
+                ? widget.job.notes!
+                : "No additional notes",
+          ),
+        ]),
+        const SizedBox(height: 24),
+        const Text(
+          "Quick Actions",
+          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+        ),
+        const SizedBox(height: 12),
+        Wrap(
+          spacing: 12,
+          runSpacing: 12,
+          children: [
+            _ActionButton(
+              icon: Icons.edit,
+              label: "Edit Details",
+              color: Colors.blue,
+              onTap: widget.onEditRequest,
+            ),
+            _ActionButton(
+              icon: Icons.calendar_month,
+              label: "Reschedule",
+              color: Colors.orange,
+              onTap: _onReschedule,
+            ),
+            _ActionButton(
+              icon: Icons.update,
+              label: "Extend Job",
+              color: Colors.purple,
+              onTap: _onExtend,
+            ),
+            _ActionButton(
+              icon: Icons.delete,
+              label: "Delete Job",
+              color: Colors.red,
+              onTap: _deleteJob,
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Widget _buildBillingTab() {
+    final balance = _totalAmount - _totalPaid;
+    final isPaid = balance <= 0 && _totalAmount > 0;
+
+    // Check width to switch layout for mobile
+    final isNarrow = MediaQuery.of(context).size.width < 450;
+
+    return Column(
+      children: [
+        Expanded(
+          child: _lineItems.isEmpty
+              ? LayoutBuilder(
+                  builder: (context, constraints) {
+                    // FIX 1: Wrap EmptyState in ScrollView to prevent overflow
+                    return SingleChildScrollView(
+                      physics: const AlwaysScrollableScrollPhysics(),
+                      child: ConstrainedBox(
+                        constraints: BoxConstraints(
+                          minHeight: constraints.maxHeight,
+                        ),
+                        child: Center(
+                          child: Padding(
+                            padding: const EdgeInsets.all(20.0),
+                            child: EmptyState(
+                              icon: Icons.receipt_long,
+                              title: "No Items Yet",
+                              message:
+                                  "Add services or parts to create the bill.",
+                              actionLabel: "Add Item",
+                              onAction: _addItemDialog,
+                            ),
+                          ),
+                        ),
+                      ),
+                    );
+                  },
+                )
+              : ListView.separated(
+                  padding: const EdgeInsets.all(24),
+                  itemCount: _lineItems.length,
+                  separatorBuilder: (ctx, i) => const Divider(),
+                  itemBuilder: (ctx, i) {
+                    final item = _lineItems[i];
+                    final name = item['service_items']['item_name'];
+                    final price = item['actual_price'];
+                    final qty = item['quantity'];
+                    return Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                name,
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                              Text(
+                                "$qty x ₱$price",
+                                style: const TextStyle(
+                                  fontSize: 12,
+                                  color: Colors.grey,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        Text(
+                          "₱${(price * qty).toStringAsFixed(2)}",
+                          style: const TextStyle(fontWeight: FontWeight.bold),
+                        ),
+                      ],
+                    );
+                  },
+                ),
+        ),
+        Container(
+          // FIX 2: Reduce padding on small screens
+          padding: EdgeInsets.all(isNarrow ? 16 : 24),
+          decoration: BoxDecoration(
+            color: Colors.grey[50],
+            border: const Border(top: BorderSide(color: Color(0xFFE2E8F0))),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              _totalRow("Total Bill", _totalAmount),
+              _totalRow("Paid", _totalPaid, color: Colors.green),
+              Divider(height: isNarrow ? 16 : 24),
+              _totalRow(
+                "Balance Due",
+                balance,
+                isBold: true,
+                color: balance > 0 ? Colors.red : Colors.grey,
+              ),
+              SizedBox(height: isNarrow ? 16 : 20),
+
+              // FIX 3: Stack buttons on mobile to fix "off" look
+              if (isNarrow)
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    OutlinedButton.icon(
+                      onPressed: _addItemDialog,
+                      icon: const Icon(Icons.add),
+                      label: const Text("Add Item"),
+                      style: OutlinedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    ElevatedButton.icon(
+                      onPressed: isPaid ? null : _recordPaymentDialog,
+                      icon: const Icon(Icons.payment),
+                      label: Text(isPaid ? "Paid" : "Record Payment"),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.green,
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                      ),
+                    ),
+                  ],
+                )
+              else
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        onPressed: _addItemDialog,
+                        icon: const Icon(Icons.add),
+                        label: const Text("Add Item"),
+                        style: OutlinedButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(vertical: 16),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: ElevatedButton.icon(
+                        onPressed: isPaid ? null : _recordPaymentDialog,
+                        icon: const Icon(Icons.payment),
+                        label: Text(isPaid ? "Paid" : "Record Payment"),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.green,
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(vertical: 16),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _totalRow(
+    String label,
+    double value, {
+    bool isBold = false,
+    Color? color,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(
+            label,
+            style: TextStyle(
+              fontWeight: isBold ? FontWeight.bold : FontWeight.normal,
+              fontSize: isBold ? 16 : 14,
+            ),
+          ),
+          Text(
+            "₱${value.toStringAsFixed(2)}",
+            style: TextStyle(
+              fontWeight: isBold ? FontWeight.bold : FontWeight.normal,
+              fontSize: isBold ? 18 : 14,
+              color: color,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _infoSection(String title, List<Widget> children) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          title,
+          style: const TextStyle(
+            color: Colors.grey,
+            fontWeight: FontWeight.bold,
+            fontSize: 12,
+          ),
+        ),
+        const SizedBox(height: 8),
+        ...children,
+      ],
     );
   }
 
   Widget _infoRow(IconData icon, String text) {
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4),
+      padding: const EdgeInsets.only(bottom: 8),
       child: Row(
         children: [
           Icon(icon, size: 16, color: Colors.grey),
           const SizedBox(width: 8),
-          Text(
-            text,
-            style: const TextStyle(fontSize: 14, color: Colors.black87),
-          ),
+          Expanded(child: Text(text)),
         ],
       ),
     );
@@ -706,21 +1342,19 @@ class _ActionButton extends StatelessWidget {
   final String label;
   final Color color;
   final VoidCallback onTap;
-
   const _ActionButton({
     required this.icon,
     required this.label,
     required this.color,
     required this.onTap,
   });
-
   @override
   Widget build(BuildContext context) {
     return InkWell(
       onTap: onTap,
       borderRadius: BorderRadius.circular(8),
       child: Container(
-        width: 100, // Compact width for grid
+        width: 100,
         padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
         decoration: BoxDecoration(
           color: color.withOpacity(0.1),
@@ -750,7 +1384,9 @@ class _ActionButton extends StatelessWidget {
 
 class _JobOrderDialog extends StatefulWidget {
   final DateTime? initialDate;
-  const _JobOrderDialog({this.initialDate});
+  final JobOrder? existingJob; // ADDED: Enable editing
+
+  const _JobOrderDialog({this.initialDate, this.existingJob});
   @override
   State<_JobOrderDialog> createState() => _JobOrderDialogState();
 }
@@ -760,6 +1396,9 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
   bool _isSubmitting = false;
   final _supabase = Supabase.instance.client;
   final _formKey = GlobalKey<FormState>();
+  final _customerDisplayController = TextEditingController();
+  List<Map<String, dynamic>> _availableTechnicians = [];
+  final List<int> _selectedTechnicianIds = [];
 
   // Data
   String _jobTypeName = 'Installation';
@@ -768,11 +1407,12 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
   List<Map<String, dynamic>> _existingClients = [];
   List<String> _brandOptions = [];
   List<Map<String, dynamic>> _airconTypes = [];
+
   int? _selectedClientId;
   List<Map<String, dynamic>> _clientAircons = [];
   final List<int> _selectedAirconIds = [];
 
-  // Controllers
+  // New Client Data
   final _firstNameController = TextEditingController();
   final _middleNameController = TextEditingController();
   final _lastNameController = TextEditingController();
@@ -798,36 +1438,124 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
   @override
   void initState() {
     super.initState();
-    _scheduleDate = widget.initialDate ?? DateTime.now();
+    // Initialize Data from existing job or default
+    if (widget.existingJob != null) {
+      _jobTypeName = widget.existingJob!.jobType;
+      _scheduleDate = widget.existingJob!.startDateTime;
+      _scheduleTime = TimeOfDay.fromDateTime(widget.existingJob!.startDateTime);
+      _notesController.text = widget.existingJob!.notes ?? '';
+      _selectedClientId = widget.existingJob!.customerId;
+
+      // In a real edit scenario, we would also fetch the client details if _selectedClientId is set
+      // For now, we just set the ID to trigger the dropdown selection
+    } else {
+      _scheduleDate = widget.initialDate ?? DateTime.now();
+    }
+
     _fetchInitialData();
   }
 
   Future<void> _fetchInitialData() async {
+    // 1. Fetch Master Data
     final customers = await _supabase
         .from('customers')
         .select('id, first_name, last_name, company_name, city, barangay')
         .order('last_name', ascending: true);
 
     final types = await _supabase.from('job_types').select();
-    final brands = await _supabase
-        .from('brands')
-        .select('brand_name')
-        .order('brand_name');
-    final acTypes = await _supabase
-        .from('aircon_types')
-        .select('id, type_name');
+    final brands = await _supabase.from('brands').select().order('brand_name');
+    final acTypes = await _supabase.from('aircon_types').select();
+
+    final techs = await _supabase
+        .from('technicians')
+        .select('id, first_name, last_name')
+        .order('first_name');
+
+    // 2. Prepare Variables for Edit Mode
+    List<int> existingLinkedAircons = [];
+    List<int> existingLinkedTechs = [];
+    List<Map<String, dynamic>> loadedClientAircons = [];
+
+    if (widget.existingJob != null) {
+      // A. Fetch Linked Aircon IDs
+      final linkedAcRes = await _supabase
+          .from('job_order_aircons')
+          .select('aircon_id')
+          .eq('job_order_id', widget.existingJob!.dbId);
+      existingLinkedAircons = List<int>.from(
+        linkedAcRes.map((e) => e['aircon_id']),
+      );
+
+      // B. Fetch Linked Technician IDs
+      final linkedTechRes = await _supabase
+          .from('job_order_technicians')
+          .select('technician_id')
+          .eq('job_order_id', widget.existingJob!.dbId);
+      existingLinkedTechs = List<int>.from(
+        linkedTechRes.map((e) => e['technician_id']),
+      );
+
+      // C. FIX: Fetch the Customer's Aircon List MANUALLY here
+      // (We do this here to avoid calling _fetchClientAircons which clears selections)
+      // 1. Create a local variable (Dart trusts local variables)
+      final int? custId = widget.existingJob?.customerId;
+
+      // 2. Check the LOCAL variable
+      if (custId != null) {
+        final units = await _supabase
+            .from('aircons')
+            .select('id, remarks, brands(brand_name), aircon_types(type_name)')
+            .eq(
+              'customer_id',
+              custId,
+            ); // 3. Use the LOCAL variable here (Error gone!)
+
+        loadedClientAircons = List<Map<String, dynamic>>.from(units);
+      }
+    }
 
     if (mounted) {
       setState(() {
         _existingClients = List<Map<String, dynamic>>.from(customers);
         _brandOptions = List<String>.from(brands.map((b) => b['brand_name']));
         _airconTypes = List<Map<String, dynamic>>.from(acTypes);
+        _availableTechnicians = List<Map<String, dynamic>>.from(techs);
 
-        final installType = types.firstWhere(
-          (t) => t['job_type_name'] == 'Installation',
-          orElse: () => types.first,
-        );
-        _jobTypeId = installType['id'];
+        if (widget.existingJob == null) {
+          // --- CREATE MODE ---
+          final installType = types.firstWhere(
+            (t) => t['job_type_name'] == 'Installation',
+            orElse: () => types.first,
+          );
+          _jobTypeId = installType['id'];
+        } else {
+          // --- EDIT MODE ---
+
+          // 1. Set Customer Text
+          if (_selectedClientId != null) {
+            final cust = _existingClients.firstWhere(
+              (c) => c['id'] == _selectedClientId,
+              orElse: () => {},
+            );
+            if (cust.isNotEmpty) {
+              _customerDisplayController.text =
+                  cust['company_name'] ??
+                  '${cust['first_name']} ${cust['last_name']}';
+            }
+          }
+
+          // 2. Populate Aircon List (from our manual fetch above)
+          if (loadedClientAircons.isNotEmpty) {
+            _clientAircons = loadedClientAircons;
+          }
+
+          // 3. Restore Checkboxes (Now safe from being cleared)
+          _selectedAirconIds.clear();
+          _selectedAirconIds.addAll(existingLinkedAircons);
+
+          _selectedTechnicianIds.clear();
+          _selectedTechnicianIds.addAll(existingLinkedTechs);
+        }
 
         if (_airconTypes.isNotEmpty) {
           _selectedAirconTypeId = _airconTypes.first['id'];
@@ -850,13 +1578,109 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
     }
   }
 
+  void _addNewUnitDialog() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text("Add New Unit"),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Autocomplete<String>(
+              optionsBuilder: (v) => v.text == ''
+                  ? const Iterable<String>.empty()
+                  : _brandOptions.where(
+                      (o) => o.toLowerCase().contains(v.text.toLowerCase()),
+                    ),
+              onSelected: (s) => _selectedBrandName = s,
+              fieldViewBuilder: (ctx, c, f, o) {
+                c.addListener(() => _selectedBrandName = c.text);
+                return TextField(
+                  controller: c,
+                  focusNode: f,
+                  decoration: const InputDecoration(
+                    labelText: "Brand",
+                    border: OutlineInputBorder(),
+                  ),
+                );
+              },
+            ),
+            const SizedBox(height: 12),
+            DropdownButtonFormField<int>(
+              value: _selectedAirconTypeId,
+              decoration: const InputDecoration(
+                labelText: "Type",
+                border: OutlineInputBorder(),
+              ),
+              items: _airconTypes
+                  .map(
+                    (t) => DropdownMenuItem(
+                      value: t['id'] as int,
+                      child: Text(t['type_name']),
+                    ),
+                  )
+                  .toList(),
+              onChanged: (v) => _selectedAirconTypeId = v,
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _unitRemarkController,
+              decoration: const InputDecoration(
+                labelText: "Location/Remarks",
+                border: OutlineInputBorder(),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text("Cancel"),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              if (_selectedClientId == null) return;
+              final brandName = _selectedBrandName.trim();
+              if (brandName.isEmpty) return;
+              int brandId;
+              final brandCheck = await _supabase
+                  .from('brands')
+                  .select('id')
+                  .ilike('brand_name', brandName)
+                  .maybeSingle();
+              if (brandCheck != null)
+                brandId = brandCheck['id'];
+              else {
+                final newBrand = await _supabase
+                    .from('brands')
+                    .insert({'brand_name': brandName})
+                    .select('id')
+                    .single();
+                brandId = newBrand['id'];
+              }
+              await _supabase.from('aircons').insert({
+                'customer_id': _selectedClientId,
+                'brand_id': brandId,
+                'aircon_type_id': _selectedAirconTypeId ?? 1,
+                'remarks': _unitRemarkController.text,
+              });
+              if (mounted) {
+                Navigator.pop(context);
+                _fetchClientAircons(_selectedClientId!);
+              }
+            },
+            child: const Text("Save Unit"),
+          ),
+        ],
+      ),
+    );
+  }
+
   // --- VALIDATORS ---
   String? _validatePhone(String? value) {
     if (value == null || value.isEmpty) return 'Required';
     final trimmed = value.trim();
-    if (!RegExp(r'^(09\d{9}|\d{7,10})$').hasMatch(trimmed)) {
-      return 'Invalid #';
-    }
+    if (!RegExp(r'^(09\d{9}|\d{7,10})$').hasMatch(trimmed)) return 'Invalid #';
     return null;
   }
 
@@ -867,133 +1691,280 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
   }
 
   // --- SUBMIT ---
+  // 2. FIXED SUBMIT METHOD
   Future<void> _submit() async {
+    // Pre-validation
+    if (!_isNewClient && _selectedClientId == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text("Please select a customer"),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+
+    if (_isNewClient) {
+      // Validate required fields explicitly
+      if (_firstNameController.text.trim().isEmpty ||
+          _lastNameController.text.trim().isEmpty ||
+          _phoneController.text.trim().isEmpty ||
+          _streetController.text.trim().isEmpty ||
+          _barangayController.text.trim().isEmpty ||
+          _cityController.text.trim().isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text("Please fill in all required fields"),
+            backgroundColor: Colors.red,
+          ),
+        );
+        return;
+      }
+    }
+
     setState(() => _isSubmitting = true);
 
     try {
       int? finalCustomerId = _selectedClientId;
 
-      // 1. CREATE CUSTOMER
+      // 1. CREATE CUSTOMER (if new)
       if (_isNewClient) {
+        print("Creating new customer...");
+
         final newCustomerData = {
-          'first_name': _firstNameController.text,
-          'middle_name': _middleNameController.text.isNotEmpty
-              ? _middleNameController.text
-              : null,
-          'last_name': _lastNameController.text,
-          'company_name': _companyController.text.isNotEmpty
-              ? _companyController.text
-              : null,
-          'job_position': _jobPositionController.text.isNotEmpty
-              ? _jobPositionController.text
-              : null,
-          'contact_number': _phoneController.text,
-          'email': _emailController.text.isNotEmpty
-              ? _emailController.text
-              : null,
-          'unit_building_house_no': _unitController.text,
-          'street': _streetController.text,
-          'subdivision_village': _villageController.text,
-          'barangay': _barangayController.text,
-          'city': _cityController.text,
-          'landmark': _landmarkController.text,
-          'customer_type_id': _companyController.text.isNotEmpty ? 1 : 2,
+          'first_name': _firstNameController.text.trim(),
+          'middle_name': _middleNameController.text.trim().isEmpty
+              ? null
+              : _middleNameController.text.trim(),
+          'last_name': _lastNameController.text.trim(),
+          'company_name': _companyController.text.trim().isEmpty
+              ? null
+              : _companyController.text.trim(),
+          'job_position': _jobPositionController.text.trim().isEmpty
+              ? null
+              : _jobPositionController.text.trim(),
+          'contact_number': _phoneController.text.trim(),
+          'email': _emailController.text.trim().isEmpty
+              ? null
+              : _emailController.text.trim(),
+          'unit_building_house_no': _unitController.text.trim(),
+          'street': _streetController.text.trim(),
+          'subdivision_village': _villageController.text.trim(),
+          'barangay': _barangayController.text.trim(),
+          'city': _cityController.text.trim(),
+          'landmark': _landmarkController.text.trim().isEmpty
+              ? null
+              : _landmarkController.text.trim(),
+          'customer_type_id': _companyController.text.trim().isEmpty ? 2 : 1,
         };
+
+        print("Customer data: $newCustomerData");
+
         final custRes = await _supabase
             .from('customers')
             .insert(newCustomerData)
             .select('id')
             .single();
-        finalCustomerId = custRes['id'];
+
+        finalCustomerId = custRes['id'] as int;
+        print("Customer created with ID: $finalCustomerId");
       }
 
-      if (finalCustomerId == null) throw "Customer ID missing";
+      if (finalCustomerId == null) {
+        throw "Customer selection error. Please try again.";
+      }
 
-      // 2. CREATE AIRCON
-      if (_isNewClient && _selectedBrandName.isNotEmpty) {
+      // 2. CREATE AIRCON (if new client)
+      if (_isNewClient && _selectedBrandName.trim().isNotEmpty) {
+        print("Creating aircon unit...");
+
         final brandName = _selectedBrandName.trim();
         int brandId;
+
+        // Check if brand exists
         final brandCheck = await _supabase
             .from('brands')
             .select('id')
             .ilike('brand_name', brandName)
             .maybeSingle();
+
         if (brandCheck != null) {
-          brandId = brandCheck['id'];
+          brandId = brandCheck['id'] as int;
+          print("Using existing brand ID: $brandId");
         } else {
+          // Create new brand
+          print("Creating new brand: $brandName");
           final newBrand = await _supabase
               .from('brands')
               .insert({'brand_name': brandName})
               .select('id')
               .single();
-          brandId = newBrand['id'];
+          brandId = newBrand['id'] as int;
+          print("Brand created with ID: $brandId");
         }
+
+        // Create aircon unit
+        final airconData = {
+          'customer_id': finalCustomerId,
+          'brand_id': brandId,
+          'aircon_type_id': _selectedAirconTypeId ?? 1,
+          'remarks': _unitRemarkController.text.trim().isEmpty
+              ? 'New Unit'
+              : _unitRemarkController.text.trim(),
+        };
+
+        print("Aircon data: $airconData");
 
         final newAircon = await _supabase
             .from('aircons')
-            .insert({
-              'customer_id': finalCustomerId,
-              'brand_id': brandId,
-              'aircon_type_id': _selectedAirconTypeId ?? 1,
-              'remarks': _unitRemarkController.text.isNotEmpty
-                  ? _unitRemarkController.text
-                  : 'New Unit',
-            })
+            .insert(airconData)
             .select('id')
             .single();
-        _selectedAirconIds.add(newAircon['id']);
+
+        final airconId = newAircon['id'] as int;
+        _selectedAirconIds.add(airconId);
+        print("Aircon created with ID: $airconId");
       }
 
-      // 3. CREATE JOB
+      // 3. CREATE/UPDATE JOB ORDER
+      print("Creating/updating job order...");
+
+      // Get correct job type ID
       final typeRes = await _supabase
           .from('job_types')
           .select('id')
           .eq('job_type_name', _jobTypeName)
           .maybeSingle();
-      final correctTypeId = typeRes != null ? typeRes['id'] : _jobTypeId;
 
+      final correctTypeId = typeRes != null
+          ? (typeRes['id'] as int)
+          : _jobTypeId;
+      print("Job Type ID: $correctTypeId");
+
+      // CRITICAL FIX: Create DateTime with time, then convert to ISO string
+      // Supabase will handle the timestamp storage
       final scheduleDateTime = DateTime(
         _scheduleDate.year,
         _scheduleDate.month,
         _scheduleDate.day,
         _scheduleTime.hour,
         _scheduleTime.minute,
+        0, // seconds
       );
 
-      final joRes = await _supabase
-          .from('job_orders')
-          .insert({
-            'customer_id': finalCustomerId,
-            'job_type_id': correctTypeId,
-            'date_scheduled': scheduleDateTime.toIso8601String(),
-            'status': 'Pending',
-            'user_id': _supabase.auth.currentUser?.id,
-            'client_jo_number':
-                'JO-${DateTime.now().millisecondsSinceEpoch.toString().substring(9)}',
-          })
-          .select('id')
-          .single();
+      print("Schedule DateTime: $scheduleDateTime");
+      print("ISO String: ${scheduleDateTime.toIso8601String()}");
 
-      final int newJoId = joRes['id'];
+      final jobData = {
+        'customer_id': finalCustomerId,
+        'job_type_id': correctTypeId,
+        // FIX: Add .toUtc() here
+        'date_scheduled': scheduleDateTime.toUtc().toIso8601String(),
+        'status': widget.existingJob?.status ?? 'Pending',
+        'notes': _notesController.text.isNotEmpty
+            ? _notesController.text
+            : null,
+      };
 
-      // 4. LINK AIRCONS
-      for (int airconId in _selectedAirconIds) {
-        await _supabase.from('job_order_aircons').insert({
-          'job_order_id': newJoId,
-          'aircon_id': airconId,
-        });
+      int newJoId;
+
+      if (widget.existingJob != null) {
+        // UPDATE EXISTING JOB
+        print("Updating existing job: ${widget.existingJob!.dbId}");
+
+        await _supabase
+            .from('job_orders')
+            .update(jobData)
+            .eq('id', widget.existingJob!.dbId);
+
+        newJoId = widget.existingJob!.dbId;
+
+        // Clear old aircon links before adding new ones
+        await _supabase
+            .from('job_order_aircons')
+            .delete()
+            .eq('job_order_id', newJoId);
+
+        print("Existing job updated");
+      } else {
+        // CREATE NEW JOB
+        print("Creating new job order...");
+
+        // Add fields only for new jobs
+        jobData['user_id'] = _supabase.auth.currentUser?.id;
+        jobData['client_jo_number'] =
+            'JO-${DateTime.now().millisecondsSinceEpoch.toString().substring(9)}';
+
+        print("Job data: $jobData");
+
+        final joRes = await _supabase
+            .from('job_orders')
+            .insert(jobData)
+            .select('id')
+            .single();
+
+        newJoId = joRes['id'] as int;
+        print("Job order created with ID: $newJoId");
       }
 
+      // 4. LINK AIRCONS TO JOB ORDER
+      if (_selectedAirconIds.isNotEmpty) {
+        print("Linking ${_selectedAirconIds.length} aircon(s) to job order...");
+
+        for (int airconId in _selectedAirconIds) {
+          await _supabase.from('job_order_aircons').insert({
+            'job_order_id': newJoId,
+            'aircon_id': airconId,
+          });
+          print("Linked aircon ID: $airconId");
+        }
+      }
+
+      // 5. LINK TECHNICIANS
+      // First, remove existing links for this job (clean slate approach is easiest for edit)
+      await _supabase
+          .from('job_order_technicians')
+          .delete()
+          .eq('job_order_id', newJoId);
+
+      // Then insert new selections
+      if (_selectedTechnicianIds.isNotEmpty) {
+        print("Linking ${_selectedTechnicianIds.length} technicians...");
+        for (int techId in _selectedTechnicianIds) {
+          await _supabase.from('job_order_technicians').insert({
+            'job_order_id': newJoId,
+            'technician_id': techId,
+            'role': 'Technician', // Default role required by your DB
+          });
+        }
+      }
+
+      // SUCCESS!
       if (mounted) {
         Navigator.pop(context, true);
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(const SnackBar(content: Text("Job Order Created!")));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              widget.existingJob != null
+                  ? "Job Updated Successfully!"
+                  : "Job Order Created Successfully!",
+            ),
+            backgroundColor: Colors.green,
+            duration: const Duration(seconds: 2),
+          ),
+        );
       }
-    } catch (e) {
+    } catch (e, stackTrace) {
+      print("ERROR in _submit: $e");
+      print("Stack trace: $stackTrace");
+
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text("Error: $e"), backgroundColor: Colors.red),
+          SnackBar(
+            content: Text("Error: ${e.toString()}"),
+            backgroundColor: Colors.red,
+            duration: const Duration(seconds: 5),
+          ),
         );
       }
     } finally {
@@ -1003,114 +1974,143 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
 
   @override
   Widget build(BuildContext context) {
-    final isMobile = MediaQuery.of(context).size.width < 600;
-
-    return Dialog(
-      insetPadding: isMobile ? EdgeInsets.zero : const EdgeInsets.all(40),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      child: Container(
-        width: isMobile ? double.infinity : 600,
-        height: isMobile ? double.infinity : 750,
-        color: Colors.white,
-        child: Column(
-          children: [
-            Container(
-              padding: const EdgeInsets.all(20),
-              decoration: const BoxDecoration(
-                border: Border(bottom: BorderSide(color: Color(0xFFE2E8F0))),
-              ),
-              child: Row(
-                children: [
-                  if (_currentStep > 0)
-                    IconButton(
-                      icon: const Icon(Icons.arrow_back),
-                      onPressed: () => setState(() => _currentStep--),
-                    ),
-                  Expanded(
-                    child: Text(
-                      _currentStep == 0
-                          ? "Service Type"
-                          : _currentStep == 1
-                          ? "Customer & Asset"
-                          : "Schedule",
-                      textAlign: TextAlign.center,
-                      style: const TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
-                      ),
+    // FIX: Using LayoutBuilder for dynamic sizing
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        return Dialog(
+          insetPadding: constraints.maxWidth < 600
+              ? EdgeInsets.zero
+              : const EdgeInsets.all(40),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+          ),
+          child: Container(
+            width: constraints.maxWidth < 600 ? double.infinity : 600,
+            height: constraints.maxHeight * 0.85,
+            color: Colors.white,
+            child: Column(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(20),
+                  decoration: const BoxDecoration(
+                    border: Border(
+                      bottom: BorderSide(color: Color(0xFFE2E8F0)),
                     ),
                   ),
-                  IconButton(
-                    icon: const Icon(Icons.close),
-                    onPressed: () => Navigator.pop(context),
-                  ),
-                ],
-              ),
-            ),
-
-            Expanded(
-              child: Padding(
-                padding: const EdgeInsets.all(24),
-                child: _buildCurrentStep(),
-              ),
-            ),
-
-            Padding(
-              padding: const EdgeInsets.all(24),
-              child: SizedBox(
-                width: double.infinity,
-                height: 50,
-                child: // In build method, scroll down to the ElevatedButton
-                ElevatedButton(
-                  // UPDATE THIS ONPRESSED LOGIC
-                  onPressed: _isSubmitting
-                      ? null
-                      : () {
-                          // Logic for Step 2 (Customer Info) -> Step 3
-                          if (_currentStep == 1 && _isNewClient) {
-                            // Validate the form NOW while it is still on screen
-                            if (_formKey.currentState!.validate()) {
-                              setState(() => _currentStep++);
-                            } else {
-                              // Show error if validation fails
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(
-                                  content: Text("Please fix errors in red"),
-                                  backgroundColor: Colors.red,
-                                ),
-                              );
-                            }
-                          }
-                          // Logic for Final Step (Submit)
-                          else if (_currentStep == 2) {
-                            _submit();
-                          }
-                          // Logic for Step 1 -> Step 2
-                          else {
-                            setState(() => _currentStep++);
-                          }
-                        },
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF2563EB),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                  ),
-                  child: _isSubmitting
-                      ? const CircularProgressIndicator(color: Colors.white)
-                      : Text(
-                          _currentStep == 2 ? 'Create Job Order' : 'Next Step',
+                  child: Row(
+                    children: [
+                      if (_currentStep > 0)
+                        IconButton(
+                          icon: const Icon(Icons.arrow_back),
+                          onPressed: () => setState(() => _currentStep--),
+                        ),
+                      Expanded(
+                        child: Text(
+                          _currentStep == 0
+                              ? "Service Type"
+                              : _currentStep == 1
+                              ? "Customer & Asset"
+                              : "Schedule",
+                          textAlign: TextAlign.center,
                           style: const TextStyle(
-                            color: Colors.white,
+                            fontSize: 18,
                             fontWeight: FontWeight.bold,
                           ),
                         ),
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.close),
+                        onPressed: () => Navigator.pop(context),
+                      ),
+                    ],
+                  ),
                 ),
-              ),
+
+                Expanded(
+                  child: Padding(
+                    padding: const EdgeInsets.all(24),
+                    child: _buildCurrentStep(),
+                  ),
+                ),
+
+                Padding(
+                  padding: const EdgeInsets.all(24),
+                  child: SizedBox(
+                    width: double.infinity,
+                    height: 50,
+                    child: ElevatedButton(
+                      onPressed: _isSubmitting
+                          ? null
+                          : () {
+                              // Step 1 -> Step 2: Just advance
+                              if (_currentStep == 0) {
+                                setState(() => _currentStep++);
+                              }
+                              // Step 2 -> Step 3: Validate form if new client
+                              else if (_currentStep == 1) {
+                                if (_isNewClient) {
+                                  // Validate the form NOW while it is still on screen
+                                  if (_formKey.currentState!.validate()) {
+                                    setState(() => _currentStep++);
+                                  } else {
+                                    // Show error if validation fails
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      const SnackBar(
+                                        content: Text(
+                                          "Please fix errors in red",
+                                        ),
+                                        backgroundColor: Colors.red,
+                                      ),
+                                    );
+                                  }
+                                } else {
+                                  // Existing client - just check if selected
+                                  if (_selectedClientId == null) {
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      const SnackBar(
+                                        content: Text(
+                                          "Please select a customer",
+                                        ),
+                                        backgroundColor: Colors.red,
+                                      ),
+                                    );
+                                  } else {
+                                    setState(() => _currentStep++);
+                                  }
+                                }
+                              }
+                              // Step 3: Submit
+                              else if (_currentStep == 2) {
+                                _submit();
+                              }
+                            },
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFF2563EB),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                      child: _isSubmitting
+                          ? const CircularProgressIndicator(color: Colors.white)
+                          : Text(
+                              _currentStep == 2
+                                  ? (widget.existingJob != null
+                                        ? 'Update Job'
+                                        : 'Create Job')
+                                  : 'Next Step',
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                    ),
+                  ),
+                ),
+              ],
             ),
-          ],
-        ),
-      ),
+          ),
+        );
+      },
     );
   }
 
@@ -1161,99 +2161,163 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
   }
 
   Widget _stepTwo() {
+    final isEditing = widget.existingJob != null;
+
     return SingleChildScrollView(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Container(
-            padding: const EdgeInsets.all(4),
-            decoration: BoxDecoration(
-              color: Colors.grey[100],
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Row(
-              children: [
-                Expanded(
-                  child: _ToggleOption(
-                    label: "Existing",
-                    isSelected: !_isNewClient,
-                    onTap: () => setState(() => _isNewClient = false),
+          // 1. HIDE TOGGLE IF EDITING
+          if (!isEditing) ...[
+            Container(
+              padding: const EdgeInsets.all(4),
+              decoration: BoxDecoration(
+                color: Colors.grey[100],
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: _ToggleOption(
+                      label: "Existing",
+                      isSelected: !_isNewClient,
+                      onTap: () => setState(() => _isNewClient = false),
+                    ),
                   ),
-                ),
-                Expanded(
-                  child: _ToggleOption(
-                    label: "New Client",
-                    isSelected: _isNewClient,
-                    onTap: () => setState(() => _isNewClient = true),
+                  Expanded(
+                    child: _ToggleOption(
+                      label: "New Client",
+                      isSelected: _isNewClient,
+                      onTap: () => setState(() => _isNewClient = true),
+                    ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
-          ),
-          const SizedBox(height: 20),
+            const SizedBox(height: 20),
+          ],
 
           if (!_isNewClient) ...[
             const Text(
-              "Search Database",
+              "Customer",
               style: TextStyle(fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 8),
-            DropdownButtonFormField<int>(
-              initialValue: _selectedClientId,
-              isExpanded: true,
-              decoration: InputDecoration(
-                hintText: "Select Customer...",
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
+
+            // 2. SHOW LOCKED FIELD IF EDITING, ELSE SHOW SEARCH
+            if (isEditing)
+              TextField(
+                controller: _customerDisplayController,
+                readOnly: true,
+                decoration: const InputDecoration(
+                  labelText: "Selected Customer",
+                  prefixIcon: Icon(Icons.lock, color: Colors.grey),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.all(Radius.circular(12)),
+                  ),
+                  filled: true,
+                  fillColor: Color(
+                    0xFFF1F5F9,
+                  ), // Light grey to indicate disabled
                 ),
-                filled: true,
-                fillColor: Colors.white,
+              )
+            else
+              Autocomplete<Map<String, dynamic>>(
+                optionsBuilder: (TextEditingValue textEditingValue) {
+                  if (textEditingValue.text == '')
+                    return const Iterable<Map<String, dynamic>>.empty();
+                  return _existingClients.where((Map<String, dynamic> option) {
+                    final name =
+                        option['company_name'] ??
+                        '${option['first_name']} ${option['last_name']}';
+                    return name.toLowerCase().contains(
+                      textEditingValue.text.toLowerCase(),
+                    );
+                  });
+                },
+                displayStringForOption: (Map<String, dynamic> option) =>
+                    option['company_name'] ??
+                    '${option['first_name']} ${option['last_name']}',
+                onSelected: (Map<String, dynamic> selection) {
+                  setState(() {
+                    _selectedClientId = selection['id'];
+                    _fetchClientAircons(_selectedClientId!);
+                  });
+                },
+                fieldViewBuilder:
+                    (context, controller, focusNode, onFieldSubmitted) {
+                      return TextField(
+                        controller: controller,
+                        focusNode: focusNode,
+                        decoration: const InputDecoration(
+                          hintText: "Type client name...",
+                          prefixIcon: Icon(Icons.search),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.all(Radius.circular(12)),
+                          ),
+                          filled: true,
+                          fillColor: Colors.white,
+                        ),
+                      );
+                    },
               ),
-              items: _existingClients.map((c) {
-                final name =
-                    c['company_name'] ?? '${c['first_name']} ${c['last_name']}';
-                final loc = c['barangay'] ?? c['city'] ?? '';
-                return DropdownMenuItem(
-                  value: c['id'] as int,
-                  child: Text("$name ($loc)"),
-                );
-              }).toList(),
-              onChanged: (val) {
-                setState(() => _selectedClientId = val);
-                if (val != null) _fetchClientAircons(val);
-              },
-            ),
-            if (_selectedClientId != null && _clientAircons.isNotEmpty) ...[
+
+            if (_selectedClientId != null) ...[
               const SizedBox(height: 20),
-              const Text(
-                "Select Units",
-                style: TextStyle(fontWeight: FontWeight.bold),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text(
+                    "Select Units",
+                    style: TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                  TextButton.icon(
+                    onPressed: _addNewUnitDialog,
+                    icon: const Icon(Icons.add, size: 16),
+                    label: const Text("Add Unit"),
+                  ),
+                ],
               ),
               const SizedBox(height: 8),
-              ..._clientAircons.map((unit) {
-                final brand = unit['brands'] != null
-                    ? unit['brands']['brand_name']
-                    : 'Unknown';
-                final type = unit['aircon_types'] != null
-                    ? unit['aircon_types']['type_name']
-                    : 'Unit';
-                return CheckboxListTile(
-                  title: Text("$brand $type"),
-                  subtitle: Text(unit['remarks'] ?? ''),
-                  value: _selectedAirconIds.contains(unit['id']),
-                  onChanged: (v) {
-                    setState(() {
-                      if (v == true) {
-                        _selectedAirconIds.add(unit['id']);
-                      } else {
-                        _selectedAirconIds.remove(unit['id']);
-                      }
-                    });
-                  },
-                );
-              }),
+              if (_clientAircons.isNotEmpty)
+                ..._clientAircons.map((unit) {
+                  final brand = unit['brands'] != null
+                      ? unit['brands']['brand_name']
+                      : 'Unknown';
+                  final type = unit['aircon_types'] != null
+                      ? unit['aircon_types']['type_name']
+                      : 'Unit';
+
+                  final isChecked = _selectedAirconIds.contains(unit['id']);
+
+                  return CheckboxListTile(
+                    title: Text("$brand $type"),
+                    subtitle: Text(unit['remarks'] ?? ''),
+                    value: isChecked,
+                    onChanged: (v) {
+                      setState(() {
+                        if (v == true)
+                          _selectedAirconIds.add(unit['id']);
+                        else
+                          _selectedAirconIds.remove(unit['id']);
+                      });
+                    },
+                  );
+                })
+              else
+                const Padding(
+                  padding: EdgeInsets.only(top: 10),
+                  child: Text(
+                    "No registered units found.",
+                    style: TextStyle(
+                      color: Colors.grey,
+                      fontStyle: FontStyle.italic,
+                    ),
+                  ),
+                ),
             ],
           ] else ...[
+            // FULL NEW CLIENT FORM
             Form(
               key: _formKey,
               child: Column(
@@ -1267,7 +2331,6 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
                     ),
                   ),
                   const SizedBox(height: 12),
-                  // FIX: Layout to prevent overflow
                   Row(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
@@ -1407,10 +2470,10 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
 
                   const SizedBox(height: 24),
                   const Text(
-                    "First Aircon Unit",
+                    "First Aircon Unit (Optional)",
                     style: TextStyle(
                       fontWeight: FontWeight.bold,
-                      color: Colors.blue,
+                      color: Colors.grey,
                     ),
                   ),
                   const SizedBox(height: 12),
@@ -1423,9 +2486,8 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
                             return Autocomplete<String>(
                               optionsBuilder:
                                   (TextEditingValue textEditingValue) {
-                                    if (textEditingValue.text == '') {
+                                    if (textEditingValue.text == '')
                                       return const Iterable<String>.empty();
-                                    }
                                     return _brandOptions.where((String option) {
                                       return option.toLowerCase().contains(
                                         textEditingValue.text.toLowerCase(),
@@ -1449,41 +2511,20 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
                                     return TextFormField(
                                       controller: textEditingController,
                                       focusNode: focusNode,
-                                      decoration: InputDecoration(
-                                        label: RichText(
-                                          text: TextSpan(
-                                            text: "Brand (Search/Add)",
-                                            style: TextStyle(
-                                              color: Colors.grey[600],
-                                              fontSize: 14,
-                                            ),
-                                            children: const [
-                                              TextSpan(
-                                                text: ' *',
-                                                style: TextStyle(
-                                                  color: Colors.red,
-                                                ),
-                                              ),
-                                            ],
-                                          ),
-                                        ),
+                                      decoration: const InputDecoration(
+                                        label: Text("Brand (Search/Add)"),
                                         border: OutlineInputBorder(
-                                          borderRadius: BorderRadius.circular(
-                                            12,
+                                          borderRadius: BorderRadius.all(
+                                            Radius.circular(12),
                                           ),
                                         ),
                                         filled: true,
                                         fillColor: Colors.white,
-                                        contentPadding:
-                                            const EdgeInsets.symmetric(
-                                              horizontal: 16,
-                                              vertical: 14,
-                                            ),
+                                        contentPadding: EdgeInsets.symmetric(
+                                          horizontal: 16,
+                                          vertical: 14,
+                                        ),
                                       ),
-                                      validator: (val) =>
-                                          val == null || val.isEmpty
-                                          ? 'Required'
-                                          : null,
                                     );
                                   },
                             );
@@ -1493,15 +2534,17 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
                       const SizedBox(width: 12),
                       Expanded(
                         child: DropdownButtonFormField<int>(
-                          initialValue: _selectedAirconTypeId,
-                          decoration: InputDecoration(
+                          value: _selectedAirconTypeId,
+                          decoration: const InputDecoration(
                             hintText: "Type",
                             border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(12),
+                              borderRadius: BorderRadius.all(
+                                Radius.circular(12),
+                              ),
                             ),
                             filled: true,
                             fillColor: Colors.white,
-                            contentPadding: const EdgeInsets.symmetric(
+                            contentPadding: EdgeInsets.symmetric(
                               horizontal: 16,
                               vertical: 14,
                             ),
@@ -1524,7 +2567,6 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
                   _SimpleInput(
                     controller: _unitRemarkController,
                     hint: "Location (e.g. Lobby)",
-                    isRequired: true,
                     textCapitalization: TextCapitalization.words,
                   ),
                 ],
@@ -1537,60 +2579,125 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
   }
 
   Widget _stepThree() {
-    return Column(
-      children: [
-        const Text(
-          "Date & Time",
-          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-        ),
-        const SizedBox(height: 16),
-        ListTile(
-          tileColor: Colors.grey[50],
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
-            side: BorderSide(color: Colors.grey.shade300),
+    return SingleChildScrollView(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            "Date & Time",
+            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
           ),
-          leading: const Icon(Icons.calendar_month, color: Colors.blue),
-          title: Text("${_scheduleDate.toLocal()}".split(' ')[0]),
-          onTap: () async {
-            final d = await showDatePicker(
-              context: context,
-              initialDate: _scheduleDate,
-              firstDate: DateTime.now(),
-              lastDate: DateTime(2030),
-            );
-            if (d != null) setState(() => _scheduleDate = d);
-          },
-        ),
-        const SizedBox(height: 12),
-        ListTile(
-          tileColor: Colors.grey[50],
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
-            side: BorderSide(color: Colors.grey.shade300),
+          const SizedBox(height: 16),
+          // Date Picker
+          ListTile(
+            tileColor: Colors.grey[50],
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+              side: BorderSide(color: Colors.grey.shade300),
+            ),
+            leading: const Icon(Icons.calendar_month, color: Colors.blue),
+            title: Text("${_scheduleDate.toLocal()}".split(' ')[0]),
+            onTap: () async {
+              final d = await showDatePicker(
+                context: context,
+                initialDate: _scheduleDate,
+                // OPEN: Allow selection of past dates (back to 2020) for record keeping
+                firstDate: DateTime(2020),
+                lastDate: DateTime(2030),
+              );
+              if (d != null) setState(() => _scheduleDate = d);
+            },
           ),
-          leading: const Icon(Icons.access_time, color: Colors.orange),
-          title: Text(_scheduleTime.format(context)),
-          onTap: () async {
-            final t = await showTimePicker(
-              context: context,
-              initialTime: _scheduleTime,
-            );
-            if (t != null) setState(() => _scheduleTime = t);
-          },
-        ),
-        const SizedBox(height: 20),
-        TextField(
-          controller: _notesController,
-          maxLines: 3,
-          decoration: InputDecoration(
-            hintText: "Additional Notes...",
-            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-            filled: true,
-            fillColor: Colors.grey[50],
+          const SizedBox(height: 12),
+          // Time Picker
+          ListTile(
+            tileColor: Colors.grey[50],
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+              side: BorderSide(color: Colors.grey.shade300),
+            ),
+            leading: const Icon(Icons.access_time, color: Colors.orange),
+            title: Text(_scheduleTime.format(context)),
+            onTap: () async {
+              final t = await showTimePicker(
+                context: context,
+                initialTime: _scheduleTime,
+              );
+              if (t != null) setState(() => _scheduleTime = t);
+            },
           ),
-        ),
-      ],
+
+          const SizedBox(height: 24),
+          const Text(
+            "Assign Team (Optional)",
+            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+          ),
+          const SizedBox(height: 8),
+
+          // Technician Selection Area
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              border: Border.all(color: Colors.grey.shade300),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: _availableTechnicians.isEmpty
+                ? const Text("No technicians found in database.")
+                : Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: _availableTechnicians.map((tech) {
+                      final id = tech['id'] as int;
+                      final name =
+                          "${tech['first_name']} ${tech['last_name'][0]}.";
+                      final isSelected = _selectedTechnicianIds.contains(id);
+
+                      return FilterChip(
+                        label: Text(name),
+                        selected: isSelected,
+                        onSelected: (bool selected) {
+                          setState(() {
+                            if (selected) {
+                              _selectedTechnicianIds.add(id);
+                            } else {
+                              _selectedTechnicianIds.remove(id);
+                            }
+                          });
+                        },
+                        selectedColor: Colors.blue.withOpacity(0.2),
+                        checkmarkColor: Colors.blue,
+                        labelStyle: TextStyle(
+                          color: isSelected ? Colors.blue[900] : Colors.black87,
+                          fontWeight: isSelected
+                              ? FontWeight.bold
+                              : FontWeight.normal,
+                        ),
+                      );
+                    }).toList(),
+                  ),
+          ),
+
+          const SizedBox(height: 24),
+          const Text(
+            "Notes",
+            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+          ),
+          const SizedBox(height: 8),
+          TextField(
+            controller: _notesController,
+            maxLines: 3,
+            decoration: InputDecoration(
+              hintText: "Additional instructions...",
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+              filled: true,
+              fillColor: Colors.grey[50],
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -1755,22 +2862,29 @@ class _JobCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // If job spans multiple days, show range
+    // 1. Format Date and Time
     String dateText = "${order.startDateTime.month}/${order.startDateTime.day}";
-    if (order.endDateTime != null) {
-      dateText += " - ${order.endDateTime!.month}/${order.endDateTime!.day}";
-    } else {
+    String timeText = TimeOfDay.fromDateTime(
+      order.startDateTime,
+    ).format(context);
+
+    // UPDATED: Check scheduledEndDate instead of endDateTime
+    if (order.scheduledEndDate != null) {
       dateText +=
-          " ${order.startDateTime.hour}:${order.startDateTime.minute.toString().padLeft(2, '0')}";
+          " - ${order.scheduledEndDate!.month}/${order.scheduledEndDate!.day}";
+    } else {
+      dateText += " at $timeText";
     }
 
+    // 2. Define Visuals based on Client Type
+    final bool isCorp = order.isCorporate;
+    final Color typeColor = isCorp ? Colors.indigo : Colors.teal;
+    final IconData typeIcon = isCorp ? Icons.business : Icons.person;
+
     return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: const Color(0xFFE2E8F0)),
         boxShadow: [
           BoxShadow(
             color: Colors.black.withOpacity(0.02),
@@ -1779,53 +2893,97 @@ class _JobCard extends StatelessWidget {
           ),
         ],
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(12),
+        child: Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            border: Border(
+              top: const BorderSide(color: Color(0xFFE2E8F0)),
+              right: const BorderSide(color: Color(0xFFE2E8F0)),
+              bottom: const BorderSide(color: Color(0xFFE2E8F0)),
+              left: BorderSide(color: typeColor, width: 4),
+            ),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(
-                order.jobType,
-                style: const TextStyle(
-                  fontWeight: FontWeight.bold,
-                  color: Colors.blue,
-                ),
-              ),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                decoration: BoxDecoration(
-                  color: Colors.orange.withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Text(
-                  order.status,
-                  style: const TextStyle(
-                    fontSize: 10,
-                    color: Colors.deepOrange,
-                    fontWeight: FontWeight.bold,
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    order.jobType,
+                    style: const TextStyle(
+                      fontWeight: FontWeight.bold,
+                      color: Colors.blue,
+                    ),
                   ),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 4,
+                    ),
+                    decoration: BoxDecoration(
+                      color: Colors.orange.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Text(
+                      order.status,
+                      style: const TextStyle(
+                        fontSize: 10,
+                        color: Colors.deepOrange,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 10),
+              Row(
+                children: [
+                  Icon(typeIcon, size: 18, color: typeColor),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      order.clientName,
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                      ),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                ],
+              ),
+              Padding(
+                padding: const EdgeInsets.only(left: 26, top: 2),
+                child: Text(
+                  order.location,
+                  style: const TextStyle(color: Colors.grey, fontSize: 13),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                 ),
               ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          Text(
-            order.clientName,
-            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-          ),
-          const SizedBox(height: 4),
-          Row(
-            children: [
-              const Icon(Icons.calendar_today, size: 12, color: Colors.grey),
-              const SizedBox(width: 4),
-              Text(
-                dateText,
-                style: const TextStyle(fontSize: 13, color: Colors.grey),
+              const SizedBox(height: 10),
+              Row(
+                children: [
+                  const Icon(
+                    Icons.calendar_today,
+                    size: 14,
+                    color: Colors.grey,
+                  ),
+                  const SizedBox(width: 6),
+                  Text(
+                    dateText,
+                    style: const TextStyle(fontSize: 13, color: Colors.grey),
+                  ),
+                ],
               ),
             ],
           ),
-        ],
+        ),
       ),
     );
   }
