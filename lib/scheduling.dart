@@ -520,29 +520,22 @@ class _JobBillingManagerState extends State<_JobBillingManager>
     try {
       final jobId = widget.job.dbId;
 
-      // --- 1. FIRE ALL QUERIES AT ONCE (PARALLEL) ---
       final results = await Future.wait([
-        // Index 0: Line Items
+        // 0: Line Items
         _supabase
             .from('job_order_line_items')
             .select('id, quantity, actual_price, service_items(item_name)')
             .eq('job_order_id', jobId),
-
-        // Index 1: Payments
+        // 1: Payments
         _supabase.from('payments').select('amount').eq('job_order_id', jobId),
-
-        // Index 2: Service Catalog
+        // 2: Service Catalog
         _supabase.from('service_items').select().order('item_name'),
-
-        // Index 3: Assigned Technicians
-        // Using 'maybeSingle' logic by fetching list and checking emptiness is safer
+        // 3: Techs
         _supabase
             .from('job_order_technicians')
             .select('technicians(first_name, last_name)')
             .eq('job_order_id', jobId),
-
-        // Index 4: Assigned Aircons
-        // We simplify the query to prevent 'deep join' hangs if data is missing
+        // 4: Aircons
         _supabase
             .from('job_order_aircons')
             .select(
@@ -551,41 +544,33 @@ class _JobBillingManagerState extends State<_JobBillingManager>
             .eq('job_order_id', jobId),
       ]);
 
-      // --- 2. EXTRACT RESULTS ---
       final items = List<Map<String, dynamic>>.from(results[0] as List);
       final payments = List<Map<String, dynamic>>.from(results[1] as List);
       final catalog = List<Map<String, dynamic>>.from(results[2] as List);
       final techRes = List<Map<String, dynamic>>.from(results[3] as List);
       final acRes = List<Map<String, dynamic>>.from(results[4] as List);
 
-      // --- 3. PROCESS CALCULATIONS ---
       double total = 0;
       for (var i in items) total += (i['actual_price'] * i['quantity']);
 
       double paid = 0;
       for (var p in payments) paid += p['amount'];
 
-      // --- 4. SAFE PROCESS: TECHNICIANS ---
       final List<String> loadedTechs = [];
       for (var row in techRes) {
-        // Handle case where technician link exists but technician data is null/deleted
         if (row['technicians'] != null) {
           final t = row['technicians'];
           loadedTechs.add("${t['first_name']} ${t['last_name']}");
         }
       }
 
-      // --- 5. SAFE PROCESS: AIRCONS ---
       final List<String> loadedUnits = [];
       for (var row in acRes) {
-        // Handle case where aircon data is missing (deleted but link remains)
         final a = row['aircons'];
         if (a != null) {
-          // Use '?' (null aware) operators everywhere to prevent crashes on blank brands/types
           final brand = a['brands']?['brand_name'] ?? 'Unknown Brand';
           final type = a['aircon_types']?['type_name'] ?? 'Unit';
           final remark = a['remarks'] ?? '';
-
           loadedUnits.add(
             "$brand $type${remark.isNotEmpty ? ' ($remark)' : ''}",
           );
@@ -606,7 +591,7 @@ class _JobBillingManagerState extends State<_JobBillingManager>
       debugPrint('Error loading details: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
+          const SnackBar(
             content: Text("Network Error: Could not load full details."),
             backgroundColor: Colors.red,
           ),
@@ -644,20 +629,14 @@ class _JobBillingManagerState extends State<_JobBillingManager>
 
   void _onReschedule() async {
     final now = DateTime.now();
-    // Strip time to get strictly "Today at 00:00"
     final today = DateTime(now.year, now.month, now.day);
-
-    // SAFETY CHECK:
-    // If the current job date is in the past, we can't use it as 'initialDate'
-    // because it would be before 'firstDate' (Today).
-    // So if it's past, we default the picker to Today.
     final isPast = widget.job.startDateTime.isBefore(today);
     final pickerInitialDate = isPast ? today : widget.job.startDateTime;
 
     final d = await showDatePicker(
       context: context,
       initialDate: pickerInitialDate,
-      firstDate: today, // STRICT: Blocks previous dates
+      firstDate: today,
       lastDate: DateTime(2030),
     );
 
@@ -668,13 +647,11 @@ class _JobBillingManagerState extends State<_JobBillingManager>
       );
       if (t != null) {
         final newDate = DateTime(d.year, d.month, d.day, t.hour, t.minute);
-
         await _supabase
             .from('job_orders')
             .update({
               'date_scheduled': newDate.toUtc().toIso8601String(),
-              'date_scheduled_end':
-                  null, // Keep the fix for the disappearing bug
+              'date_scheduled_end': null,
             })
             .eq('id', widget.job.dbId);
 
@@ -687,7 +664,6 @@ class _JobBillingManagerState extends State<_JobBillingManager>
   void _onExtend() async {
     final d = await showDatePicker(
       context: context,
-      // FIX: Changed endDateTime to scheduledEndDate
       initialDate: widget.job.scheduledEndDate ?? widget.job.startDateTime,
       firstDate: widget.job.startDateTime,
       lastDate: DateTime(2030),
@@ -696,14 +672,95 @@ class _JobBillingManagerState extends State<_JobBillingManager>
     if (d != null) {
       await _supabase
           .from('job_orders')
-          .update({
-            // FIX: Now writing to the new column
-            'date_scheduled_end': d.toUtc().toIso8601String(),
-          })
+          .update({'date_scheduled_end': d.toUtc().toIso8601String()})
           .eq('id', widget.job.dbId);
       widget.onJobUpdated();
       if (mounted) Navigator.pop(context);
     }
+  }
+
+  // NEW: Add Expense Dialog locked to this Job
+  void _addJobExpenseDialog() {
+    final nameController = TextEditingController();
+    final amountController = TextEditingController();
+    final formKey = GlobalKey<FormState>();
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text("Add Operational Expense"),
+        content: Form(
+          key: formKey,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                "Recording expense for ${widget.job.displayId}",
+                style: const TextStyle(fontSize: 12, color: Colors.grey),
+              ),
+              const SizedBox(height: 16),
+              TextFormField(
+                controller: nameController,
+                decoration: const InputDecoration(
+                  labelText: "Expense Name (e.g. Fuel, Parts)",
+                  border: OutlineInputBorder(),
+                ),
+                validator: (v) => v!.isEmpty ? "Required" : null,
+              ),
+              const SizedBox(height: 12),
+              TextFormField(
+                controller: amountController,
+                keyboardType: TextInputType.number,
+                decoration: const InputDecoration(
+                  labelText: "Amount (₱)",
+                  border: OutlineInputBorder(),
+                ),
+                validator: (v) => v!.isEmpty ? "Required" : null,
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text("Cancel"),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              if (!formKey.currentState!.validate()) return;
+
+              try {
+                await _supabase.from('expenses').insert({
+                  'expense_name': nameController.text.trim(),
+                  'amount': double.parse(amountController.text),
+                  'date': DateTime.now().toString().split(' ')[0],
+                  'expense_type': 'Operational',
+                  'is_income': false,
+                  'job_order_id': widget.job.dbId, // Auto-link to this job
+                  'user_id': _supabase.auth.currentUser?.id,
+                });
+
+                if (mounted) {
+                  Navigator.pop(context);
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text("Expense Recorded!")),
+                  );
+                }
+              } catch (e) {
+                ScaffoldMessenger.of(
+                  context,
+                ).showSnackBar(SnackBar(content: Text("Error: $e")));
+              }
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.redAccent,
+              foregroundColor: Colors.white,
+            ),
+            child: const Text("Save Expense"),
+          ),
+        ],
+      ),
+    );
   }
 
   void _addItemDialog() {
@@ -880,7 +937,6 @@ class _JobBillingManagerState extends State<_JobBillingManager>
       text: (_totalAmount - _totalPaid).toString(),
     );
     String method = 'Cash';
-    // NEW: Add Form Key
     final _paymentFormKey = GlobalKey<FormState>();
 
     showDialog(
@@ -888,7 +944,6 @@ class _JobBillingManagerState extends State<_JobBillingManager>
       builder: (context) => AlertDialog(
         title: const Text("Record Payment"),
         content: Form(
-          // NEW: Wrap in Form
           key: _paymentFormKey,
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -905,7 +960,6 @@ class _JobBillingManagerState extends State<_JobBillingManager>
                 keyboardType: const TextInputType.numberWithOptions(
                   decimal: true,
                 ),
-                // NEW: Validator prevents letters
                 validator: (value) {
                   if (value == null || value.isEmpty) return 'Required';
                   if (double.tryParse(value) == null) return 'Invalid amount';
@@ -939,7 +993,6 @@ class _JobBillingManagerState extends State<_JobBillingManager>
               foregroundColor: Colors.white,
             ),
             onPressed: () async {
-              // NEW: Validate before submitting
               if (!_paymentFormKey.currentState!.validate()) return;
 
               await _supabase.from('payments').insert({
@@ -1038,13 +1091,11 @@ class _JobBillingManagerState extends State<_JobBillingManager>
   }
 
   Widget _buildDetailsTab() {
-    // Schedule Logic
     String scheduleText;
     final start = widget.job.startDateTime.toLocal();
     final timeStr = TimeOfDay.fromDateTime(start).format(context);
     final startDateStr = start.toString().split(' ')[0];
 
-    // FIX: Changed endDateTime to scheduledEndDate
     if (widget.job.scheduledEndDate != null) {
       final end = widget.job.scheduledEndDate!.toLocal();
       final endDateStr = end.toString().split(' ')[0];
@@ -1061,8 +1112,6 @@ class _JobBillingManagerState extends State<_JobBillingManager>
           _infoRow(Icons.location_on, widget.job.location),
         ]),
         const SizedBox(height: 24),
-
-        // Team Section
         _infoSection("Assigned Team", [
           _infoRow(
             Icons.people,
@@ -1072,8 +1121,6 @@ class _JobBillingManagerState extends State<_JobBillingManager>
           ),
         ]),
         const SizedBox(height: 24),
-
-        // Assets Section
         _infoSection("Assets / Units", [
           _infoRow(
             Icons.ac_unit,
@@ -1083,7 +1130,6 @@ class _JobBillingManagerState extends State<_JobBillingManager>
           ),
         ]),
         const SizedBox(height: 24),
-
         _infoSection("Notes", [
           _infoRow(
             Icons.note,
@@ -1135,8 +1181,6 @@ class _JobBillingManagerState extends State<_JobBillingManager>
   Widget _buildBillingTab() {
     final balance = _totalAmount - _totalPaid;
     final isPaid = balance <= 0 && _totalAmount > 0;
-
-    // Check width to switch layout for mobile
     final isNarrow = MediaQuery.of(context).size.width < 450;
 
     return Column(
@@ -1145,7 +1189,6 @@ class _JobBillingManagerState extends State<_JobBillingManager>
           child: _lineItems.isEmpty
               ? LayoutBuilder(
                   builder: (context, constraints) {
-                    // FIX 1: Wrap EmptyState in ScrollView to prevent overflow
                     return SingleChildScrollView(
                       physics: const AlwaysScrollableScrollPhysics(),
                       child: ConstrainedBox(
@@ -1211,7 +1254,6 @@ class _JobBillingManagerState extends State<_JobBillingManager>
                 ),
         ),
         Container(
-          // FIX 2: Reduce padding on small screens
           padding: EdgeInsets.all(isNarrow ? 16 : 24),
           decoration: BoxDecoration(
             color: Colors.grey[50],
@@ -1231,60 +1273,44 @@ class _JobBillingManagerState extends State<_JobBillingManager>
               ),
               SizedBox(height: isNarrow ? 16 : 20),
 
-              // FIX 3: Stack buttons on mobile to fix "off" look
-              if (isNarrow)
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    OutlinedButton.icon(
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton.icon(
                       onPressed: _addItemDialog,
-                      icon: const Icon(Icons.add),
-                      label: const Text("Add Item"),
-                      style: OutlinedButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(vertical: 12),
-                      ),
+                      icon: const Icon(Icons.add_circle_outline),
+                      label: const Text("Add Bill Item"),
                     ),
-                    const SizedBox(height: 8),
-                    ElevatedButton.icon(
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: ElevatedButton.icon(
                       onPressed: isPaid ? null : _recordPaymentDialog,
                       icon: const Icon(Icons.payment),
                       label: Text(isPaid ? "Paid" : "Record Payment"),
                       style: ElevatedButton.styleFrom(
                         backgroundColor: Colors.green,
                         foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(vertical: 12),
                       ),
                     ),
-                  ],
-                )
-              else
-                Row(
-                  children: [
-                    Expanded(
-                      child: OutlinedButton.icon(
-                        onPressed: _addItemDialog,
-                        icon: const Icon(Icons.add),
-                        label: const Text("Add Item"),
-                        style: OutlinedButton.styleFrom(
-                          padding: const EdgeInsets.symmetric(vertical: 16),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: ElevatedButton.icon(
-                        onPressed: isPaid ? null : _recordPaymentDialog,
-                        icon: const Icon(Icons.payment),
-                        label: Text(isPaid ? "Paid" : "Record Payment"),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.green,
-                          foregroundColor: Colors.white,
-                          padding: const EdgeInsets.symmetric(vertical: 16),
-                        ),
-                      ),
-                    ),
-                  ],
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+
+              // NEW: Quick Expense Button
+              SizedBox(
+                width: double.infinity,
+                child: TextButton.icon(
+                  onPressed: _addJobExpenseDialog,
+                  icon: const Icon(Icons.money_off, size: 18),
+                  label: const Text("Record Operational Expense"),
+                  style: TextButton.styleFrom(
+                    foregroundColor: Colors.red[700],
+                    backgroundColor: Colors.red[50],
+                  ),
                 ),
+              ),
             ],
           ),
         ),
@@ -1454,6 +1480,59 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
   late DateTime _scheduleDate;
   TimeOfDay _scheduleTime = const TimeOfDay(hour: 9, minute: 0);
   final _notesController = TextEditingController();
+
+  // Check for conflicts on specific date/time
+  Future<bool> _checkScheduleConflict(
+    DateTime proposedDate,
+    TimeOfDay proposedTime,
+  ) async {
+    // 1. Define the range (e.g., check the whole day)
+    final startOfDay = DateTime(
+      proposedDate.year,
+      proposedDate.month,
+      proposedDate.day,
+    );
+    final endOfDay = startOfDay.add(const Duration(hours: 23, minutes: 59));
+
+    // 2. Fetch jobs for that day
+    final res = await _supabase
+        .from('job_orders')
+        .select(
+          'id, date_scheduled, client_jo_number, customers(first_name, last_name, company_name)',
+        )
+        .gte('date_scheduled', startOfDay.toUtc().toIso8601String())
+        .lte('date_scheduled', endOfDay.toUtc().toIso8601String())
+        .neq('status', 'Completed') // Ignore completed jobs? Up to you.
+        .neq('status', 'Cancelled');
+
+    // 3. Analyze for time overlap (e.g., within 2 hours buffer)
+    for (var job in res) {
+      // Skip self if editing
+      if (widget.existingJob != null && job['id'] == widget.existingJob!.dbId)
+        continue;
+
+      final jobDate = DateTime.parse(job['date_scheduled']).toLocal();
+      final diff = jobDate
+          .difference(
+            DateTime(
+              proposedDate.year,
+              proposedDate.month,
+              proposedDate.day,
+              proposedTime.hour,
+              proposedTime.minute,
+            ),
+          )
+          .inMinutes
+          .abs();
+
+      // CONFLICT THRESHOLD: 120 minutes (2 hours)
+      // If another job starts within 2 hours of this one, flag it.
+      if (diff < 120) {
+        return true; // Conflict found
+      }
+    }
+    return false; // No conflict
+  }
 
   @override
   void initState() {
@@ -2613,6 +2692,7 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
             style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
           ),
           const SizedBox(height: 16),
+
           // Date Picker
           ListTile(
             tileColor: Colors.grey[50],
@@ -2634,7 +2714,8 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
             },
           ),
           const SizedBox(height: 12),
-          // Time Picker
+
+          // Time Picker with Conflict Warning
           ListTile(
             tileColor: Colors.grey[50],
             shape: RoundedRectangleBorder(
@@ -2648,7 +2729,56 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
                 context: context,
                 initialTime: _scheduleTime,
               );
-              if (t != null) setState(() => _scheduleTime = t);
+
+              if (t != null) {
+                // 1. Check for conflict
+                final hasConflict = await _checkScheduleConflict(
+                  _scheduleDate,
+                  t,
+                );
+
+                if (hasConflict) {
+                  if (!mounted) return;
+                  // 2. Show Warning
+                  final proceed = await showDialog<bool>(
+                    context: context,
+                    builder: (ctx) => AlertDialog(
+                      title: const Row(
+                        children: [
+                          Icon(
+                            Icons.warning_amber_rounded,
+                            color: Colors.orange,
+                          ),
+                          SizedBox(width: 8),
+                          Text("Double Booking Warning"),
+                        ],
+                      ),
+                      content: Text(
+                        "Another job is already scheduled near ${t.format(context)}.\n\nDo you want to proceed anyway?",
+                      ),
+                      actions: [
+                        TextButton(
+                          onPressed: () => Navigator.pop(ctx, false),
+                          child: const Text("Choose Different Time"),
+                        ),
+                        ElevatedButton(
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.orange,
+                          ),
+                          onPressed: () => Navigator.pop(ctx, true),
+                          child: const Text("Keep This Time"),
+                        ),
+                      ],
+                    ),
+                  );
+
+                  // If user cancelled or clicked outside, stop here
+                  if (proceed != true) return;
+                }
+
+                // 3. Update State
+                setState(() => _scheduleTime = t);
+              }
             },
           ),
 
