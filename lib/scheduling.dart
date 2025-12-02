@@ -880,40 +880,53 @@ class _JobBillingManagerState extends State<_JobBillingManager>
       text: (_totalAmount - _totalPaid).toString(),
     );
     String method = 'Cash';
+    // NEW: Add Form Key
+    final _paymentFormKey = GlobalKey<FormState>();
+
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
         title: const Text("Record Payment"),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Text("Record cash-in from client."),
-            const SizedBox(height: 16),
-            TextFormField(
-              controller: amountController,
-              decoration: const InputDecoration(
-                labelText: "Amount Received",
-                prefixText: "₱ ",
-                border: OutlineInputBorder(),
+        content: Form(
+          // NEW: Wrap in Form
+          key: _paymentFormKey,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text("Record cash-in from client."),
+              const SizedBox(height: 16),
+              TextFormField(
+                controller: amountController,
+                decoration: const InputDecoration(
+                  labelText: "Amount Received",
+                  prefixText: "₱ ",
+                  border: OutlineInputBorder(),
+                ),
+                keyboardType: const TextInputType.numberWithOptions(
+                  decimal: true,
+                ),
+                // NEW: Validator prevents letters
+                validator: (value) {
+                  if (value == null || value.isEmpty) return 'Required';
+                  if (double.tryParse(value) == null) return 'Invalid amount';
+                  if (double.parse(value) <= 0) return 'Must be > 0';
+                  return null;
+                },
               ),
-              keyboardType: TextInputType.number,
-            ),
-            const SizedBox(height: 12),
-            DropdownButtonFormField<String>(
-              value: method,
-              decoration: const InputDecoration(
-                labelText: "Payment Method",
-                border: OutlineInputBorder(),
+              const SizedBox(height: 12),
+              DropdownButtonFormField<String>(
+                value: method,
+                decoration: const InputDecoration(
+                  labelText: "Payment Method",
+                  border: OutlineInputBorder(),
+                ),
+                items: ['Cash', 'GCash', 'Bank Transfer', 'Cheque']
+                    .map((m) => DropdownMenuItem(value: m, child: Text(m)))
+                    .toList(),
+                onChanged: (v) => method = v!,
               ),
-              items: [
-                'Cash',
-                'GCash',
-                'Bank Transfer',
-                'Cheque',
-              ].map((m) => DropdownMenuItem(value: m, child: Text(m))).toList(),
-              onChanged: (v) => method = v!,
-            ),
-          ],
+            ],
+          ),
         ),
         actions: [
           TextButton(
@@ -926,9 +939,12 @@ class _JobBillingManagerState extends State<_JobBillingManager>
               foregroundColor: Colors.white,
             ),
             onPressed: () async {
+              // NEW: Validate before submitting
+              if (!_paymentFormKey.currentState!.validate()) return;
+
               await _supabase.from('payments').insert({
                 'job_order_id': widget.job.dbId,
-                'amount': double.tryParse(amountController.text) ?? 0,
+                'amount': double.parse(amountController.text),
                 'payment_method': method,
                 'payment_date': DateTime.now().toIso8601String(),
                 'status': 'Verified',
