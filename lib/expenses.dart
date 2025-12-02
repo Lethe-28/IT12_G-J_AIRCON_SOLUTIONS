@@ -35,7 +35,10 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
   bool _isLoading = true;
   final _supabase = Supabase.instance.client;
 
-  List<Transaction> _transactions = [];
+  List<Transaction> _allTransactions = []; // Stores full list
+  List<Transaction> _filteredTransactions = []; // Stores search results
+  final _searchController = TextEditingController();
+
   double _totalIn = 0;
   double _totalOut = 0;
 
@@ -45,12 +48,35 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
   void initState() {
     super.initState();
     _fetchCashFlow();
+    _searchController.addListener(_onSearchChanged);
+  }
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  void _onSearchChanged() {
+    final query = _searchController.text.toLowerCase();
+    setState(() {
+      if (query.isEmpty) {
+        _filteredTransactions = _allTransactions;
+      } else {
+        _filteredTransactions = _allTransactions.where((txn) {
+          final matchesDesc = txn.description.toLowerCase().contains(query);
+          final matchesJob =
+              txn.relatedJob?.toLowerCase().contains(query) ?? false;
+          final matchesCat = txn.category.toLowerCase().contains(query);
+          return matchesDesc || matchesJob || matchesCat;
+        }).toList();
+      }
+    });
   }
 
   Future<void> _fetchCashFlow() async {
     setState(() => _isLoading = true);
     try {
-      // Filter by Month
       final startOfMonth = DateTime(
         _selectedMonth.year,
         _selectedMonth.month,
@@ -65,7 +91,7 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
       final startStr = startOfMonth.toIso8601String();
       final endStr = nextMonth.toIso8601String();
 
-      // 1. FETCH PAYMENTS (Cash IN)
+      // 1. FETCH PAYMENTS
       final paymentsRes = await _supabase
           .from('payments')
           .select(
@@ -74,7 +100,7 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
           .gte('payment_date', startStr)
           .lt('payment_date', endStr);
 
-      // 2. FETCH EXPENSES (Cash OUT)
+      // 2. FETCH EXPENSES
       final expensesRes = await _supabase
           .from('expenses')
           .select(
@@ -87,12 +113,9 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
       double inSum = 0;
       double outSum = 0;
 
-      // Process Payments
       for (var p in paymentsRes) {
         final amt = (p['amount'] as num).toDouble();
         inSum += amt;
-
-        // Format Client Name
         String desc = "Payment via ${p['payment_method']}";
         String? joNum;
         if (p['job_orders'] != null) {
@@ -105,7 +128,6 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
             desc = "Payment from $name";
           }
         }
-
         loaded.add(
           Transaction(
             id: p['id'].toString(),
@@ -119,17 +141,13 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
         );
       }
 
-      // Process Expenses
       for (var e in expensesRes) {
         final amt = (e['amount'] as num).toDouble();
         outSum += amt;
-
         String? joNum;
         if (e['job_orders'] != null) {
           joNum = e['job_orders']['client_jo_number'];
         }
-
-        // CORRECTED: Mapping 'expense_type' directly to our UI category
         loaded.add(
           Transaction(
             id: e['id'].toString(),
@@ -143,12 +161,18 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
         );
       }
 
-      // Sort by Date Descending (Newest first)
-      loaded.sort((a, b) => b.date.compareTo(a.date));
+      // UPDATED SORTING: Date Descending, then ID Descending (Newest First)
+      loaded.sort((a, b) {
+        int dateComp = b.date.compareTo(a.date);
+        if (dateComp != 0) return dateComp;
+        // If dates are identical, use ID as tiebreaker (Assuming higher ID = newer)
+        return int.parse(b.id).compareTo(int.parse(a.id));
+      });
 
       if (mounted) {
         setState(() {
-          _transactions = loaded;
+          _allTransactions = loaded;
+          _filteredTransactions = loaded; // Initial state
           _totalIn = inSum;
           _totalOut = outSum;
         });
@@ -175,12 +199,11 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
     final netCash = _totalIn - _totalOut;
 
     return AppShell(
-      selectedIndex: 2, // Expenses Tab
+      selectedIndex: 2,
       body: LoadingOverlay(
         isLoading: _isLoading,
         child: Column(
           children: [
-            // --- HEADER & MONTH SELECTOR ---
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
               color: Colors.white,
@@ -227,7 +250,7 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
                   ),
                   const SizedBox(height: 16),
 
-                  // --- SUMMARY CARDS ---
+                  // Summary Cards
                   Row(
                     children: [
                       Expanded(
@@ -258,28 +281,45 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
                       ),
                     ],
                   ),
+                  const SizedBox(height: 16),
+
+                  // NEW: Search Bar
+                  TextField(
+                    controller: _searchController,
+                    decoration: InputDecoration(
+                      hintText: "Search by JO#, Description, or Type...",
+                      prefixIcon: const Icon(Icons.search),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        borderSide: BorderSide(color: Colors.grey.shade300),
+                      ),
+                      contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                      ),
+                      filled: true,
+                      fillColor: Colors.grey.shade50,
+                    ),
+                  ),
                 ],
               ),
             ),
             const Divider(height: 1),
 
-            // --- TRANSACTION LIST ---
             Expanded(
-              child: _transactions.isEmpty
+              child: _filteredTransactions.isEmpty
                   ? const Center(
                       child: EmptyState(
                         icon: Icons.receipt_long,
                         title: "No Transactions",
-                        message:
-                            "No income or expenses recorded for this month.",
+                        message: "No records found matching your criteria.",
                       ),
                     )
                   : ListView.separated(
                       padding: const EdgeInsets.all(16),
-                      itemCount: _transactions.length,
+                      itemCount: _filteredTransactions.length,
                       separatorBuilder: (ctx, i) => const SizedBox(height: 12),
                       itemBuilder: (ctx, i) {
-                        final txn = _transactions[i];
+                        final txn = _filteredTransactions[i];
                         return _TransactionCard(txn: txn);
                       },
                     ),
@@ -308,7 +348,6 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
     return "${months[date.month - 1]} ${date.year}";
   }
 }
-
 // --- WIDGETS ---
 
 class _SummaryCard extends StatelessWidget {
