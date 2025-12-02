@@ -1,38 +1,26 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import 'data/app_state.dart';
 import 'ui_app_shell.dart';
-import 'shared/widgets.dart'
-    show
-        AnimatedCard,
-        HoverCard,
-        LoadingOverlay,
-        EmptyState,
-        showConfirmDialog,
-        showUndoSnackBar,
-        AppDesignTokens,
-        isMobile;
+import 'shared/widgets.dart' show LoadingOverlay, EmptyState;
 
-// --- Data Model ---
-class ExpenseRecord {
-  final int id;
-  final String category;
+// --- MODEL: Unified Transaction ---
+class Transaction {
+  final String id;
+  final DateTime date;
   final String description;
   final double amount;
-  final DateTime date;
-  final String status;
-  final String? jobOrderId;
-  final int? dbJobId;
+  final String type; // 'IN' (Payment) or 'OUT' (Expense)
+  final String category; // 'Operational' or 'Personal'
+  final String? relatedJob; // "JO-123"
 
-  ExpenseRecord({
+  Transaction({
     required this.id,
-    required this.category,
+    required this.date,
     required this.description,
     required this.amount,
-    required this.date,
-    required this.status,
-    this.jobOrderId,
-    this.dbJobId,
+    required this.type,
+    required this.category,
+    this.relatedJob,
   });
 }
 
@@ -44,456 +32,332 @@ class ExpensesScreen extends StatefulWidget {
 }
 
 class _ExpensesScreenState extends State<ExpensesScreen> {
-  List<ExpenseRecord> _expenses = [];
   bool _isLoading = true;
-  String _searchQuery = '';
+  final _supabase = Supabase.instance.client;
 
-  // Cash Flow Stats
-  double _totalIncome = 0; // From Payments
-  double _totalExpenses = 0; // From Expenses
+  List<Transaction> _transactions = [];
+  double _totalIn = 0;
+  double _totalOut = 0;
+
+  DateTime _selectedMonth = DateTime.now();
 
   @override
   void initState() {
     super.initState();
-    _fetchCashFlowData();
+    _fetchCashFlow();
   }
 
-  Future<void> _fetchCashFlowData() async {
+  Future<void> _fetchCashFlow() async {
     setState(() => _isLoading = true);
-    final supabase = Supabase.instance.client;
-
     try {
-      // 1. Fetch Expenses (Cash Out)
-      final expenseRes = await supabase
-          .from('expenses')
-          .select('*, job_orders(client_jo_number)')
-          .order('date', ascending: false);
+      // Filter by Month
+      final startOfMonth = DateTime(
+        _selectedMonth.year,
+        _selectedMonth.month,
+        1,
+      );
+      final nextMonth = DateTime(
+        _selectedMonth.year,
+        _selectedMonth.month + 1,
+        1,
+      );
 
-      // 2. Fetch Payments (Cash In) - To calculate Net Cash
-      final paymentRes = await supabase
+      final startStr = startOfMonth.toIso8601String();
+      final endStr = nextMonth.toIso8601String();
+
+      // 1. FETCH PAYMENTS (Cash IN)
+      final paymentsRes = await _supabase
           .from('payments')
-          .select('amount')
-          .eq('status', 'Verified'); // Only count verified money
+          .select(
+            'id, amount, payment_date, payment_method, job_orders(client_jo_number, customers(company_name, first_name, last_name))',
+          )
+          .gte('payment_date', startStr)
+          .lt('payment_date', endStr);
 
-      // Process Expenses
-      final List<ExpenseRecord> loadedExpenses = [];
-      double expenseTotal = 0;
+      // 2. FETCH EXPENSES (Cash OUT)
+      final expensesRes = await _supabase
+          .from('expenses')
+          .select(
+            'id, amount, date, expense_name, expense_type, job_orders(client_jo_number)',
+          )
+          .gte('date', startStr)
+          .lt('date', endStr);
 
-      for (var row in expenseRes) {
-        final jo = row['job_orders'];
-        final displayJo = jo != null ? jo['client_jo_number'] : null;
-        final amount = (row['amount'] as num).toDouble();
-        expenseTotal += amount;
+      final List<Transaction> loaded = [];
+      double inSum = 0;
+      double outSum = 0;
 
-        loadedExpenses.add(
-          ExpenseRecord(
-            id: row['id'],
-            category: row['expense_type'] ?? 'General',
-            description: row['expense_name'] ?? '',
-            amount: amount,
-            date: DateTime.parse(row['date']),
-            status: row['status'] ?? 'Pending',
-            jobOrderId: displayJo,
-            dbJobId: row['job_order_id'],
+      // Process Payments
+      for (var p in paymentsRes) {
+        final amt = (p['amount'] as num).toDouble();
+        inSum += amt;
+
+        // Format Client Name
+        String desc = "Payment via ${p['payment_method']}";
+        String? joNum;
+        if (p['job_orders'] != null) {
+          joNum = p['job_orders']['client_jo_number'];
+          final cust = p['job_orders']['customers'];
+          if (cust != null) {
+            final name =
+                cust['company_name'] ??
+                "${cust['first_name']} ${cust['last_name']}";
+            desc = "Payment from $name";
+          }
+        }
+
+        loaded.add(
+          Transaction(
+            id: p['id'].toString(),
+            date: DateTime.parse(p['payment_date']).toLocal(),
+            description: desc,
+            amount: amt,
+            type: 'IN',
+            category: 'Job Revenue',
+            relatedJob: joNum,
           ),
         );
       }
 
-      // Process Income
-      double incomeTotal = 0;
-      for (var row in paymentRes) {
-        incomeTotal += (row['amount'] as num).toDouble();
+      // Process Expenses
+      for (var e in expensesRes) {
+        final amt = (e['amount'] as num).toDouble();
+        outSum += amt;
+
+        String? joNum;
+        if (e['job_orders'] != null) {
+          joNum = e['job_orders']['client_jo_number'];
+        }
+
+        // CORRECTED: Mapping 'expense_type' directly to our UI category
+        loaded.add(
+          Transaction(
+            id: e['id'].toString(),
+            date: DateTime.parse(e['date']).toLocal(),
+            description: e['expense_name'] ?? 'Unnamed Expense',
+            amount: amt,
+            type: 'OUT',
+            category: e['expense_type'] ?? 'Operational',
+            relatedJob: joNum,
+          ),
+        );
       }
+
+      // Sort by Date Descending (Newest first)
+      loaded.sort((a, b) => b.date.compareTo(a.date));
 
       if (mounted) {
         setState(() {
-          _expenses = loadedExpenses;
-          _totalExpenses = expenseTotal;
-          _totalIncome = incomeTotal;
+          _transactions = loaded;
+          _totalIn = inSum;
+          _totalOut = outSum;
         });
       }
     } catch (e) {
-      if (mounted)
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('Error loading data: $e')));
+      debugPrint("Error fetching cash flow: $e");
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
   }
 
-  void _onAddOrEdit() async {
-    final result = await showDialog(
-      context: context,
-      builder: (context) => const _ExpenseDialog(),
-    );
-    if (result == true) {
-      _fetchCashFlowData();
-    }
-  }
-
-  Future<void> _deleteExpense(int id) async {
-    final confirm = await showConfirmDialog(
-      context: context,
-      title: "Delete Record?",
-      message: "This will permanently remove this expense.",
-      confirmLabel: "Delete",
-      isDestructive: true,
-    );
-
-    if (confirm == true) {
-      try {
-        await Supabase.instance.client.from('expenses').delete().eq('id', id);
-        _fetchCashFlowData();
-      } catch (e) {
-        if (mounted)
-          ScaffoldMessenger.of(
-            context,
-          ).showSnackBar(SnackBar(content: Text("Error: $e")));
-      }
-    }
+  void _changeMonth(int offset) {
+    setState(() {
+      _selectedMonth = DateTime(
+        _selectedMonth.year,
+        _selectedMonth.month + offset,
+      );
+    });
+    _fetchCashFlow();
   }
 
   @override
   Widget build(BuildContext context) {
-    final isMobileView = MediaQuery.of(context).size.width < 800;
-
-    // Calculate Net Cash (Profit)
-    final double netCash = _totalIncome - _totalExpenses;
-    final bool isPositive = netCash >= 0;
-
-    final filtered = _expenses
-        .where(
-          (e) =>
-              e.description.toLowerCase().contains(
-                _searchQuery.toLowerCase(),
-              ) ||
-              (e.jobOrderId ?? '').toLowerCase().contains(
-                _searchQuery.toLowerCase(),
-              ),
-        )
-        .toList();
+    final netCash = _totalIn - _totalOut;
 
     return AppShell(
-      selectedIndex: 2,
+      selectedIndex: 2, // Expenses Tab
       body: LoadingOverlay(
         isLoading: _isLoading,
-        child: Container(
-          color: const Color(0xFFF8FAFC),
-          child: Column(
-            children: [
-              // Header & Stats
-              Container(
-                padding: EdgeInsets.all(isMobileView ? 16 : 24),
-                color: Colors.white,
-                child: Column(
-                  children: [
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        const Text(
-                          'Cash Flow & Expenses',
-                          style: TextStyle(
-                            fontSize: 24,
-                            fontWeight: FontWeight.w800,
-                            color: Color(0xFF1E293B),
+        child: Column(
+          children: [
+            // --- HEADER & MONTH SELECTOR ---
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+              color: Colors.white,
+              child: Column(
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Row(
+                        children: [
+                          IconButton(
+                            icon: const Icon(Icons.chevron_left),
+                            onPressed: () => _changeMonth(-1),
                           ),
-                        ),
-                        ElevatedButton.icon(
-                          onPressed: _onAddOrEdit,
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: const Color(0xFF2563EB),
-                            foregroundColor: Colors.white,
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 20,
-                              vertical: 16,
-                            ),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(12),
+                          Text(
+                            _formatMonthYear(_selectedMonth),
+                            style: const TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.bold,
                             ),
                           ),
-                          icon: const Icon(Icons.add_circle, size: 20),
-                          label: const Text(
-                            'Add Expense',
-                            style: TextStyle(fontWeight: FontWeight.w700),
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 24),
-                    // CASH FLOW CARDS (Matches Spreadsheet Logic)
-                    Row(
-                      children: [
-                        Expanded(
-                          child: _StatCard(
-                            label: "Cash In (Income)",
-                            value: "₱${_totalIncome.toStringAsFixed(2)}",
-                            icon: Icons.arrow_downward,
-                            color: Colors.green,
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: _StatCard(
-                            label: "Cash Out (Expenses)",
-                            value: "₱${_totalExpenses.toStringAsFixed(2)}",
-                            icon: Icons.arrow_upward,
-                            color: Colors.red,
-                          ),
-                        ),
-                        if (!isMobileView) ...[
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: _StatCard(
-                              label: "Net Cash",
-                              value: "₱${netCash.abs().toStringAsFixed(2)}",
-                              icon: isPositive
-                                  ? Icons.trending_up
-                                  : Icons.trending_down,
-                              color: isPositive ? Colors.blue : Colors.orange,
-                            ),
+                          IconButton(
+                            icon: const Icon(Icons.chevron_right),
+                            onPressed: () => _changeMonth(1),
                           ),
                         ],
-                      ],
-                    ),
-                    if (isMobileView) ...[
-                      const SizedBox(height: 12),
-                      _StatCard(
-                        label: "Net Cash (Profit)",
-                        value: "₱${netCash.toStringAsFixed(2)}",
-                        icon: isPositive
-                            ? Icons.trending_up
-                            : Icons.trending_down,
-                        color: isPositive ? Colors.blue : Colors.orange,
                       ),
-                    ],
-                  ],
-                ),
-              ),
-              const Divider(height: 1),
-
-              // Content
-              Expanded(
-                child: SingleChildScrollView(
-                  padding: const EdgeInsets.all(20),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      // Search
-                      TextField(
-                        onChanged: (v) => setState(() => _searchQuery = v),
-                        decoration: InputDecoration(
-                          hintText: 'Search expenses...',
-                          prefixIcon: const Icon(Icons.search),
-                          filled: true,
-                          fillColor: Colors.white,
-                          border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(12),
-                            borderSide: BorderSide.none,
-                          ),
+                      ElevatedButton.icon(
+                        onPressed: () async {
+                          await showDialog(
+                            context: context,
+                            builder: (_) => const _AddExpenseDialog(),
+                          );
+                          _fetchCashFlow();
+                        },
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.redAccent,
+                          foregroundColor: Colors.white,
                         ),
+                        icon: const Icon(Icons.add),
+                        label: const Text("Add Expense"),
                       ),
-                      const SizedBox(height: 20),
-
-                      const Text(
-                        "Expense Records",
-                        style: TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.bold,
-                          color: Color(0xFF64748B),
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-
-                      // List View
-                      if (filtered.isEmpty)
-                        const Padding(
-                          padding: EdgeInsets.all(40),
-                          child: Center(
-                            child: Text("No expense records found."),
-                          ),
-                        )
-                      else if (isMobileView)
-                        Column(
-                          children: filtered
-                              .map((e) => _buildMobileExpenseCard(e))
-                              .toList(),
-                        )
-                      else
-                        _buildWebTable(filtered),
                     ],
                   ),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
+                  const SizedBox(height: 16),
 
-  // --- Web Table View ---
-  Widget _buildWebTable(List<ExpenseRecord> data) {
-    return Container(
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
-      ),
-      padding: const EdgeInsets.all(16),
-      child: SizedBox(
-        width: double.infinity,
-        child: DataTable(
-          columns: const [
-            DataColumn(
-              label: Text(
-                'CATEGORY',
-                style: TextStyle(fontWeight: FontWeight.bold),
+                  // --- SUMMARY CARDS ---
+                  Row(
+                    children: [
+                      Expanded(
+                        child: _SummaryCard(
+                          label: "Cash In",
+                          amount: _totalIn,
+                          color: Colors.green,
+                          icon: Icons.arrow_downward,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: _SummaryCard(
+                          label: "Cash Out",
+                          amount: _totalOut,
+                          color: Colors.red,
+                          icon: Icons.arrow_upward,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: _SummaryCard(
+                          label: "Net Cash",
+                          amount: netCash,
+                          color: netCash >= 0 ? Colors.blue : Colors.orange,
+                          icon: Icons.account_balance_wallet,
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
               ),
             ),
-            DataColumn(
-              label: Text(
-                'JOB ORDER',
-                style: TextStyle(fontWeight: FontWeight.bold),
-              ),
-            ),
-            DataColumn(
-              label: Text(
-                'DESCRIPTION',
-                style: TextStyle(fontWeight: FontWeight.bold),
-              ),
-            ),
-            DataColumn(
-              label: Text(
-                'DATE',
-                style: TextStyle(fontWeight: FontWeight.bold),
-              ),
-            ),
-            DataColumn(
-              label: Text(
-                'AMOUNT',
-                style: TextStyle(fontWeight: FontWeight.bold),
-              ),
-            ),
-            DataColumn(
-              label: Text(
-                'STATUS',
-                style: TextStyle(fontWeight: FontWeight.bold),
-              ),
-            ),
-            DataColumn(
-              label: Text(
-                'ACTION',
-                style: TextStyle(fontWeight: FontWeight.bold),
-              ),
+            const Divider(height: 1),
+
+            // --- TRANSACTION LIST ---
+            Expanded(
+              child: _transactions.isEmpty
+                  ? const Center(
+                      child: EmptyState(
+                        icon: Icons.receipt_long,
+                        title: "No Transactions",
+                        message:
+                            "No income or expenses recorded for this month.",
+                      ),
+                    )
+                  : ListView.separated(
+                      padding: const EdgeInsets.all(16),
+                      itemCount: _transactions.length,
+                      separatorBuilder: (ctx, i) => const SizedBox(height: 12),
+                      itemBuilder: (ctx, i) {
+                        final txn = _transactions[i];
+                        return _TransactionCard(txn: txn);
+                      },
+                    ),
             ),
           ],
-          rows: data.map((e) {
-            return DataRow(
-              cells: [
-                DataCell(_CategoryBadge(category: e.category)),
-                DataCell(
-                  Text(
-                    e.jobOrderId ?? '-',
-                    style: const TextStyle(fontWeight: FontWeight.bold),
-                  ),
-                ),
-                DataCell(Text(e.description)),
-                DataCell(Text("${e.date.month}/${e.date.day}/${e.date.year}")),
-                DataCell(
-                  Text(
-                    "₱${e.amount.toStringAsFixed(2)}",
-                    style: const TextStyle(fontWeight: FontWeight.bold),
-                  ),
-                ),
-                DataCell(_StatusBadge(status: e.status)),
-                DataCell(
-                  IconButton(
-                    icon: const Icon(Icons.delete_outline, color: Colors.red),
-                    onPressed: () => _deleteExpense(e.id),
-                  ),
-                ),
-              ],
-            );
-          }).toList(),
         ),
       ),
     );
   }
 
-  // --- Mobile Card View ---
-  Widget _buildMobileExpenseCard(ExpenseRecord e) {
+  String _formatMonthYear(DateTime date) {
+    const months = [
+      "Jan",
+      "Feb",
+      "Mar",
+      "Apr",
+      "May",
+      "Jun",
+      "Jul",
+      "Aug",
+      "Sep",
+      "Oct",
+      "Nov",
+      "Dec",
+    ];
+    return "${months[date.month - 1]} ${date.year}";
+  }
+}
+
+// --- WIDGETS ---
+
+class _SummaryCard extends StatelessWidget {
+  final String label;
+  final double amount;
+  final Color color;
+  final IconData icon;
+
+  const _SummaryCard({
+    required this.label,
+    required this.amount,
+    required this.color,
+    required this.icon,
+  });
+
+  @override
+  Widget build(BuildContext context) {
     return Container(
-      margin: const EdgeInsets.only(bottom: 12),
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: color.withOpacity(0.1),
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: const Color(0xFFE2E8F0)),
+        border: Border.all(color: color.withOpacity(0.2)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              _CategoryBadge(category: e.category),
+              Icon(icon, size: 16, color: color),
+              const SizedBox(width: 4),
               Text(
-                "₱${e.amount.toStringAsFixed(2)}",
-                style: const TextStyle(
-                  fontSize: 16,
+                label,
+                style: TextStyle(
+                  color: color,
                   fontWeight: FontWeight.bold,
-                  color: Colors.red,
+                  fontSize: 12,
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 8),
           Text(
-            e.description,
-            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
-          ),
-          if (e.jobOrderId != null)
-            Padding(
-              padding: const EdgeInsets.only(top: 4),
-              child: Row(
-                children: [
-                  const Icon(Icons.work_outline, size: 14, color: Colors.grey),
-                  const SizedBox(width: 4),
-                  Text(
-                    "Linked to: ${e.jobOrderId}",
-                    style: const TextStyle(
-                      color: Colors.blue,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                ],
-              ),
+            "₱${amount.toStringAsFixed(2)}",
+            style: TextStyle(
+              color: color,
+              fontWeight: FontWeight.w800,
+              fontSize: 18,
             ),
-          const SizedBox(height: 12),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text(
-                "${e.date.month}/${e.date.day}/${e.date.year}",
-                style: const TextStyle(color: Colors.grey),
-              ),
-              Row(
-                children: [
-                  _StatusBadge(status: e.status),
-                  const SizedBox(width: 8),
-                  IconButton(
-                    icon: const Icon(
-                      Icons.delete,
-                      color: Colors.grey,
-                      size: 20,
-                    ),
-                    onPressed: () => _deleteExpense(e.id),
-                    padding: EdgeInsets.zero,
-                    constraints: const BoxConstraints(),
-                  ),
-                ],
-              ),
-            ],
           ),
         ],
       ),
@@ -501,23 +365,134 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
   }
 }
 
-// --- Add/Edit Dialog ---
+class _TransactionCard extends StatelessWidget {
+  final Transaction txn;
+  const _TransactionCard({required this.txn});
 
-class _ExpenseDialog extends StatefulWidget {
-  const _ExpenseDialog();
   @override
-  State<_ExpenseDialog> createState() => _ExpenseDialogState();
+  Widget build(BuildContext context) {
+    final isIncome = txn.type == 'IN';
+    final color = isIncome ? Colors.green : Colors.red;
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border(left: BorderSide(color: color, width: 4)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.02),
+            blurRadius: 4,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          // Icon Box
+          Container(
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: color.withOpacity(0.1),
+              shape: BoxShape.circle,
+            ),
+            child: Icon(
+              txn.category == 'Personal'
+                  ? Icons.home
+                  : (isIncome ? Icons.attach_money : Icons.shopping_bag),
+              color: color,
+              size: 20,
+            ),
+          ),
+          const SizedBox(width: 16),
+
+          // Details
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  txn.description,
+                  style: const TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 15,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Row(
+                  children: [
+                    if (txn.relatedJob != null)
+                      Container(
+                        margin: const EdgeInsets.only(right: 8),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 6,
+                          vertical: 2,
+                        ),
+                        decoration: BoxDecoration(
+                          color: Colors.blue.withOpacity(0.1),
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: Text(
+                          txn.relatedJob!,
+                          style: const TextStyle(
+                            fontSize: 10,
+                            color: Colors.blue,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                    Text(
+                      txn.category,
+                      style: const TextStyle(fontSize: 12, color: Colors.grey),
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      "${txn.date.month}/${txn.date.day}",
+                      style: const TextStyle(fontSize: 12, color: Colors.grey),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+
+          // Amount
+          Text(
+            "${isIncome ? '+' : '-'} ₱${txn.amount.toStringAsFixed(2)}",
+            style: TextStyle(
+              color: color,
+              fontWeight: FontWeight.bold,
+              fontSize: 16,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
-class _ExpenseDialogState extends State<_ExpenseDialog> {
-  final _formKey = GlobalKey<FormState>();
-  final _descController = TextEditingController();
-  final _amountController = TextEditingController();
-  String _category = 'Fuel';
-  int? _selectedJobId;
-  bool _isSubmitting = false;
+// --- ADD EXPENSE DIALOG ---
 
+class _AddExpenseDialog extends StatefulWidget {
+  const _AddExpenseDialog();
+
+  @override
+  State<_AddExpenseDialog> createState() => _AddExpenseDialogState();
+}
+
+class _AddExpenseDialogState extends State<_AddExpenseDialog> {
+  final _formKey = GlobalKey<FormState>();
+  final _nameController = TextEditingController();
+  final _amountController = TextEditingController();
+
+  String _category = 'Operational'; // We will save this to 'expense_type'
+  DateTime _date = DateTime.now();
+
+  // Job Linking
+  int? _selectedJobId;
   List<Map<String, dynamic>> _activeJobs = [];
+  bool _isLoadingJobs = false;
 
   @override
   void initState() {
@@ -526,51 +501,46 @@ class _ExpenseDialogState extends State<_ExpenseDialog> {
   }
 
   Future<void> _fetchActiveJobs() async {
+    setState(() => _isLoadingJobs = true);
     final res = await Supabase.instance.client
         .from('job_orders')
-        .select(
-          'id, client_jo_number, customers(company_name, first_name, last_name)',
-        )
-        .order('created_at', ascending: false)
-        .limit(20);
+        .select('id, client_jo_number, customers(company_name, last_name)')
+        .neq('status', 'Completed') // Only show active jobs
+        .order('date_scheduled', ascending: false);
 
     if (mounted) {
       setState(() {
         _activeJobs = List<Map<String, dynamic>>.from(res);
+        _isLoadingJobs = false;
       });
     }
   }
 
-  Future<void> _submit() async {
+  Future<void> _save() async {
     if (!_formKey.currentState!.validate()) return;
-    setState(() => _isSubmitting = true);
+
+    final amount = double.tryParse(_amountController.text);
+    if (amount == null) return;
 
     try {
-      final user = Supabase.instance.client.auth.currentUser;
-
       await Supabase.instance.client.from('expenses').insert({
-        'expense_name': _descController.text,
+        'expense_name': _nameController.text.trim(),
+        'amount': amount,
+        'date': _date.toUtc().toIso8601String(),
+
+        // CORRECTED: Saving 'Operational' or 'Personal' to 'expense_type'
         'expense_type': _category,
-        'amount': double.parse(_amountController.text),
-        'date': DateTime.now().toIso8601String(),
-        'status': 'Pending',
-        'job_order_id': _selectedJobId,
-        'user_id': user?.id,
+
+        'user_id': Supabase.instance.client.auth.currentUser?.id,
+        // Only link job if Operational AND selected
+        'job_order_id': (_category == 'Operational') ? _selectedJobId : null,
       });
 
-      if (mounted) {
-        Navigator.pop(context, true);
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(const SnackBar(content: Text("Expense Recorded")));
-      }
+      if (mounted) Navigator.pop(context);
     } catch (e) {
-      if (mounted)
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text("Error: $e"), backgroundColor: Colors.red),
-        );
-    } finally {
-      if (mounted) setState(() => _isSubmitting = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text("Error: $e"), backgroundColor: Colors.red),
+      );
     }
   }
 
@@ -579,8 +549,8 @@ class _ExpenseDialogState extends State<_ExpenseDialog> {
     return Dialog(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       child: Container(
+        width: 400,
         padding: const EdgeInsets.all(24),
-        constraints: const BoxConstraints(maxWidth: 400),
         child: Form(
           key: _formKey,
           child: Column(
@@ -591,82 +561,144 @@ class _ExpenseDialogState extends State<_ExpenseDialog> {
                 "Add Expense",
                 style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
               ),
-              const SizedBox(height: 24),
+              const SizedBox(height: 20),
 
-              DropdownButtonFormField<String>(
-                value: _category,
-                decoration: _inputDecor("Category"),
-                items: ['Fuel', 'Materials', 'Food', 'Overhead', 'Other']
-                    .map((c) => DropdownMenuItem(value: c, child: Text(c)))
-                    .toList(),
-                onChanged: (v) => setState(() => _category = v!),
-              ),
-              const SizedBox(height: 16),
-
-              DropdownButtonFormField<int>(
-                value: _selectedJobId,
-                decoration: _inputDecor("Link to Job Order (Optional)"),
-                items: [
-                  const DropdownMenuItem(
-                    value: null,
-                    child: Text("None (General Expense)"),
+              // 1. Category Switcher
+              Row(
+                children: [
+                  Expanded(
+                    child: _CategoryChip(
+                      label: "Operational",
+                      icon: Icons.business,
+                      isSelected: _category == 'Operational',
+                      onTap: () => setState(() => _category = 'Operational'),
+                    ),
                   ),
-                  ..._activeJobs.map((j) {
-                    final cust = j['customers'];
-                    String name = cust != null
-                        ? (cust['company_name'] ?? cust['first_name'])
-                        : 'Unknown';
-                    return DropdownMenuItem(
-                      value: j['id'] as int,
-                      child: Text(
-                        "${j['client_jo_number']} - $name",
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    );
-                  }),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: _CategoryChip(
+                      label: "Personal",
+                      icon: Icons.home,
+                      isSelected: _category == 'Personal',
+                      onTap: () => setState(() => _category = 'Personal'),
+                    ),
+                  ),
                 ],
-                onChanged: (v) => setState(() => _selectedJobId = v),
-                isExpanded: true,
               ),
               const SizedBox(height: 16),
 
+              // 2. Name & Amount
               TextFormField(
-                controller: _descController,
-                decoration: _inputDecor("Description (e.g. 5L Gasoline)"),
+                controller: _nameController,
+                decoration: const InputDecoration(
+                  labelText: "Expense Name (e.g. Fuel, Dinner)",
+                  border: OutlineInputBorder(),
+                  contentPadding: EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 12,
+                  ),
+                ),
                 validator: (v) => v!.isEmpty ? "Required" : null,
               ),
-              const SizedBox(height: 16),
-
+              const SizedBox(height: 12),
               TextFormField(
                 controller: _amountController,
-                decoration: _inputDecor("Amount (₱)"),
-                keyboardType: const TextInputType.numberWithOptions(
-                  decimal: true,
+                keyboardType: TextInputType.number,
+                decoration: const InputDecoration(
+                  labelText: "Amount (₱)",
+                  border: OutlineInputBorder(),
+                  contentPadding: EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 12,
+                  ),
                 ),
                 validator: (v) => v!.isEmpty ? "Required" : null,
               ),
 
-              const SizedBox(height: 32),
-              SizedBox(
-                width: double.infinity,
-                height: 48,
-                child: ElevatedButton(
-                  onPressed: _isSubmitting ? null : _submit,
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF2563EB),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
+              const SizedBox(height: 12),
+
+              // 3. Date Picker
+              InkWell(
+                onTap: () async {
+                  final d = await showDatePicker(
+                    context: context,
+                    initialDate: _date,
+                    firstDate: DateTime(2020),
+                    lastDate: DateTime(2030),
+                  );
+                  if (d != null) setState(() => _date = d);
+                },
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 14,
+                  ),
+                  decoration: BoxDecoration(
+                    border: Border.all(color: Colors.grey),
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text("Date: ${_date.toString().split(' ')[0]}"),
+                      const Icon(Icons.calendar_today, size: 16),
+                    ],
+                  ),
+                ),
+              ),
+
+              const SizedBox(height: 12),
+
+              // 4. Job Link (Only if Operational)
+              if (_category == 'Operational') ...[
+                DropdownButtonFormField<int>(
+                  value: _selectedJobId,
+                  isExpanded: true,
+                  decoration: const InputDecoration(
+                    labelText: "Link to Job (Optional)",
+                    border: OutlineInputBorder(),
+                    contentPadding: EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 12,
                     ),
                   ),
-                  child: _isSubmitting
-                      ? const CircularProgressIndicator(color: Colors.white)
-                      : const Text(
-                          "Save Expense",
-                          style: TextStyle(
-                            color: Colors.white,
-                            fontWeight: FontWeight.bold,
-                          ),
+                  items: [
+                    const DropdownMenuItem<int>(
+                      value: null,
+                      child: Text("General / Unlinked"),
+                    ),
+                    ..._activeJobs.map((job) {
+                      final joNum =
+                          job['client_jo_number'] ?? 'JO-${job['id']}';
+                      final cust = job['customers'];
+                      final custName = cust != null
+                          ? (cust['company_name'] ?? cust['last_name'])
+                          : 'Unknown';
+                      return DropdownMenuItem<int>(
+                        value: job['id'] as int,
+                        child: Text(
+                          "$joNum - $custName",
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(fontSize: 13),
                         ),
+                      );
+                    }).toList(),
+                  ],
+                  onChanged: (v) => setState(() => _selectedJobId = v),
+                ),
+              ],
+
+              const SizedBox(height: 24),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  onPressed: _save,
+                  style: ElevatedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(vertical: 16),
+                    backgroundColor: Colors.blue,
+                    foregroundColor: Colors.white,
+                  ),
+                  child: const Text("Save Expense"),
                 ),
               ),
             ],
@@ -675,125 +707,48 @@ class _ExpenseDialogState extends State<_ExpenseDialog> {
       ),
     );
   }
-
-  InputDecoration _inputDecor(String label) {
-    return InputDecoration(
-      labelText: label,
-      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-      filled: true,
-      fillColor: Colors.grey[50],
-    );
-  }
 }
 
-// --- Visual Helpers ---
-
-class _StatCard extends StatelessWidget {
+class _CategoryChip extends StatelessWidget {
   final String label;
-  final String value;
   final IconData icon;
-  final Color color;
-  const _StatCard({
+  final bool isSelected;
+  final VoidCallback onTap;
+
+  const _CategoryChip({
     required this.label,
-    required this.value,
     required this.icon,
-    required this.color,
+    required this.isSelected,
+    required this.onTap,
   });
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: color.withOpacity(0.1),
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: Row(
-        children: [
-          Icon(icon, color: color, size: 28),
-          const SizedBox(width: 12),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                value,
-                style: TextStyle(
-                  fontSize: 20,
-                  fontWeight: FontWeight.w800,
-                  color: color,
-                ),
-              ),
-              Text(
-                label,
-                style: const TextStyle(fontSize: 12, color: Colors.black54),
-              ),
-            ],
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 10),
+        decoration: BoxDecoration(
+          color: isSelected ? Colors.blue.withOpacity(0.1) : Colors.grey[100],
+          border: Border.all(
+            color: isSelected ? Colors.blue : Colors.transparent,
+            width: 2,
           ),
-        ],
-      ),
-    );
-  }
-}
-
-class _CategoryBadge extends StatelessWidget {
-  final String category;
-  const _CategoryBadge({required this.category});
-
-  @override
-  Widget build(BuildContext context) {
-    Color color;
-    switch (category) {
-      case 'Fuel':
-        color = Colors.orange;
-        break;
-      case 'Materials':
-        color = Colors.purple;
-        break;
-      case 'Food':
-        color = Colors.green;
-        break;
-      default:
-        color = Colors.grey;
-    }
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      decoration: BoxDecoration(
-        color: color.withOpacity(0.1),
-        borderRadius: BorderRadius.circular(6),
-      ),
-      child: Text(
-        category,
-        style: TextStyle(
-          fontSize: 12,
-          fontWeight: FontWeight.bold,
-          color: color,
+          borderRadius: BorderRadius.circular(8),
         ),
-      ),
-    );
-  }
-}
-
-class _StatusBadge extends StatelessWidget {
-  final String status;
-  const _StatusBadge({required this.status});
-
-  @override
-  Widget build(BuildContext context) {
-    final isVerified = status == 'Verified';
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      decoration: BoxDecoration(
-        color: isVerified
-            ? Colors.green.withOpacity(0.1)
-            : Colors.amber.withOpacity(0.1),
-        borderRadius: BorderRadius.circular(6),
-      ),
-      child: Text(
-        status,
-        style: TextStyle(
-          fontSize: 11,
-          fontWeight: FontWeight.bold,
-          color: isVerified ? Colors.green : Colors.amber[800],
+        child: Column(
+          children: [
+            Icon(icon, color: isSelected ? Colors.blue : Colors.grey, size: 20),
+            const SizedBox(height: 4),
+            Text(
+              label,
+              style: TextStyle(
+                color: isSelected ? Colors.blue : Colors.grey,
+                fontWeight: FontWeight.bold,
+                fontSize: 12,
+              ),
+            ),
+          ],
         ),
       ),
     );
