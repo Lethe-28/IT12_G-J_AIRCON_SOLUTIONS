@@ -9,9 +9,10 @@ class Transaction {
   final DateTime date;
   final String description;
   final double amount;
-  final String type; // 'IN' (Payment) or 'OUT' (Expense)
-  final String category; // 'Operational' or 'Personal'
-  final String? relatedJob; // "JO-123"
+  final String type; // 'IN' or 'OUT'
+  final String
+  category; // 'Operational', 'Personal', 'Job Revenue', 'General Income'
+  final String? relatedJob;
 
   Transaction({
     required this.id,
@@ -35,9 +36,12 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
   bool _isLoading = true;
   final _supabase = Supabase.instance.client;
 
-  List<Transaction> _allTransactions = []; // Stores full list
-  List<Transaction> _filteredTransactions = []; // Stores search results
+  List<Transaction> _allTransactions = [];
+  List<Transaction> _filteredTransactions = [];
   final _searchController = TextEditingController();
+
+  // FILTER STATE
+  String _selectedFilter = 'All'; // All, Operational, Personal, Revenue
 
   double _totalIn = 0;
   double _totalOut = 0;
@@ -48,7 +52,7 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
   void initState() {
     super.initState();
     _fetchCashFlow();
-    _searchController.addListener(_onSearchChanged);
+    _searchController.addListener(_onFilterChanged);
   }
 
   @override
@@ -57,20 +61,28 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
     super.dispose();
   }
 
-  void _onSearchChanged() {
+  void _onFilterChanged() {
     final query = _searchController.text.toLowerCase();
+
     setState(() {
-      if (query.isEmpty) {
-        _filteredTransactions = _allTransactions;
-      } else {
-        _filteredTransactions = _allTransactions.where((txn) {
-          final matchesDesc = txn.description.toLowerCase().contains(query);
-          final matchesJob =
-              txn.relatedJob?.toLowerCase().contains(query) ?? false;
-          final matchesCat = txn.category.toLowerCase().contains(query);
-          return matchesDesc || matchesJob || matchesCat;
-        }).toList();
-      }
+      _filteredTransactions = _allTransactions.where((txn) {
+        // 1. Text Search
+        final matchesQuery =
+            txn.description.toLowerCase().contains(query) ||
+            (txn.relatedJob?.toLowerCase().contains(query) ?? false) ||
+            txn.category.toLowerCase().contains(query);
+
+        if (!matchesQuery) return false;
+
+        // 2. Category Filter
+        if (_selectedFilter == 'All') return true;
+        if (_selectedFilter == 'Revenue') return txn.type == 'IN';
+        if (_selectedFilter == 'Operational')
+          return txn.category == 'Operational';
+        if (_selectedFilter == 'Personal') return txn.category == 'Personal';
+
+        return true;
+      }).toList();
     });
   }
 
@@ -91,7 +103,7 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
       final startStr = startOfMonth.toIso8601String();
       final endStr = nextMonth.toIso8601String();
 
-      // 1. FETCH PAYMENTS
+      // 1. FETCH PAYMENTS (Job Revenue - ALWAYS IN)
       final paymentsRes = await _supabase
           .from('payments')
           .select(
@@ -100,11 +112,11 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
           .gte('payment_date', startStr)
           .lt('payment_date', endStr);
 
-      // 2. FETCH EXPENSES
+      // 2. FETCH EXPENSES (Can be IN or OUT based on is_income)
       final expensesRes = await _supabase
           .from('expenses')
           .select(
-            'id, amount, date, expense_name, expense_type, job_orders(client_jo_number)',
+            'id, amount, date, expense_name, expense_type, is_income, job_orders(client_jo_number)',
           )
           .gte('date', startStr)
           .lt('date', endStr);
@@ -113,9 +125,11 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
       double inSum = 0;
       double outSum = 0;
 
+      // Process Job Payments
       for (var p in paymentsRes) {
         final amt = (p['amount'] as num).toDouble();
         inSum += amt;
+
         String desc = "Payment via ${p['payment_method']}";
         String? joNum;
         if (p['job_orders'] != null) {
@@ -128,9 +142,10 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
             desc = "Payment from $name";
           }
         }
+
         loaded.add(
           Transaction(
-            id: p['id'].toString(),
+            id: "P-${p['id']}",
             date: DateTime.parse(p['payment_date']).toLocal(),
             description: desc,
             amount: amt,
@@ -141,41 +156,47 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
         );
       }
 
+      // Process Expenses Table (Includes Expenses AND General Income)
       for (var e in expensesRes) {
         final amt = (e['amount'] as num).toDouble();
-        outSum += amt;
+        final isIncome = e['is_income'] == true;
+
+        if (isIncome) {
+          inSum += amt;
+        } else {
+          outSum += amt;
+        }
+
         String? joNum;
         if (e['job_orders'] != null) {
           joNum = e['job_orders']['client_jo_number'];
         }
+
         loaded.add(
           Transaction(
-            id: e['id'].toString(),
+            id: "E-${e['id']}",
             date: DateTime.parse(e['date']).toLocal(),
-            description: e['expense_name'] ?? 'Unnamed Expense',
+            description: e['expense_name'] ?? 'Unnamed Transaction',
             amount: amt,
-            type: 'OUT',
-            category: e['expense_type'] ?? 'Operational',
+            type: isIncome ? 'IN' : 'OUT',
+            category:
+                e['expense_type'] ??
+                (isIncome ? 'General Income' : 'Operational'),
             relatedJob: joNum,
           ),
         );
       }
 
-      // UPDATED SORTING: Date Descending, then ID Descending (Newest First)
-      loaded.sort((a, b) {
-        int dateComp = b.date.compareTo(a.date);
-        if (dateComp != 0) return dateComp;
-        // If dates are identical, use ID as tiebreaker (Assuming higher ID = newer)
-        return int.parse(b.id).compareTo(int.parse(a.id));
-      });
+      // Sort by Date Descending (Newest First)
+      loaded.sort((a, b) => b.date.compareTo(a.date));
 
       if (mounted) {
         setState(() {
           _allTransactions = loaded;
-          _filteredTransactions = loaded; // Initial state
           _totalIn = inSum;
           _totalOut = outSum;
         });
+        _onFilterChanged(); // Apply filters immediately
       }
     } catch (e) {
       debugPrint("Error fetching cash flow: $e");
@@ -204,8 +225,9 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
         isLoading: _isLoading,
         child: Column(
           children: [
+            // --- HEADER ---
             Container(
-              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+              padding: const EdgeInsets.all(24),
               color: Colors.white,
               child: Column(
                 children: [
@@ -235,16 +257,16 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
                         onPressed: () async {
                           await showDialog(
                             context: context,
-                            builder: (_) => const _AddExpenseDialog(),
+                            builder: (_) => const _AddTransactionDialog(),
                           );
                           _fetchCashFlow();
                         },
                         style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.redAccent,
+                          backgroundColor: Colors.blueAccent,
                           foregroundColor: Colors.white,
                         ),
                         icon: const Icon(Icons.add),
-                        label: const Text("Add Expense"),
+                        label: const Text("Add Record"),
                       ),
                     ],
                   ),
@@ -283,11 +305,11 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
                   ),
                   const SizedBox(height: 16),
 
-                  // NEW: Search Bar
+                  // Search Bar
                   TextField(
                     controller: _searchController,
                     decoration: InputDecoration(
-                      hintText: "Search by JO#, Description, or Type...",
+                      hintText: "Search...",
                       prefixIcon: const Icon(Icons.search),
                       border: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(12),
@@ -298,6 +320,51 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
                       ),
                       filled: true,
                       fillColor: Colors.grey.shade50,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+
+                  // Filter Chips
+                  SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    child: Row(
+                      children: [
+                        _FilterChip(
+                          label: "All",
+                          isSelected: _selectedFilter == 'All',
+                          onTap: () => setState(() {
+                            _selectedFilter = 'All';
+                            _onFilterChanged();
+                          }),
+                        ),
+                        const SizedBox(width: 8),
+                        _FilterChip(
+                          label: "Revenue / In",
+                          isSelected: _selectedFilter == 'Revenue',
+                          onTap: () => setState(() {
+                            _selectedFilter = 'Revenue';
+                            _onFilterChanged();
+                          }),
+                        ),
+                        const SizedBox(width: 8),
+                        _FilterChip(
+                          label: "Operational",
+                          isSelected: _selectedFilter == 'Operational',
+                          onTap: () => setState(() {
+                            _selectedFilter = 'Operational';
+                            _onFilterChanged();
+                          }),
+                        ),
+                        const SizedBox(width: 8),
+                        _FilterChip(
+                          label: "Personal",
+                          isSelected: _selectedFilter == 'Personal',
+                          onTap: () => setState(() {
+                            _selectedFilter = 'Personal';
+                            _onFilterChanged();
+                          }),
+                        ),
+                      ],
                     ),
                   ),
                 ],
@@ -348,7 +415,42 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
     return "${months[date.month - 1]} ${date.year}";
   }
 }
+
 // --- WIDGETS ---
+
+class _FilterChip extends StatelessWidget {
+  final String label;
+  final bool isSelected;
+  final VoidCallback onTap;
+
+  const _FilterChip({
+    required this.label,
+    required this.isSelected,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        decoration: BoxDecoration(
+          color: isSelected ? Colors.black87 : Colors.grey[200],
+          borderRadius: BorderRadius.circular(20),
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            color: isSelected ? Colors.white : Colors.black87,
+            fontWeight: FontWeight.bold,
+            fontSize: 12,
+          ),
+        ),
+      ),
+    );
+  }
+}
 
 class _SummaryCard extends StatelessWidget {
   final String label;
@@ -390,12 +492,15 @@ class _SummaryCard extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 8),
-          Text(
-            "₱${amount.toStringAsFixed(2)}",
-            style: TextStyle(
-              color: color,
-              fontWeight: FontWeight.w800,
-              fontSize: 18,
+          FittedBox(
+            fit: BoxFit.scaleDown,
+            child: Text(
+              "₱${amount.toStringAsFixed(2)}",
+              style: TextStyle(
+                color: color,
+                fontWeight: FontWeight.w800,
+                fontSize: 18,
+              ),
             ),
           ),
         ],
@@ -429,7 +534,6 @@ class _TransactionCard extends StatelessWidget {
       ),
       child: Row(
         children: [
-          // Icon Box
           Container(
             padding: const EdgeInsets.all(10),
             decoration: BoxDecoration(
@@ -445,8 +549,6 @@ class _TransactionCard extends StatelessWidget {
             ),
           ),
           const SizedBox(width: 16),
-
-          // Details
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -495,8 +597,6 @@ class _TransactionCard extends StatelessWidget {
               ],
             ),
           ),
-
-          // Amount
           Text(
             "${isIncome ? '+' : '-'} ₱${txn.amount.toStringAsFixed(2)}",
             style: TextStyle(
@@ -511,25 +611,26 @@ class _TransactionCard extends StatelessWidget {
   }
 }
 
-// --- ADD EXPENSE DIALOG ---
+// --- ADD TRANSACTION DIALOG (Refactored) ---
 
-class _AddExpenseDialog extends StatefulWidget {
-  const _AddExpenseDialog();
+class _AddTransactionDialog extends StatefulWidget {
+  const _AddTransactionDialog();
 
   @override
-  State<_AddExpenseDialog> createState() => _AddExpenseDialogState();
+  State<_AddTransactionDialog> createState() => _AddTransactionDialogState();
 }
 
-class _AddExpenseDialogState extends State<_AddExpenseDialog> {
+class _AddTransactionDialogState extends State<_AddTransactionDialog> {
   final _formKey = GlobalKey<FormState>();
   final _nameController = TextEditingController();
   final _amountController = TextEditingController();
 
-  String _category = 'Operational'; // We will save this to 'expense_type'
+  bool _isIncome = false; // Toggle for General Cash In
+  String _category = 'Operational';
   DateTime _date = DateTime.now();
-
-  // Job Linking
   int? _selectedJobId;
+
+  // Job Data for Search
   List<Map<String, dynamic>> _activeJobs = [];
   bool _isLoadingJobs = false;
 
@@ -543,9 +644,11 @@ class _AddExpenseDialogState extends State<_AddExpenseDialog> {
     setState(() => _isLoadingJobs = true);
     final res = await Supabase.instance.client
         .from('job_orders')
-        .select('id, client_jo_number, customers(company_name, last_name)')
-        .neq('status', 'Completed') // Only show active jobs
-        .order('date_scheduled', ascending: false);
+        .select(
+          'id, client_jo_number, date_scheduled, customers(company_name, last_name)',
+        )
+        .neq('status', 'Completed')
+        .order('date_scheduled', ascending: false); // LATEST FIRST
 
     if (mounted) {
       setState(() {
@@ -557,7 +660,6 @@ class _AddExpenseDialogState extends State<_AddExpenseDialog> {
 
   Future<void> _save() async {
     if (!_formKey.currentState!.validate()) return;
-
     final amount = double.tryParse(_amountController.text);
     if (amount == null) return;
 
@@ -566,13 +668,12 @@ class _AddExpenseDialogState extends State<_AddExpenseDialog> {
         'expense_name': _nameController.text.trim(),
         'amount': amount,
         'date': _date.toUtc().toIso8601String(),
-
-        // CORRECTED: Saving 'Operational' or 'Personal' to 'expense_type'
         'expense_type': _category,
-
+        'is_income': _isIncome, // SAVE THE FLAG
         'user_id': Supabase.instance.client.auth.currentUser?.id,
-        // Only link job if Operational AND selected
-        'job_order_id': (_category == 'Operational') ? _selectedJobId : null,
+        'job_order_id': (_category == 'Operational' && !_isIncome)
+            ? _selectedJobId
+            : null,
       });
 
       if (mounted) Navigator.pop(context);
@@ -588,7 +689,7 @@ class _AddExpenseDialogState extends State<_AddExpenseDialog> {
     return Dialog(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       child: Container(
-        width: 400,
+        width: 450,
         padding: const EdgeInsets.all(24),
         child: Form(
           key: _formKey,
@@ -596,43 +697,86 @@ class _AddExpenseDialogState extends State<_AddExpenseDialog> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Text(
-                "Add Expense",
-                style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+              Text(
+                "Add Record",
+                style: const TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.bold,
+                ),
               ),
               const SizedBox(height: 20),
 
-              // 1. Category Switcher
-              Row(
-                children: [
-                  Expanded(
-                    child: _CategoryChip(
-                      label: "Operational",
-                      icon: Icons.business,
-                      isSelected: _category == 'Operational',
-                      onTap: () => setState(() => _category = 'Operational'),
+              // 1. Transaction Type Toggle
+              Container(
+                padding: const EdgeInsets.all(4),
+                decoration: BoxDecoration(
+                  color: Colors.grey[100],
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: _TypeToggle(
+                        label: "Money Out",
+                        color: Colors.red,
+                        isSelected: !_isIncome,
+                        onTap: () => setState(() {
+                          _isIncome = false;
+                          _category = 'Operational'; // Reset to default
+                        }),
+                      ),
                     ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: _CategoryChip(
-                      label: "Personal",
-                      icon: Icons.home,
-                      isSelected: _category == 'Personal',
-                      onTap: () => setState(() => _category = 'Personal'),
+                    Expanded(
+                      child: _TypeToggle(
+                        label: "Money In",
+                        color: Colors.green,
+                        isSelected: _isIncome,
+                        onTap: () => setState(() {
+                          _isIncome = true;
+                          _category = 'General Income';
+                        }),
+                      ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
               const SizedBox(height: 16),
 
-              // 2. Name & Amount
+              // 2. Category Switcher (Only show if Money Out)
+              if (!_isIncome) ...[
+                Row(
+                  children: [
+                    Expanded(
+                      child: _CategoryChip(
+                        label: "Operational",
+                        icon: Icons.business,
+                        isSelected: _category == 'Operational',
+                        onTap: () => setState(() => _category = 'Operational'),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: _CategoryChip(
+                        label: "Personal",
+                        icon: Icons.home,
+                        isSelected: _category == 'Personal',
+                        onTap: () => setState(() => _category = 'Personal'),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+              ],
+
+              // 3. Name & Amount
               TextFormField(
                 controller: _nameController,
-                decoration: const InputDecoration(
-                  labelText: "Expense Name (e.g. Fuel, Dinner)",
-                  border: OutlineInputBorder(),
-                  contentPadding: EdgeInsets.symmetric(
+                decoration: InputDecoration(
+                  labelText: _isIncome
+                      ? "Source (e.g. Personal Savings)"
+                      : "Expense Name",
+                  border: const OutlineInputBorder(),
+                  contentPadding: const EdgeInsets.symmetric(
                     horizontal: 12,
                     vertical: 12,
                   ),
@@ -656,7 +800,7 @@ class _AddExpenseDialogState extends State<_AddExpenseDialog> {
 
               const SizedBox(height: 12),
 
-              // 3. Date Picker
+              // 4. Date Picker
               InkWell(
                 onTap: () async {
                   final d = await showDatePicker(
@@ -688,42 +832,68 @@ class _AddExpenseDialogState extends State<_AddExpenseDialog> {
 
               const SizedBox(height: 12),
 
-              // 4. Job Link (Only if Operational)
-              if (_category == 'Operational') ...[
-                DropdownButtonFormField<int>(
-                  value: _selectedJobId,
-                  isExpanded: true,
-                  decoration: const InputDecoration(
-                    labelText: "Link to Job (Optional)",
-                    border: OutlineInputBorder(),
-                    contentPadding: EdgeInsets.symmetric(
-                      horizontal: 12,
-                      vertical: 12,
-                    ),
-                  ),
-                  items: [
-                    const DropdownMenuItem<int>(
-                      value: null,
-                      child: Text("General / Unlinked"),
-                    ),
-                    ..._activeJobs.map((job) {
-                      final joNum =
-                          job['client_jo_number'] ?? 'JO-${job['id']}';
-                      final cust = job['customers'];
-                      final custName = cust != null
-                          ? (cust['company_name'] ?? cust['last_name'])
-                          : 'Unknown';
-                      return DropdownMenuItem<int>(
-                        value: job['id'] as int,
-                        child: Text(
-                          "$joNum - $custName",
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(fontSize: 13),
-                        ),
-                      );
-                    }).toList(),
-                  ],
-                  onChanged: (v) => setState(() => _selectedJobId = v),
+              // 5. Smart Job Search (Only for Operational Expenses)
+              if (!_isIncome && _category == 'Operational') ...[
+                LayoutBuilder(
+                  builder: (context, constraints) {
+                    return Autocomplete<Map<String, dynamic>>(
+                      optionsBuilder: (TextEditingValue textEditingValue) {
+                        if (textEditingValue.text == '') {
+                          return const Iterable<Map<String, dynamic>>.empty();
+                        }
+                        return _activeJobs.where((job) {
+                          final joNum =
+                              (job['client_jo_number'] ?? 'JO-${job['id']}')
+                                  .toString()
+                                  .toLowerCase();
+                          final cust = job['customers'];
+                          final custName = cust != null
+                              ? (cust['company_name'] ?? cust['last_name'])
+                                    .toString()
+                                    .toLowerCase()
+                              : '';
+                          return joNum.contains(
+                                textEditingValue.text.toLowerCase(),
+                              ) ||
+                              custName.contains(
+                                textEditingValue.text.toLowerCase(),
+                              );
+                        });
+                      },
+                      displayStringForOption: (Map<String, dynamic> option) {
+                        final joNum =
+                            option['client_jo_number'] ?? 'JO-${option['id']}';
+                        final cust = option['customers'];
+                        final custName = cust != null
+                            ? (cust['company_name'] ?? cust['last_name'])
+                            : 'Unknown';
+                        return "$custName ($joNum)";
+                      },
+                      onSelected: (Map<String, dynamic> selection) {
+                        setState(() {
+                          _selectedJobId = selection['id'];
+                        });
+                      },
+                      fieldViewBuilder:
+                          (context, controller, focusNode, onFieldSubmitted) {
+                            return TextField(
+                              controller: controller,
+                              focusNode: focusNode,
+                              decoration: InputDecoration(
+                                labelText: "Link to Job (Search Name or JO)",
+                                border: const OutlineInputBorder(),
+                                prefixIcon: const Icon(Icons.link),
+                                suffixIcon: _selectedJobId != null
+                                    ? const Icon(
+                                        Icons.check_circle,
+                                        color: Colors.green,
+                                      )
+                                    : null,
+                              ),
+                            );
+                          },
+                    );
+                  },
                 ),
               ],
 
@@ -734,10 +904,10 @@ class _AddExpenseDialogState extends State<_AddExpenseDialog> {
                   onPressed: _save,
                   style: ElevatedButton.styleFrom(
                     padding: const EdgeInsets.symmetric(vertical: 16),
-                    backgroundColor: Colors.blue,
+                    backgroundColor: _isIncome ? Colors.green : Colors.red,
                     foregroundColor: Colors.white,
                   ),
-                  child: const Text("Save Expense"),
+                  child: Text(_isIncome ? "Save Cash In" : "Save Expense"),
                 ),
               ),
             ],
@@ -788,6 +958,45 @@ class _CategoryChip extends StatelessWidget {
               ),
             ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+class _TypeToggle extends StatelessWidget {
+  final String label;
+  final Color color;
+  final bool isSelected;
+  final VoidCallback onTap;
+
+  const _TypeToggle({
+    required this.label,
+    required this.color,
+    required this.isSelected,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 12),
+        decoration: BoxDecoration(
+          color: isSelected ? Colors.white : Colors.transparent,
+          borderRadius: BorderRadius.circular(6),
+          boxShadow: isSelected
+              ? [BoxShadow(color: Colors.black.withOpacity(0.1), blurRadius: 2)]
+              : null,
+        ),
+        child: Text(
+          label,
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            color: isSelected ? color : Colors.grey,
+            fontWeight: FontWeight.bold,
+          ),
         ),
       ),
     );
