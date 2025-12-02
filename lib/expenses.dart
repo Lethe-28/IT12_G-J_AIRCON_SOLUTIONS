@@ -187,8 +187,20 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
         );
       }
 
-      // Sort by Date Descending (Newest First)
-      loaded.sort((a, b) => b.date.compareTo(a.date));
+      // FIX: UPDATED SORTING LOGIC
+      // 1. Sort by Date Descending
+      // 2. Tie-Breaker: Sort by ID Descending (Newest Entry on Top)
+      loaded.sort((a, b) {
+        int dateComp = b.date.compareTo(a.date);
+        if (dateComp != 0) return dateComp;
+
+        // Tie-breaker: ID
+        // Strip the prefix (P- or E-) to compare actual ID numbers
+        int idA = int.tryParse(a.id.split('-')[1]) ?? 0;
+        int idB = int.tryParse(b.id.split('-')[1]) ?? 0;
+
+        return idB.compareTo(idA); // Descending ID
+      });
 
       if (mounted) {
         setState(() {
@@ -648,7 +660,8 @@ class _AddTransactionDialogState extends State<_AddTransactionDialog> {
           'id, client_jo_number, date_scheduled, customers(company_name, last_name)',
         )
         .neq('status', 'Completed')
-        .order('date_scheduled', ascending: false); // LATEST FIRST
+        // FIX: Order by ID descending (Latest created job first)
+        .order('id', ascending: false);
 
     if (mounted) {
       setState(() {
@@ -667,9 +680,12 @@ class _AddTransactionDialogState extends State<_AddTransactionDialog> {
       await Supabase.instance.client.from('expenses').insert({
         'expense_name': _nameController.text.trim(),
         'amount': amount,
-        'date': _date.toUtc().toIso8601String(),
+
+        // FIX: Send YYYY-MM-DD string directly to avoid Timezone shift
+        'date': _date.toString().split(' ')[0],
+
         'expense_type': _category,
-        'is_income': _isIncome, // SAVE THE FLAG
+        'is_income': _isIncome,
         'user_id': Supabase.instance.client.auth.currentUser?.id,
         'job_order_id': (_category == 'Operational' && !_isIncome)
             ? _selectedJobId
