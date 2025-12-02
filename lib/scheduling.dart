@@ -1449,6 +1449,8 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
   int? _selectedAirconTypeId;
   final _unitRemarkController = TextEditingController();
 
+  final _externalRefController = TextEditingController();
+
   late DateTime _scheduleDate;
   TimeOfDay _scheduleTime = const TimeOfDay(hour: 9, minute: 0);
   final _notesController = TextEditingController();
@@ -1463,6 +1465,7 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
       _scheduleTime = TimeOfDay.fromDateTime(widget.existingJob!.startDateTime);
       _notesController.text = widget.existingJob!.notes ?? '';
       _selectedClientId = widget.existingJob!.customerId;
+      _externalRefController.text = widget.existingJob!.displayId;
 
       // In a real edit scenario, we would also fetch the client details if _selectedClientId is set
       // For now, we just set the ID to trigger the dropdown selection
@@ -1776,8 +1779,6 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
           'customer_type_id': _companyController.text.trim().isEmpty ? 2 : 1,
         };
 
-        print("Customer data: $newCustomerData");
-
         final custRes = await _supabase
             .from('customers')
             .insert(newCustomerData)
@@ -1785,7 +1786,6 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
             .single();
 
         finalCustomerId = custRes['id'] as int;
-        print("Customer created with ID: $finalCustomerId");
       }
 
       if (finalCustomerId == null) {
@@ -1808,17 +1808,14 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
 
         if (brandCheck != null) {
           brandId = brandCheck['id'] as int;
-          print("Using existing brand ID: $brandId");
         } else {
           // Create new brand
-          print("Creating new brand: $brandName");
           final newBrand = await _supabase
               .from('brands')
               .insert({'brand_name': brandName})
               .select('id')
               .single();
           brandId = newBrand['id'] as int;
-          print("Brand created with ID: $brandId");
         }
 
         // Create aircon unit
@@ -1831,8 +1828,6 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
               : _unitRemarkController.text.trim(),
         };
 
-        print("Aircon data: $airconData");
-
         final newAircon = await _supabase
             .from('aircons')
             .insert(airconData)
@@ -1841,7 +1836,6 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
 
         final airconId = newAircon['id'] as int;
         _selectedAirconIds.add(airconId);
-        print("Aircon created with ID: $airconId");
       }
 
       // 3. CREATE/UPDATE JOB ORDER
@@ -1857,39 +1851,48 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
       final correctTypeId = typeRes != null
           ? (typeRes['id'] as int)
           : _jobTypeId;
-      print("Job Type ID: $correctTypeId");
 
-      // CRITICAL FIX: Create DateTime with time, then convert to ISO string
-      // Supabase will handle the timestamp storage
+      // Create DateTime
       final scheduleDateTime = DateTime(
         _scheduleDate.year,
         _scheduleDate.month,
         _scheduleDate.day,
         _scheduleTime.hour,
         _scheduleTime.minute,
-        0, // seconds
+        0,
       );
 
-      print("Schedule DateTime: $scheduleDateTime");
-      print("ISO String: ${scheduleDateTime.toIso8601String()}");
+      // --- LOGIC FOR REFERENCE NUMBER (CLIENT JO/MSR) ---
+      String finalJoNumber = _externalRefController.text.trim();
+
+      if (finalJoNumber.isEmpty) {
+        // If user left it blank:
+        if (widget.existingJob != null) {
+          // On Edit: Keep the old one
+          finalJoNumber = widget.existingJob!.displayId;
+        } else {
+          // On Create: Generate a new internal JO-XXXX
+          finalJoNumber =
+              'JO-${DateTime.now().millisecondsSinceEpoch.toString().substring(9)}';
+        }
+      }
 
       final jobData = {
         'customer_id': finalCustomerId,
         'job_type_id': correctTypeId,
-        // FIX: Add .toUtc() here
         'date_scheduled': scheduleDateTime.toUtc().toIso8601String(),
         'status': widget.existingJob?.status ?? 'Pending',
         'notes': _notesController.text.isNotEmpty
             ? _notesController.text
             : null,
+        // SAVE THE REFERENCE NUMBER
+        'client_jo_number': finalJoNumber,
       };
 
       int newJoId;
 
       if (widget.existingJob != null) {
         // UPDATE EXISTING JOB
-        print("Updating existing job: ${widget.existingJob!.dbId}");
-
         await _supabase
             .from('job_orders')
             .update(jobData)
@@ -1902,18 +1905,10 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
             .from('job_order_aircons')
             .delete()
             .eq('job_order_id', newJoId);
-
-        print("Existing job updated");
       } else {
         // CREATE NEW JOB
-        print("Creating new job order...");
-
         // Add fields only for new jobs
         jobData['user_id'] = _supabase.auth.currentUser?.id;
-        jobData['client_jo_number'] =
-            'JO-${DateTime.now().millisecondsSinceEpoch.toString().substring(9)}';
-
-        print("Job data: $jobData");
 
         final joRes = await _supabase
             .from('job_orders')
@@ -1922,37 +1917,30 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
             .single();
 
         newJoId = joRes['id'] as int;
-        print("Job order created with ID: $newJoId");
       }
 
       // 4. LINK AIRCONS TO JOB ORDER
       if (_selectedAirconIds.isNotEmpty) {
-        print("Linking ${_selectedAirconIds.length} aircon(s) to job order...");
-
         for (int airconId in _selectedAirconIds) {
           await _supabase.from('job_order_aircons').insert({
             'job_order_id': newJoId,
             'aircon_id': airconId,
           });
-          print("Linked aircon ID: $airconId");
         }
       }
 
       // 5. LINK TECHNICIANS
-      // First, remove existing links for this job (clean slate approach is easiest for edit)
       await _supabase
           .from('job_order_technicians')
           .delete()
           .eq('job_order_id', newJoId);
 
-      // Then insert new selections
       if (_selectedTechnicianIds.isNotEmpty) {
-        print("Linking ${_selectedTechnicianIds.length} technicians...");
         for (int techId in _selectedTechnicianIds) {
           await _supabase.from('job_order_technicians').insert({
             'job_order_id': newJoId,
             'technician_id': techId,
-            'role': 'Technician', // Default role required by your DB
+            'role': 'Technician',
           });
         }
       }
@@ -2601,6 +2589,25 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          // NEW: External Reference Field
+          const Text(
+            "Reference No.",
+            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+          ),
+          const SizedBox(height: 8),
+          TextField(
+            controller: _externalRefController,
+            decoration: const InputDecoration(
+              labelText: "Client JO / MSR # (Optional)",
+              hintText: "Leave blank to auto-generate (JO-XXXX)",
+              border: OutlineInputBorder(),
+              filled: true,
+              fillColor: Colors.white,
+              prefixIcon: Icon(Icons.tag),
+            ),
+          ),
+          const SizedBox(height: 24),
+
           const Text(
             "Date & Time",
             style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
