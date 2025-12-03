@@ -1,9 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'data/app_state.dart';
-import 'data/models.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import 'ui_app_shell.dart';
-import 'shared/widgets.dart';
+import 'shared/widgets.dart'; // Assumes your widget library exists
 
 class CustomersScreen extends StatefulWidget {
   const CustomersScreen({super.key});
@@ -13,594 +12,600 @@ class CustomersScreen extends StatefulWidget {
 }
 
 class _CustomersScreenState extends State<CustomersScreen> {
-  final List<CustomerData> _customers = [];
-  String _searchQuery = '';
-  String _filterType = 'All';
+  final _supabase = Supabase.instance.client;
+  bool _isLoading = true;
+  List<Customer> _customers = [];
 
-  bool get _isAdmin => AppState.currentRole == UserRole.admin;
+  // Filter & Search State
+  String _searchQuery = '';
+  String _filterType = 'All'; // All, B2B, B2C
 
   @override
   void initState() {
     super.initState();
-    _seedData();
+    _fetchCustomers();
   }
 
-  void _seedData() {
-    _customers.addAll([
-      CustomerData(
-        id: 1,
-        customerType: const CustomerTypeData(id: 1, type: CustomerTypeKind.b2b),
-        companyName: 'ABC Corporation',
-        firstName: 'John',
-        middleName: 'M',
-        lastName: 'Doe',
-        jobPosition: 'Facilities Manager',
-        contactNumber: '+63 912 345 6789',
-        unitOrBuilding: 'Unit 5A',
-        street: '123 Business Ave',
-        subdivisionOrVillage: 'Business Park',
-        barangay: 'Makati',
-        city: 'Makati City',
-        landmark: 'Near SM Makati',
-      ),
-      CustomerData(
-        id: 2,
-        customerType: const CustomerTypeData(id: 2, type: CustomerTypeKind.b2c),
-        companyName: '',
-        firstName: 'Maria',
-        middleName: 'C',
-        lastName: 'Santos',
-        jobPosition: '',
-        contactNumber: '+63 917 123 4567',
-        unitOrBuilding: 'House #45',
-        street: 'Maple Street',
-        subdivisionOrVillage: 'Green Valley Subdivision',
-        barangay: 'Barangay 1',
-        city: 'Quezon City',
-        landmark: 'Near the church',
-      ),
-    ]);
-  }
+  Future<void> _fetchCustomers() async {
+    setState(() => _isLoading = true);
+    try {
+      // Fetch customers and join with customer_types to get the type name (B2B/B2C)
+      // Assuming customer_type_id 1 = B2B, 2 = B2C based on your previous schema
+      final response = await _supabase
+          .from('customers')
+          .select('*, customer_types(type_name)')
+          .order('id', ascending: false); // Newest first
 
-  List<CustomerData> get _filteredCustomers {
-    var filtered = _customers;
-    
-    if (_filterType != 'All') {
-      final type = _filterType == 'B2B' ? CustomerTypeKind.b2b : CustomerTypeKind.b2c;
-      filtered = filtered.where((c) => c.customerType.type == type).toList();
+      final List<Customer> loaded = [];
+      for (var row in response) {
+        loaded.add(Customer.fromMap(row));
+      }
+
+      if (mounted) {
+        setState(() {
+          _customers = loaded;
+          _isLoading = false;
+        });
+      }
+    } catch (e) {
+      debugPrint('Error fetching customers: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error loading data: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+        setState(() => _isLoading = false);
+      }
     }
-    
-    if (_searchQuery.isNotEmpty) {
-      final q = _searchQuery.toLowerCase();
-      filtered = filtered.where((c) =>
-          c.companyName.toLowerCase().contains(q) ||
-          c.firstName.toLowerCase().contains(q) ||
-          c.lastName.toLowerCase().contains(q) ||
-          c.contactNumber.contains(q) ||
-          c.city.toLowerCase().contains(q)).toList();
-    }
-    
-    return filtered;
   }
 
-  Future<void> _onAddOrEdit({CustomerData? existing}) async {
-    final CustomerData? result = await showModalBottomSheet<CustomerData>(
+  // --- CRUD ACTIONS ---
+
+  Future<void> _onAddOrEdit({Customer? existing}) async {
+    final Customer? result = await showModalBottomSheet<Customer>(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
       builder: (context) => _CustomerDialog(customer: existing),
     );
-    if (result == null) return;
 
-    setState(() {
-      if (existing == null) {
-        final newId = _customers.isNotEmpty ? _customers.last.id + 1 : 1;
-        _customers.add(CustomerData(
-          id: newId,
-          customerType: result.customerType,
-          companyName: result.companyName,
-          firstName: result.firstName,
-          middleName: result.middleName,
-          lastName: result.lastName,
-          jobPosition: result.jobPosition,
-          contactNumber: result.contactNumber,
-          unitOrBuilding: result.unitOrBuilding,
-          street: result.street,
-          subdivisionOrVillage: result.subdivisionOrVillage,
-          barangay: result.barangay,
-          city: result.city,
-          landmark: result.landmark,
-        ));
-      } else {
-        final index = _customers.indexWhere((c) => c.id == existing.id);
-        if (index != -1) {
-          _customers[index] = result;
-        }
-      }
-    });
+    // If the dialog returned a customer object, it means save was successful
+    if (result != null) {
+      _fetchCustomers(); // Refresh list
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            existing == null ? 'Customer Added' : 'Customer Updated',
+          ),
+          backgroundColor: Colors.green,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
   }
 
-  void _onDelete(CustomerData customer) async {
+  Future<void> _onDelete(Customer customer) async {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Delete Customer'),
-        content: Text('Are you sure you want to delete ${customer.companyName.isNotEmpty ? customer.companyName : "${customer.firstName} ${customer.lastName}"}?'),
+        content: Text(
+          'Are you sure you want to delete ${customer.displayName}? This action cannot be undone.',
+        ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
-          TextButton(onPressed: () => Navigator.pop(context, true), child: const Text('Delete')),
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: TextButton.styleFrom(foregroundColor: Colors.red),
+            child: const Text('Delete'),
+          ),
         ],
       ),
     );
-    if (confirmed != true) return;
-    setState(() {
-      _customers.removeWhere((c) => c.id == customer.id);
-    });
-  }
 
-  String _getCustomerDisplayName(CustomerData c) {
-    if (c.companyName.isNotEmpty) {
-      return c.companyName;
+    if (confirmed == true) {
+      try {
+        await _supabase.from('customers').delete().eq('id', customer.id);
+
+        setState(() {
+          _customers.removeWhere((c) => c.id == customer.id);
+        });
+
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Customer deleted'),
+              behavior: SnackBarBehavior.floating,
+            ),
+          );
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Delete failed: $e'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+      }
     }
-    return '${c.firstName} ${c.middleName.isNotEmpty ? "${c.middleName} " : ""}${c.lastName}'.trim();
   }
 
-  String _getFullAddress(CustomerData c) {
-    final parts = <String>[];
-    if (c.unitOrBuilding.isNotEmpty) parts.add(c.unitOrBuilding);
-    if (c.street.isNotEmpty) parts.add(c.street);
-    if (c.subdivisionOrVillage.isNotEmpty) parts.add(c.subdivisionOrVillage);
-    if (c.barangay.isNotEmpty) parts.add(c.barangay);
-    if (c.city.isNotEmpty) parts.add(c.city);
-    return parts.join(', ');
+  List<Customer> get _filteredCustomers {
+    var filtered = _customers;
+
+    // 1. Filter by Type
+    if (_filterType != 'All') {
+      filtered = filtered.where((c) => c.typeName == _filterType).toList();
+    }
+
+    // 2. Filter by Search
+    if (_searchQuery.isNotEmpty) {
+      final q = _searchQuery.toLowerCase();
+      filtered = filtered.where((c) {
+        return c.displayName.toLowerCase().contains(q) ||
+            c.contactNumber.contains(q) ||
+            c.fullAddress.toLowerCase().contains(q) ||
+            (c.email ?? '').toLowerCase().contains(q);
+      }).toList();
+    }
+
+    return filtered;
   }
 
   @override
   Widget build(BuildContext context) {
-    final customers = _filteredCustomers;
-    final fontSize = _isAdmin ? 14.0 : 16.0;
-    final isMobileView = isMobile(context);
-    
+    final filteredList = _filteredCustomers;
+    // Using standard media query for safety
+    final isMobileView = MediaQuery.of(context).size.width < 800;
+
     return AppShell(
       selectedIndex: 5,
+      // FIX: Pass the FAB directly to the Shell (HCI Standard)
+      floatingActionButton: isMobileView
+          ? FloatingActionButton(
+              onPressed: () => _onAddOrEdit(),
+              backgroundColor: Colors.blue,
+              foregroundColor: Colors.white,
+              child: const Icon(Icons.add),
+            )
+          : null,
+      // FIX: Body is just the Container (No inner Scaffold needed)
       body: Container(
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: [AppDesignTokens.gray50, Colors.white],
-          ),
-        ),
-        child: RefreshIndicator(
-          onRefresh: () async {
-            HapticFeedback.lightImpact();
-            // Simulate data refresh - in real app would refetch from database
-            await Future.delayed(const Duration(milliseconds: 500));
-            if (mounted) {
-              setState(() {});
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text('Customers refreshed'),
-                  duration: Duration(seconds: 1),
-                  behavior: SnackBarBehavior.floating,
-                ),
-              );
-            }
-          },
-          child: Column(
+        color: const Color(0xFFF8FAFC),
+        child: Column(
           children: [
-            AnimatedCard(
-              delay: const Duration(milliseconds: 100),
-              child: Container(
-                padding: EdgeInsets.all(isMobileView ? 16 : 24),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withOpacity(0.05),
-                      blurRadius: 10,
-                      offset: const Offset(0, 2),
-                    ),
-                  ],
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                'Customer Directory',
-                                style: TextStyle(
-                                  fontSize: isMobileView ? 24 : 28,
-                                  fontWeight: FontWeight.w700,
-                                  color: AppDesignTokens.gray900,
-                                ),
-                              ),
-                              const SizedBox(height: 4),
-                              Text(
-                                'View and manage B2B and B2C relationships.',
-                                style: TextStyle(
-                                  fontSize: 14,
-                                  color: AppDesignTokens.gray500,
-                                ),
-                              ),
-                            ],
+            // --- HEADER ---
+            Container(
+              padding: const EdgeInsets.all(24),
+              color: Colors.white,
+              child: Column(
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Customer Directory',
+                            style: TextStyle(
+                              fontSize: 24,
+                              fontWeight: FontWeight.bold,
+                            ),
                           ),
-                        ),
-                        if (!isMobileView && _isAdmin)
-                          AnimatedButton(
-                            onPressed: () => _onAddOrEdit(),
-                            icon: Icons.add,
-                            backgroundColor: AppDesignTokens.primary,
-                            foregroundColor: Colors.white,
-                            child: const Text('Add Customer'),
+                          SizedBox(height: 4),
+                          Text(
+                            'Manage B2B and B2C client records.',
+                            style: TextStyle(color: Colors.grey),
                           ),
-                      ],
-                    ),
-                    if (isMobileView && _isAdmin) ...[
-                      const SizedBox(height: 16),
-                      SizedBox(
-                        width: double.infinity,
-                        child: AnimatedButton(
+                        ],
+                      ),
+                      if (!isMobileView)
+                        ElevatedButton.icon(
                           onPressed: () => _onAddOrEdit(),
-                          icon: Icons.add,
-                          backgroundColor: AppDesignTokens.primary,
-                          foregroundColor: Colors.white,
-                          child: const Text('Add Customer'),
+                          icon: const Icon(Icons.add),
+                          label: const Text('Add Customer'),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.blue,
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 20,
+                              vertical: 16,
+                            ),
+                          ),
                         ),
-                      ),
                     ],
-                  ],
-                ),
-              ),
-            ),
-            Expanded(
-              child: SingleChildScrollView(
-                physics: const AlwaysScrollableScrollPhysics(),
-                padding: EdgeInsets.all(isMobileView ? 16 : 24),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    AnimatedCard(
-                      delay: const Duration(milliseconds: 200),
-                      child: HoverCard(
-                        padding: EdgeInsets.zero,
-                        child: Column(
-                          children: [
-                            if (isMobileView) ...[
-                              TextField(
-                                onChanged: (v) => setState(() => _searchQuery = v),
-                                style: TextStyle(fontSize: fontSize),
-                                decoration: InputDecoration(
-                                  hintText: 'Search by name, company...',
-                                  prefixIcon: const Icon(Icons.search),
-                                  filled: true,
-                                  fillColor: Colors.white,
-                                  border: OutlineInputBorder(
-                                    borderRadius: BorderRadius.circular(12),
-                                    borderSide: BorderSide.none,
-                                  ),
-                                ),
-                              ),
-                              const SizedBox(height: 12),
-                              Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 12),
-                                decoration: BoxDecoration(
-                                  color: Colors.white,
-                                  borderRadius: BorderRadius.circular(12),
-                                  border: Border.all(color: const Color(0xFFE2E8F0)),
-                                ),
-                                child: DropdownButton<String>(
-                                  value: _filterType,
-                                  underline: const SizedBox(),
-                                  isExpanded: true,
-                                  items: const [
-                                    DropdownMenuItem(value: 'All', child: Text('All Types')),
-                                    DropdownMenuItem(value: 'B2B', child: Text('B2B')),
-                                    DropdownMenuItem(value: 'B2C', child: Text('B2C')),
-                                  ],
-                                  onChanged: (v) => setState(() => _filterType = v ?? 'All'),
-                                ),
-                              ),
-                            ] else ...[
-                              Row(
-                                children: [
-                                  Expanded(
-                                    child: TextField(
-                                      onChanged: (v) => setState(() => _searchQuery = v),
-                                      style: TextStyle(fontSize: fontSize),
-                                      decoration: InputDecoration(
-                                        hintText: 'Search by name, company, contact, or location...',
-                                        prefixIcon: const Icon(Icons.search),
-                                        filled: true,
-                                        fillColor: Colors.white,
-                                        border: OutlineInputBorder(
-                                          borderRadius: BorderRadius.circular(12),
-                                          borderSide: BorderSide.none,
-                                        ),
-                                      ),
-                                    ),
-                                  ),
-                                  const SizedBox(width: 12),
-                                  Container(
-                                    padding: const EdgeInsets.symmetric(horizontal: 12),
-                                    decoration: BoxDecoration(
-                                      color: Colors.white,
-                                      borderRadius: BorderRadius.circular(12),
-                                      border: Border.all(color: const Color(0xFFE2E8F0)),
-                                    ),
-                                    child: DropdownButton<String>(
-                                      value: _filterType,
-                                      underline: const SizedBox(),
-                                      items: const [
-                                        DropdownMenuItem(value: 'All', child: Text('All Types')),
-                                        DropdownMenuItem(value: 'B2B', child: Text('B2B')),
-                                        DropdownMenuItem(value: 'B2C', child: Text('B2C')),
-                                      ],
-                                      onChanged: (v) => setState(() => _filterType = v ?? 'All'),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ],
-                          ],
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                    if (customers.isEmpty)
-                      EmptyState(
-                        icon: Icons.people_outline,
-                        title: 'No customers found',
-                        message: 'Add your first customer to get started.',
-                        actionLabel: 'Add Customer',
-                        onAction: _isAdmin ? () => _onAddOrEdit() : null,
-                      )
-                    else if (isMobileView)
-                      ...customers.asMap().entries.map((entry) {
-                        final index = entry.key;
-                        final c = entry.value;
-                        return AnimatedCard(
-                          delay: Duration(milliseconds: 300 + (index * 50)),
-                          child: _buildMobileCard(c),
-                        );
-                      })
-                    else
-                      AnimatedCard(
-                        delay: const Duration(milliseconds: 300),
-                        child: HoverCard(
-                          padding: EdgeInsets.zero,
-                          child: SingleChildScrollView(
-                            scrollDirection: Axis.horizontal,
-                            child: DataTable(
-                              columns: [
-                                DataColumn(label: Text('NAME / COMPANY', style: TextStyle(fontSize: fontSize, fontWeight: FontWeight.w700))),
-                                DataColumn(label: Text('TYPE', style: TextStyle(fontSize: fontSize, fontWeight: FontWeight.w700))),
-                                DataColumn(label: Text('CONTACT', style: TextStyle(fontSize: fontSize, fontWeight: FontWeight.w700))),
-                                DataColumn(label: Text('ADDRESS', style: TextStyle(fontSize: fontSize, fontWeight: FontWeight.w700))),
-                                DataColumn(label: Text('ACTIONS', style: TextStyle(fontSize: fontSize, fontWeight: FontWeight.w700))),
-                              ],
-                              rows: customers.map((c) => _dataRow(c)).toList(),
+                  ),
+                  const SizedBox(height: 24),
+
+                  // Search & Filter Row
+                  Row(
+                    children: [
+                      Expanded(
+                        child: TextField(
+                          onChanged: (v) => setState(() => _searchQuery = v),
+                          decoration: InputDecoration(
+                            hintText: 'Search customers...',
+                            prefixIcon: const Icon(Icons.search),
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12),
+                              borderSide: BorderSide.none,
+                            ),
+                            filled: true,
+                            fillColor: Colors.grey[100],
+                            contentPadding: const EdgeInsets.symmetric(
+                              horizontal: 16,
+                              vertical: 14,
                             ),
                           ),
                         ),
                       ),
-                  ],
-                ),
+                      const SizedBox(width: 12),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 12),
+                        decoration: BoxDecoration(
+                          color: Colors.grey[100],
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: DropdownButtonHideUnderline(
+                          child: DropdownButton<String>(
+                            value: _filterType,
+                            items: const [
+                              DropdownMenuItem(
+                                value: 'All',
+                                child: Text('All Types'),
+                              ),
+                              DropdownMenuItem(
+                                value: 'B2B',
+                                child: Text('B2B Only'),
+                              ),
+                              DropdownMenuItem(
+                                value: 'B2C',
+                                child: Text('B2C Only'),
+                              ),
+                            ],
+                            onChanged: (v) =>
+                                setState(() => _filterType = v ?? 'All'),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
               ),
             ),
+            const Divider(height: 1),
+
+            // --- LIST CONTENT ---
+            Expanded(
+              child: _isLoading
+                  ? const Center(child: CircularProgressIndicator())
+                  : filteredList.isEmpty
+                  ? const Center(
+                      child: EmptyState(
+                        icon: Icons.people_outline,
+                        title: 'No customers found',
+                        message:
+                            'Try adjusting your search or add a new customer.',
+                      ),
+                    )
+                  : isMobileView
+                  ? ListView.separated(
+                      padding: const EdgeInsets.all(16),
+                      itemCount: filteredList.length,
+                      separatorBuilder: (ctx, i) => const SizedBox(height: 12),
+                      itemBuilder: (ctx, i) => _MobileCustomerCard(
+                        customer: filteredList[i],
+                        onEdit: () => _onAddOrEdit(existing: filteredList[i]),
+                        onDelete: () => _onDelete(filteredList[i]),
+                      ),
+                    )
+                  : SingleChildScrollView(
+                      padding: const EdgeInsets.all(24),
+                      child: _DesktopCustomerTable(
+                        customers: filteredList,
+                        onEdit: (c) => _onAddOrEdit(existing: c),
+                        onDelete: (c) => _onDelete(c),
+                      ),
+                    ),
+            ),
           ],
-        ),
         ),
       ),
     );
   }
-  
-  Widget _buildMobileCard(CustomerData c) {
-    final typeLabel = c.customerType.type == CustomerTypeKind.b2b ? 'B2B' : 'B2C';
-    final typeColor = c.customerType.type == CustomerTypeKind.b2b ? Colors.blue : Colors.green;
-    
+}
+
+// --- DESKTOP TABLE VIEW ---
+class _DesktopCustomerTable extends StatelessWidget {
+  final List<Customer> customers;
+  final Function(Customer) onEdit;
+  final Function(Customer) onDelete;
+
+  const _DesktopCustomerTable({
+    required this.customers,
+    required this.onEdit,
+    required this.onDelete,
+  });
+
+  @override
+  Widget build(BuildContext context) {
     return Container(
-      margin: const EdgeInsets.only(bottom: 12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.05),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: DataTable(
+        headingRowColor: MaterialStateProperty.all(Colors.grey[50]),
+        columns: const [
+          DataColumn(
+            label: Text(
+              'CLIENT',
+              style: TextStyle(fontWeight: FontWeight.bold),
+            ),
+          ),
+          DataColumn(
+            label: Text('TYPE', style: TextStyle(fontWeight: FontWeight.bold)),
+          ),
+          DataColumn(
+            label: Text(
+              'CONTACT',
+              style: TextStyle(fontWeight: FontWeight.bold),
+            ),
+          ),
+          DataColumn(
+            label: Text(
+              'ADDRESS',
+              style: TextStyle(fontWeight: FontWeight.bold),
+            ),
+          ),
+          DataColumn(
+            label: Text(
+              'ACTIONS',
+              style: TextStyle(fontWeight: FontWeight.bold),
+            ),
+          ),
+        ],
+        rows: customers.map((c) {
+          final isB2B = c.typeName == 'B2B';
+          return DataRow(
+            cells: [
+              DataCell(
+                Row(
+                  children: [
+                    CircleAvatar(
+                      backgroundColor: isB2B
+                          ? Colors.blue[50]
+                          : Colors.green[50],
+                      child: Icon(
+                        isB2B ? Icons.business : Icons.person,
+                        color: isB2B ? Colors.blue : Colors.green,
+                        size: 18,
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Text(
+                          c.displayName,
+                          style: const TextStyle(fontWeight: FontWeight.bold),
+                        ),
+                        if (isB2B && c.contactPersonName.isNotEmpty)
+                          Text(
+                            c.contactPersonName,
+                            style: const TextStyle(
+                              fontSize: 12,
+                              color: Colors.grey,
+                            ),
+                          ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+              DataCell(
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 4,
+                  ),
+                  decoration: BoxDecoration(
+                    color: isB2B ? Colors.blue[50] : Colors.green[50],
+                    borderRadius: BorderRadius.circular(6),
+                    border: Border.all(
+                      color: isB2B ? Colors.blue[100]! : Colors.green[100]!,
+                    ),
+                  ),
+                  child: Text(
+                    c.typeName,
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.bold,
+                      color: isB2B ? Colors.blue[800] : Colors.green[800],
+                    ),
+                  ),
+                ),
+              ),
+              DataCell(Text(c.contactNumber)),
+              DataCell(
+                SizedBox(
+                  width: 250,
+                  child: Text(
+                    c.fullAddress,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ),
+              DataCell(
+                Row(
+                  children: [
+                    IconButton(
+                      icon: const Icon(Icons.edit_outlined, color: Colors.blue),
+                      onPressed: () => onEdit(c),
+                      tooltip: "Edit",
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.delete_outline, color: Colors.red),
+                      onPressed: () => onDelete(c),
+                      tooltip: "Delete",
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          );
+        }).toList(),
+      ),
+    );
+  }
+}
+
+// --- MOBILE CARD VIEW ---
+class _MobileCustomerCard extends StatelessWidget {
+  final Customer customer;
+  final VoidCallback onEdit;
+  final VoidCallback onDelete;
+
+  const _MobileCustomerCard({
+    required this.customer,
+    required this.onEdit,
+    required this.onDelete,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final isB2B = customer.typeName == 'B2B';
+
+    return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(12),
         border: Border.all(color: const Color(0xFFE2E8F0)),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.05),
-            blurRadius: 8,
-            offset: const Offset(0, 2),
-          ),
-        ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: isB2B ? Colors.blue[50] : Colors.green[50],
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(
+                  isB2B ? Icons.business : Icons.person,
+                  color: isB2B ? Colors.blue : Colors.green,
+                  size: 20,
+                ),
+              ),
+              const SizedBox(width: 12),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      _getCustomerDisplayName(c),
-                      style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
+                      customer.displayName,
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                      ),
                     ),
-                    if (c.companyName.isNotEmpty && (c.firstName.isNotEmpty || c.lastName.isNotEmpty))
+                    if (isB2B && customer.contactPersonName.isNotEmpty)
                       Text(
-                        '${c.firstName} ${c.lastName}',
-                        style: const TextStyle(fontSize: 14, color: Colors.black54),
+                        customer.contactPersonName,
+                        style: const TextStyle(
+                          fontSize: 13,
+                          color: Colors.grey,
+                        ),
                       ),
                   ],
                 ),
               ),
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                 decoration: BoxDecoration(
-                  color: typeColor.withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(999),
+                  color: isB2B ? Colors.blue[50] : Colors.green[50],
+                  borderRadius: BorderRadius.circular(6),
                 ),
                 child: Text(
-                  typeLabel,
-                  style: TextStyle(fontSize: 12, color: typeColor, fontWeight: FontWeight.w600),
+                  customer.typeName,
+                  style: TextStyle(
+                    fontSize: 10,
+                    fontWeight: FontWeight.bold,
+                    color: isB2B ? Colors.blue[800] : Colors.green[800],
+                  ),
                 ),
               ),
             ],
           ),
           const SizedBox(height: 12),
-          Row(
-            children: [
-              const Icon(Icons.phone, size: 16, color: Colors.black54),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Text(
-                  c.contactNumber,
-                  style: const TextStyle(fontSize: 14),
-                ),
-              ),
-            ],
-          ),
-          if (c.jobPosition.isNotEmpty) ...[
-            const SizedBox(height: 4),
-            Text(
-              c.jobPosition,
-              style: const TextStyle(fontSize: 12, color: Colors.black54),
-            ),
-          ],
+          const Divider(),
+          const SizedBox(height: 8),
+          _infoRow(Icons.phone, customer.contactNumber),
+          const SizedBox(height: 4),
+          _infoRow(Icons.location_on, customer.fullAddress),
           const SizedBox(height: 12),
           Row(
+            mainAxisAlignment: MainAxisAlignment.end,
             children: [
-              const Icon(Icons.location_on, size: 16, color: Colors.black54),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Text(
-                  _getFullAddress(c),
-                  style: const TextStyle(fontSize: 12, color: Colors.black54),
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                ),
+              TextButton.icon(
+                onPressed: onEdit,
+                icon: const Icon(Icons.edit, size: 16),
+                label: const Text("Edit"),
+              ),
+              TextButton.icon(
+                onPressed: onDelete,
+                icon: const Icon(Icons.delete, size: 16),
+                label: const Text("Delete"),
+                style: TextButton.styleFrom(foregroundColor: Colors.red),
               ),
             ],
           ),
-          if (_isAdmin) ...[
-            const SizedBox(height: 12),
-            const Divider(),
-            const SizedBox(height: 8),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.end,
-              children: [
-                TextButton.icon(
-                  onPressed: () {
-                    HapticFeedback.selectionClick();
-                    _onAddOrEdit(existing: c);
-                  },
-                  icon: const Icon(Icons.edit_outlined, size: 18),
-                  label: const Text('Edit'),
-                ),
-                const SizedBox(width: 8),
-                TextButton.icon(
-                  onPressed: () {
-                    HapticFeedback.mediumImpact();
-                    _onDelete(c);
-                  },
-                  icon: const Icon(Icons.delete_outline, size: 18, color: Colors.red),
-                  label: const Text('Delete', style: TextStyle(color: Colors.red)),
-                ),
-              ],
-            ),
-          ],
         ],
       ),
     );
   }
 
-  DataRow _dataRow(CustomerData c) {
-    final fontSize = _isAdmin ? 14.0 : 16.0;
-    final typeLabel = c.customerType.type == CustomerTypeKind.b2b ? 'B2B' : 'B2C';
-    final typeColor = c.customerType.type == CustomerTypeKind.b2b ? Colors.blue : Colors.green;
-    
-    return DataRow(
-      cells: [
-        DataCell(
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Text(_getCustomerDisplayName(c), style: TextStyle(fontSize: fontSize, fontWeight: FontWeight.w600)),
-              if (c.companyName.isNotEmpty && (c.firstName.isNotEmpty || c.lastName.isNotEmpty))
-                Text(
-                  '${c.firstName} ${c.lastName}',
-                  style: TextStyle(fontSize: fontSize - 2, color: Colors.black54),
-                ),
-            ],
+  Widget _infoRow(IconData icon, String text) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Icon(icon, size: 14, color: Colors.grey),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Text(
+            text,
+            style: const TextStyle(fontSize: 13, color: Colors.black87),
           ),
-        ),
-        DataCell(
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-            decoration: BoxDecoration(
-              color: typeColor.withOpacity(0.1),
-              borderRadius: BorderRadius.circular(999),
-            ),
-            child: Text(
-              typeLabel,
-              style: TextStyle(fontSize: fontSize - 2, color: typeColor, fontWeight: FontWeight.w600),
-            ),
-          ),
-        ),
-        DataCell(
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Text(c.contactNumber, style: TextStyle(fontSize: fontSize)),
-              if (c.jobPosition.isNotEmpty)
-                Text(c.jobPosition, style: TextStyle(fontSize: fontSize - 2, color: Colors.black54)),
-            ],
-          ),
-        ),
-        DataCell(
-          SizedBox(
-            width: 300,
-            child: Text(
-              _getFullAddress(c),
-              style: TextStyle(fontSize: fontSize - 1),
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-            ),
-          ),
-        ),
-        DataCell(
-          _isAdmin
-              ? Row(
-                  children: [
-                    IconButton(
-                      icon: const Icon(Icons.edit_outlined, size: 18, color: Colors.black87),
-                      onPressed: () => _onAddOrEdit(existing: c),
-                    ),
-                    const SizedBox(width: 4),
-                    IconButton(
-                      icon: const Icon(Icons.delete_outline, size: 18, color: Colors.red),
-                      onPressed: () => _onDelete(c),
-                    ),
-                  ],
-                )
-              : const Text('View only', style: TextStyle(fontSize: 12, color: Colors.black54)),
         ),
       ],
     );
   }
-
 }
 
+// --- ADD/EDIT DIALOG ---
 class _CustomerDialog extends StatefulWidget {
-  final CustomerData? customer;
+  final Customer? customer;
   const _CustomerDialog({this.customer});
 
   @override
@@ -608,282 +613,469 @@ class _CustomerDialog extends StatefulWidget {
 }
 
 class _CustomerDialogState extends State<_CustomerDialog> {
-  late TextEditingController _companyController;
-  late TextEditingController _firstNameController;
-  late TextEditingController _middleNameController;
-  late TextEditingController _lastNameController;
-  late TextEditingController _jobPositionController;
-  late TextEditingController _contactController;
-  late TextEditingController _unitController;
-  late TextEditingController _streetController;
-  late TextEditingController _subdivisionController;
-  late TextEditingController _barangayController;
-  late TextEditingController _cityController;
-  late TextEditingController _landmarkController;
-  CustomerTypeKind _customerType = CustomerTypeKind.b2c;
+  final _formKey = GlobalKey<FormState>();
+
+  // Controllers
+  final _companyCtrl = TextEditingController();
+  final _firstCtrl = TextEditingController();
+  final _middleCtrl = TextEditingController();
+  final _lastCtrl = TextEditingController();
+  final _jobCtrl = TextEditingController();
+  final _phoneCtrl = TextEditingController();
+  final _emailCtrl = TextEditingController();
+
+  // Address
+  final _unitCtrl = TextEditingController();
+  final _streetCtrl = TextEditingController();
+  final _villageCtrl = TextEditingController();
+  final _brgyCtrl = TextEditingController();
+  final _cityCtrl = TextEditingController();
+  final _landmarkCtrl = TextEditingController();
+
+  int _typeId = 2; // Default to B2C (2), B2B is (1)
+  bool _isSubmitting = false;
 
   @override
   void initState() {
     super.initState();
-    final c = widget.customer;
-    _companyController = TextEditingController(text: c?.companyName ?? '');
-    _firstNameController = TextEditingController(text: c?.firstName ?? '');
-    _middleNameController = TextEditingController(text: c?.middleName ?? '');
-    _lastNameController = TextEditingController(text: c?.lastName ?? '');
-    _jobPositionController = TextEditingController(text: c?.jobPosition ?? '');
-    _contactController = TextEditingController(text: c?.contactNumber ?? '');
-    _unitController = TextEditingController(text: c?.unitOrBuilding ?? '');
-    _streetController = TextEditingController(text: c?.street ?? '');
-    _subdivisionController = TextEditingController(text: c?.subdivisionOrVillage ?? '');
-    _barangayController = TextEditingController(text: c?.barangay ?? '');
-    _cityController = TextEditingController(text: c?.city ?? '');
-    _landmarkController = TextEditingController(text: c?.landmark ?? '');
-    _customerType = c?.customerType.type ?? CustomerTypeKind.b2c;
-  }
-
-  @override
-  void dispose() {
-    _companyController.dispose();
-    _firstNameController.dispose();
-    _middleNameController.dispose();
-    _lastNameController.dispose();
-    _jobPositionController.dispose();
-    _contactController.dispose();
-    _unitController.dispose();
-    _streetController.dispose();
-    _subdivisionController.dispose();
-    _barangayController.dispose();
-    _cityController.dispose();
-    _landmarkController.dispose();
-    super.dispose();
-  }
-
-  void _submit() {
-    if (_firstNameController.text.trim().isEmpty || _lastNameController.text.trim().isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('First name and last name are required')),
-      );
-      return;
+    if (widget.customer != null) {
+      final c = widget.customer!;
+      _typeId = c.typeId;
+      _companyCtrl.text = c.companyName ?? '';
+      _firstCtrl.text = c.firstName;
+      _middleCtrl.text = c.middleName ?? '';
+      _lastCtrl.text = c.lastName;
+      _jobCtrl.text = c.jobPosition ?? '';
+      _phoneCtrl.text = c.contactNumber;
+      _emailCtrl.text = c.email ?? '';
+      _unitCtrl.text = c.unitNo ?? '';
+      _streetCtrl.text = c.street ?? '';
+      _villageCtrl.text = c.village ?? '';
+      _brgyCtrl.text = c.barangay ?? '';
+      _cityCtrl.text = c.city ?? '';
+      _landmarkCtrl.text = c.landmark ?? '';
     }
+  }
 
-    final customer = CustomerData(
-      id: widget.customer?.id ?? 0,
-      customerType: CustomerTypeData(id: _customerType == CustomerTypeKind.b2b ? 1 : 2, type: _customerType),
-      companyName: _companyController.text.trim(),
-      firstName: _firstNameController.text.trim(),
-      middleName: _middleNameController.text.trim(),
-      lastName: _lastNameController.text.trim(),
-      jobPosition: _jobPositionController.text.trim(),
-      contactNumber: _contactController.text.trim(),
-      unitOrBuilding: _unitController.text.trim(),
-      street: _streetController.text.trim(),
-      subdivisionOrVillage: _subdivisionController.text.trim(),
-      barangay: _barangayController.text.trim(),
-      city: _cityController.text.trim(),
-      landmark: _landmarkController.text.trim(),
-    );
-    Navigator.of(context).pop(customer);
+  Future<void> _submit() async {
+    if (!_formKey.currentState!.validate()) return;
+    setState(() => _isSubmitting = true);
+
+    final data = {
+      'customer_type_id': _typeId,
+      'company_name': _companyCtrl.text.trim().isEmpty
+          ? null
+          : _companyCtrl.text.trim(),
+      'first_name': _firstCtrl.text.trim(),
+      'middle_name': _middleCtrl.text.trim().isEmpty
+          ? null
+          : _middleCtrl.text.trim(),
+      'last_name': _lastCtrl.text.trim(),
+      'job_position': _jobCtrl.text.trim().isEmpty
+          ? null
+          : _jobCtrl.text.trim(),
+      'contact_number': _phoneCtrl.text.trim(),
+      'email': _emailCtrl.text.trim().isEmpty ? null : _emailCtrl.text.trim(),
+      'unit_building_house_no': _unitCtrl.text.trim(),
+      'street': _streetCtrl.text.trim(),
+      'subdivision_village': _villageCtrl.text.trim(),
+      'barangay': _brgyCtrl.text.trim(),
+      'city': _cityCtrl.text.trim(),
+      'landmark': _landmarkCtrl.text.trim().isEmpty
+          ? null
+          : _landmarkCtrl.text.trim(),
+    };
+
+    try {
+      if (widget.customer == null) {
+        // Create
+        final response = await Supabase.instance.client
+            .from('customers')
+            .insert(data)
+            .select('*, customer_types(type_name)')
+            .single();
+        if (mounted) Navigator.pop(context, Customer.fromMap(response));
+      } else {
+        // Update
+        final response = await Supabase.instance.client
+            .from('customers')
+            .update(data)
+            .eq('id', widget.customer!.id)
+            .select('*, customer_types(type_name)')
+            .single();
+        if (mounted) Navigator.pop(context, Customer.fromMap(response));
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error saving: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isSubmitting = false);
+    }
   }
 
   @override
   Widget build(BuildContext context) {
+    // HCI Logic: Hide company fields if B2C
+    final isB2B = _typeId == 1;
+
     return Container(
       constraints: BoxConstraints(
-        maxHeight: MediaQuery.of(context).size.height * 0.92,
+        maxHeight: MediaQuery.of(context).size.height * 0.9,
       ),
       decoration: const BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
       child: Column(
-        mainAxisSize: MainAxisSize.min,
         children: [
-          // Header with drag handle
+          // Header
           Container(
-            padding: const EdgeInsets.fromLTRB(24, 12, 24, 16),
+            padding: const EdgeInsets.all(20),
             decoration: const BoxDecoration(
               border: Border(bottom: BorderSide(color: Color(0xFFE2E8F0))),
             ),
-            child: Column(
+            child: Row(
               children: [
-                Container(
-                  width: 40,
-                  height: 4,
-                  margin: const EdgeInsets.only(bottom: 12),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFE2E8F0),
-                    borderRadius: BorderRadius.circular(2),
+                const Icon(Icons.person_add, color: Colors.blue),
+                const SizedBox(width: 12),
+                Text(
+                  widget.customer == null ? 'Add Customer' : 'Edit Customer',
+                  style: const TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
                   ),
                 ),
-                Row(
+                const Spacer(),
+                IconButton(
+                  onPressed: () => Navigator.pop(context),
+                  icon: const Icon(Icons.close),
+                ),
+              ],
+            ),
+          ),
+
+          // Form
+          Expanded(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.all(24),
+              child: Form(
+                key: _formKey,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Container(
-                      padding: const EdgeInsets.all(10),
-                      decoration: BoxDecoration(
-                        color: Colors.blue.withOpacity(0.1),
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                      child: const Icon(Icons.person, color: Colors.blue, size: 24),
+                    // Type Selector
+                    Row(
+                      children: [
+                        Expanded(
+                          child: _TypeSelectionCard(
+                            title: 'Corporate (B2B)',
+                            icon: Icons.business,
+                            isSelected: isB2B,
+                            onTap: () => setState(() => _typeId = 1),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: _TypeSelectionCard(
+                            title: 'Individual (B2C)',
+                            icon: Icons.person,
+                            isSelected: !isB2B,
+                            onTap: () => setState(() => _typeId = 2),
+                          ),
+                        ),
+                      ],
                     ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Text(
-                        widget.customer == null ? 'Add Customer' : 'Edit Customer',
-                        style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
+                    const SizedBox(height: 24),
+
+                    // Basic Info
+                    const Text(
+                      'Basic Information',
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 16,
                       ),
                     ),
-                    IconButton(
-                      onPressed: () => Navigator.pop(context),
-                      icon: const Icon(Icons.close, size: 20),
-                      padding: EdgeInsets.zero,
-                      constraints: const BoxConstraints(),
+                    const SizedBox(height: 16),
+
+                    if (isB2B) ...[
+                      TextFormField(
+                        controller: _companyCtrl,
+                        decoration: _inputDeco('Company Name', Icons.domain),
+                        validator: (v) => isB2B && (v == null || v.isEmpty)
+                            ? 'Required for B2B'
+                            : null,
+                      ),
+                      const SizedBox(height: 12),
+                    ],
+
+                    Row(
+                      children: [
+                        Expanded(
+                          child: TextFormField(
+                            controller: _firstCtrl,
+                            decoration: _inputDeco(
+                              'First Name',
+                              Icons.person_outline,
+                            ),
+                            validator: (v) => v!.isEmpty ? 'Required' : null,
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: TextFormField(
+                            controller: _lastCtrl,
+                            decoration: _inputDeco('Last Name', null),
+                            validator: (v) => v!.isEmpty ? 'Required' : null,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+
+                    if (isB2B) ...[
+                      TextFormField(
+                        controller: _jobCtrl,
+                        decoration: _inputDeco(
+                          'Job Position',
+                          Icons.badge_outlined,
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                    ],
+
+                    TextFormField(
+                      controller: _phoneCtrl,
+                      decoration: _inputDeco('Phone Number', Icons.phone),
+                      keyboardType: TextInputType.phone,
+                      validator: (v) => v!.isEmpty ? 'Required' : null,
+                    ),
+
+                    const SizedBox(height: 24),
+                    const Text(
+                      'Address',
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 16,
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+
+                    TextFormField(
+                      controller: _unitCtrl,
+                      decoration: _inputDeco('Unit / House #', null),
+                    ),
+                    const SizedBox(height: 12),
+                    TextFormField(
+                      controller: _streetCtrl,
+                      decoration: _inputDeco('Street Name', null),
+                    ),
+                    const SizedBox(height: 12),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: TextFormField(
+                            controller: _brgyCtrl,
+                            decoration: _inputDeco('Barangay', null),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: TextFormField(
+                            controller: _cityCtrl,
+                            decoration: _inputDeco('City', Icons.location_city),
+                          ),
+                        ),
+                      ],
                     ),
                   ],
                 ),
-              ],
-            ),
-          ),
-          // Content
-          Flexible(
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.all(24),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-              DropdownButtonFormField<CustomerTypeKind>(
-                initialValue: _customerType,
-                decoration: const InputDecoration(labelText: 'Customer Type *'),
-                items: const [
-                  DropdownMenuItem(value: CustomerTypeKind.b2b, child: Text('B2B - Business to Business')),
-                  DropdownMenuItem(value: CustomerTypeKind.b2c, child: Text('B2C - Business to Customer')),
-                ],
-                onChanged: (v) => setState(() => _customerType = v ?? CustomerTypeKind.b2c),
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: _companyController,
-                decoration: const InputDecoration(
-                  labelText: 'Company Name (for B2B)',
-                  hintText: 'Leave empty for B2C customers',
-                ),
-              ),
-              const SizedBox(height: 12),
-              Row(
-                children: [
-                  Expanded(
-                    child: TextField(
-                      controller: _firstNameController,
-                      decoration: const InputDecoration(labelText: 'First Name *'),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: TextField(
-                      controller: _middleNameController,
-                      decoration: const InputDecoration(labelText: 'Middle Name'),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: TextField(
-                      controller: _lastNameController,
-                      decoration: const InputDecoration(labelText: 'Last Name *'),
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: _jobPositionController,
-                decoration: const InputDecoration(labelText: 'Job Position (for B2B)'),
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: _contactController,
-                decoration: const InputDecoration(labelText: 'Contact Number *'),
-                keyboardType: TextInputType.phone,
-              ),
-              const SizedBox(height: 20),
-              const Text('Address Information', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
-              const SizedBox(height: 12),
-              TextField(
-                controller: _unitController,
-                decoration: const InputDecoration(labelText: 'Unit/Building/House #'),
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: _streetController,
-                decoration: const InputDecoration(labelText: 'Street'),
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: _subdivisionController,
-                decoration: const InputDecoration(labelText: 'Subdivision/Village'),
-              ),
-              const SizedBox(height: 12),
-              Row(
-                children: [
-                  Expanded(
-                    child: TextField(
-                      controller: _barangayController,
-                      decoration: const InputDecoration(labelText: 'Barangay'),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: TextField(
-                      controller: _cityController,
-                      decoration: const InputDecoration(labelText: 'City'),
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: _landmarkController,
-                decoration: const InputDecoration(labelText: 'Landmark'),
-              ),
-                ],
               ),
             ),
           ),
-          // Footer
+
+          // Footer Action
           Container(
             padding: const EdgeInsets.all(24),
             decoration: const BoxDecoration(
-              color: Colors.white,
               border: Border(top: BorderSide(color: Color(0xFFE2E8F0))),
             ),
-            child: Row(
-              children: [
-                Expanded(
-                  child: OutlinedButton(
-                    onPressed: () => Navigator.of(context).pop(),
-                    style: OutlinedButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(vertical: 14),
-                    ),
-                    child: const Text('Cancel'),
+            child: SizedBox(
+              width: double.infinity,
+              child: ElevatedButton(
+                onPressed: _isSubmitting ? null : _submit,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.blue,
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(vertical: 16),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
                   ),
                 ),
-                const SizedBox(width: 12),
-                Expanded(
-                  flex: 2,
-                  child: ElevatedButton(
-                    onPressed: _submit,
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.blue,
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(vertical: 14),
-                    ),
-                    child: const Text('Save Customer'),
-                  ),
-                ),
-              ],
+                child: _isSubmitting
+                    ? const SizedBox(
+                        height: 20,
+                        width: 20,
+                        child: CircularProgressIndicator(
+                          color: Colors.white,
+                          strokeWidth: 2,
+                        ),
+                      )
+                    : Text(
+                        widget.customer == null
+                            ? 'Save Customer'
+                            : 'Update Customer',
+                      ),
+              ),
             ),
           ),
         ],
       ),
     );
   }
+
+  InputDecoration _inputDeco(String label, IconData? icon) {
+    return InputDecoration(
+      labelText: label,
+      prefixIcon: icon != null
+          ? Icon(icon, size: 20, color: Colors.grey)
+          : null,
+      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      filled: true,
+      fillColor: Colors.white,
+    );
+  }
 }
 
+class _TypeSelectionCard extends StatelessWidget {
+  final String title;
+  final IconData icon;
+  final bool isSelected;
+  final VoidCallback onTap;
+
+  const _TypeSelectionCard({
+    required this.title,
+    required this.icon,
+    required this.isSelected,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        padding: const EdgeInsets.symmetric(vertical: 12),
+        decoration: BoxDecoration(
+          color: isSelected ? Colors.blue.withOpacity(0.1) : Colors.grey[100],
+          border: Border.all(
+            color: isSelected ? Colors.blue : Colors.transparent,
+            width: 2,
+          ),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Column(
+          children: [
+            Icon(icon, color: isSelected ? Colors.blue : Colors.grey),
+            const SizedBox(height: 4),
+            Text(
+              title,
+              style: TextStyle(
+                fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                color: isSelected ? Colors.blue : Colors.grey[700],
+                fontSize: 12,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// --- LOCAL DATA MODEL (Self-Contained) ---
+class Customer {
+  final int id;
+  final int typeId;
+  final String typeName; // 'B2B' or 'B2C'
+  final String? companyName;
+  final String firstName;
+  final String? middleName;
+  final String lastName;
+  final String? jobPosition;
+  final String contactNumber;
+  final String? email;
+  final String? unitNo;
+  final String? street;
+  final String? village;
+  final String? barangay;
+  final String? city;
+  final String? landmark;
+
+  Customer({
+    required this.id,
+    required this.typeId,
+    required this.typeName,
+    this.companyName,
+    required this.firstName,
+    this.middleName,
+    required this.lastName,
+    this.jobPosition,
+    required this.contactNumber,
+    this.email,
+    this.unitNo,
+    this.street,
+    this.village,
+    this.barangay,
+    this.city,
+    this.landmark,
+  });
+
+  factory Customer.fromMap(Map<String, dynamic> map) {
+    // Handle the joined table data
+    final typeData = map['customer_types'];
+    final typeNameStr = typeData != null ? typeData['type_name'] : 'Unknown';
+
+    return Customer(
+      id: map['id'],
+      typeId: map['customer_type_id'],
+      typeName: typeNameStr,
+      companyName: map['company_name'],
+      firstName: map['first_name'] ?? '',
+      middleName: map['middle_name'],
+      lastName: map['last_name'] ?? '',
+      jobPosition: map['job_position'],
+      contactNumber: map['contact_number'] ?? '',
+      email: map['email'],
+      unitNo: map['unit_building_house_no'],
+      street: map['street'],
+      village: map['subdivision_village'],
+      barangay: map['barangay'],
+      city: map['city'],
+      landmark: map['landmark'],
+    );
+  }
+
+  // Helper for Display Name (HCI: Shows Company for B2B, Name for B2C)
+  String get displayName {
+    if (typeName == 'B2B' && companyName != null && companyName!.isNotEmpty) {
+      return companyName!;
+    }
+    return "$firstName $lastName";
+  }
+
+  // Helper for Contact Person (HCI: Shows name under company for B2B)
+  String get contactPersonName => "$firstName $lastName";
+
+  String get fullAddress {
+    final parts = [unitNo, street, village, barangay, city];
+    return parts.where((p) => p != null && p.isNotEmpty).join(', ');
+  }
+}

@@ -5,20 +5,23 @@ class AppShell extends StatefulWidget {
   final int selectedIndex;
   final Widget body;
 
-  const AppShell({super.key, required this.selectedIndex, required this.body});
+  // NEW: Allow pages to pass a FAB to the main shell
+  final Widget? floatingActionButton;
+
+  const AppShell({
+    super.key,
+    required this.selectedIndex,
+    required this.body,
+    this.floatingActionButton, // Initialize it
+  });
 
   @override
   State<AppShell> createState() => _AppShellState();
 }
 
 class _AppShellState extends State<AppShell> {
-  // Key to control the mobile drawer
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
-
-  // State for the sub-menu expansion
   bool _adminMenuExpanded = true;
-
-  // State for the desktop sidebar collapse (minimized vs full)
   bool _desktopSidebarCollapsed = false;
 
   void _onSelect(BuildContext context, int index) {
@@ -45,12 +48,9 @@ class _AppShellState extends State<AppShell> {
 
     final route = routeMap[index];
     if (route != null) {
-      // If we are on mobile and the drawer is open, close it first
       if (_scaffoldKey.currentState?.isDrawerOpen ?? false) {
         Navigator.of(context).pop();
       }
-
-      // Small delay to ensure drawer closing animation finishes smoothly
       Future.delayed(const Duration(milliseconds: 100), () {
         if (mounted && ModalRoute.of(context)?.settings.name != route) {
           Navigator.of(context).pushReplacementNamed(route);
@@ -63,13 +63,12 @@ class _AppShellState extends State<AppShell> {
   Widget build(BuildContext context) {
     return LayoutBuilder(
       builder: (context, constraints) {
-        // HCI STANDARD: Breakpoint usually around 700-900px
         final bool isMobile = constraints.maxWidth < 800;
 
-        // --- MOBILE LAYOUT (Infinix Note 50) ---
+        // --- MOBILE LAYOUT ---
         if (isMobile) {
           return Scaffold(
-            key: _scaffoldKey, // Required to open drawer programmatically
+            key: _scaffoldKey,
             backgroundColor: const Color(0xFFF5F5F5),
             appBar: AppBar(
               backgroundColor: Colors.white,
@@ -81,7 +80,6 @@ class _AppShellState extends State<AppShell> {
                 onPressed: () => _scaffoldKey.currentState?.openDrawer(),
               ),
             ),
-            // The "Floating" Sidebar
             drawer: Drawer(
               width: 280,
               backgroundColor: Colors.white,
@@ -103,18 +101,21 @@ class _AppShellState extends State<AppShell> {
                 ],
               ),
             ),
+            // FIX: Pass the FAB here
+            floatingActionButton: widget.floatingActionButton,
             body: widget.body,
           );
         }
 
-        // --- DESKTOP LAYOUT (PC / Large Tablet) ---
+        // --- DESKTOP LAYOUT ---
         final double sidebarWidth = _desktopSidebarCollapsed ? 70 : 250;
 
         return Scaffold(
           backgroundColor: const Color(0xFFF5F5F5),
+          // FIX: Pass the FAB here (even if rare on desktop, it's supported)
+          floatingActionButton: widget.floatingActionButton,
           body: Row(
             children: [
-              // Permanent Sidebar
               AnimatedContainer(
                 duration: const Duration(milliseconds: 200),
                 width: sidebarWidth,
@@ -146,7 +147,6 @@ class _AppShellState extends State<AppShell> {
                 ),
               ),
               const VerticalDivider(width: 1),
-              // Main Content Area
               Expanded(child: widget.body),
             ],
           ),
@@ -399,7 +399,10 @@ class _UserFooter extends StatelessWidget {
                   radius: 16,
                   child: Text(
                     AppState.roleInitials(),
-                    style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700),
+                    style: const TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                    ),
                   ),
                 ),
                 const SizedBox(width: 12),
@@ -457,7 +460,9 @@ class _MobileAppBarTitle extends StatelessWidget {
       case 4:
         return 'Reports';
       case 5:
-        return AppState.currentRole == UserRole.admin ? 'Customers' : 'Settings';
+        return AppState.currentRole == UserRole.admin
+            ? 'Customers'
+            : 'Settings';
       case 6:
         return 'Technicians';
       case 7:
