@@ -22,18 +22,17 @@ class JobOrder {
   String clientName;
   String jobType;
   DateTime startDateTime;
-
-  // CHANGED: Renamed for clarity (maps to date_scheduled_end)
   DateTime? scheduledEndDate;
-
-  // NEW: Maps to date_completed (Actual finish time)
   DateTime? actualCompletionDate;
-
   String location;
   String status;
   String? notes;
   final int? customerId;
   final bool isCorporate;
+
+  // NEW: Billing Status Flags
+  final bool isUnbilled;
+  final bool isUnpaid;
 
   JobOrder({
     required this.dbId,
@@ -48,6 +47,9 @@ class JobOrder {
     this.notes,
     this.customerId,
     required this.isCorporate,
+    // Initialize new flags
+    required this.isUnbilled,
+    required this.isUnpaid,
   });
 }
 
@@ -82,8 +84,8 @@ class _SchedulingScreenState extends State<SchedulingScreen> {
       final response = await supabase
           .from('job_orders')
           .select(
-            // UPDATED: Now selecting date_scheduled_end and date_completed
-            '*, customers(id, first_name, last_name, company_name, city, barangay, customer_type_id), job_types(job_type_name)',
+            // UPDATED QUERY: Fetch counts for line items and payments
+            '*, customers(id, first_name, last_name, company_name, city, barangay, customer_type_id), job_types(job_type_name), job_order_line_items(count), payments(count)',
           )
           .order('date_scheduled', ascending: false);
 
@@ -117,17 +119,26 @@ class _SchedulingScreenState extends State<SchedulingScreen> {
           start = DateTime.parse(row['date_scheduled']).toLocal();
         }
 
-        // 1. Parse Scheduled End (The extension date)
+        // 1. Parse Scheduled End
         DateTime? schedEnd;
         if (row['date_scheduled_end'] != null) {
           schedEnd = DateTime.parse(row['date_scheduled_end']).toLocal();
         }
 
-        // 2. Parse Actual Completion (History)
+        // 2. Parse Actual Completion
         DateTime? actualEnd;
         if (row['date_completed'] != null) {
           actualEnd = DateTime.parse(row['date_completed']).toLocal();
         }
+
+        // 3. CALCULATE STATUS FLAGS
+        // It is "Unbilled" if line_items count is 0
+        final int itemsCount = row['job_order_line_items'][0]['count'] as int;
+        final bool unbilled = itemsCount == 0;
+
+        // It is "Unpaid" if items exist BUT payments count is 0
+        final int payCount = row['payments'][0]['count'] as int;
+        final bool unpaid = itemsCount > 0 && payCount == 0;
 
         loaded.add(
           JobOrder(
@@ -136,13 +147,16 @@ class _SchedulingScreenState extends State<SchedulingScreen> {
             clientName: clientName,
             jobType: row['job_types']?['job_type_name'] ?? 'Service',
             startDateTime: start,
-            scheduledEndDate: schedEnd, // New Field
-            actualCompletionDate: actualEnd, // New Field
+            scheduledEndDate: schedEnd,
+            actualCompletionDate: actualEnd,
             location: location,
             status: row['status'] ?? 'Pending',
             notes: row['notes'],
             customerId: custId,
             isCorporate: isCorp,
+            // Pass flags to model
+            isUnbilled: unbilled,
+            isUnpaid: unpaid,
           ),
         );
       }
@@ -3023,7 +3037,6 @@ class _JobCard extends StatelessWidget {
       order.startDateTime,
     ).format(context);
 
-    // UPDATED: Check scheduledEndDate instead of endDateTime
     if (order.scheduledEndDate != null) {
       dateText +=
           " - ${order.scheduledEndDate!.month}/${order.scheduledEndDate!.day}";
@@ -3065,6 +3078,7 @@ class _JobCard extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              // Row 1: Job Type & Status Badge
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
@@ -3095,7 +3109,88 @@ class _JobCard extends StatelessWidget {
                   ),
                 ],
               ),
+
+              // NEW: ACTION REQUIRED TAGS (Visual Indicators)
+              if (order.isUnbilled || order.isUnpaid)
+                Padding(
+                  padding: const EdgeInsets.only(top: 8),
+                  child: Row(
+                    children: [
+                      // Red Tag for "Unbilled" (No items added yet)
+                      if (order.isUnbilled)
+                        Container(
+                          margin: const EdgeInsets.only(right: 8),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 2,
+                          ),
+                          decoration: BoxDecoration(
+                            color: Colors.red.withOpacity(0.1),
+                            borderRadius: BorderRadius.circular(4),
+                            border: Border.all(
+                              color: Colors.red.withOpacity(0.3),
+                            ),
+                          ),
+                          child: const Row(
+                            children: [
+                              Icon(
+                                Icons.receipt_long,
+                                size: 12,
+                                color: Colors.red,
+                              ),
+                              SizedBox(width: 4),
+                              Text(
+                                "Unbilled",
+                                style: TextStyle(
+                                  fontSize: 10,
+                                  color: Colors.red,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+
+                      // Orange Tag for "Unpaid" (Items exist, but balance > 0)
+                      if (order.isUnpaid)
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 2,
+                          ),
+                          decoration: BoxDecoration(
+                            color: Colors.orange.withOpacity(0.1),
+                            borderRadius: BorderRadius.circular(4),
+                            border: Border.all(
+                              color: Colors.orange.withOpacity(0.3),
+                            ),
+                          ),
+                          child: const Row(
+                            children: [
+                              Icon(
+                                Icons.payment,
+                                size: 12,
+                                color: Colors.orange,
+                              ),
+                              SizedBox(width: 4),
+                              Text(
+                                "Unpaid",
+                                style: TextStyle(
+                                  fontSize: 10,
+                                  color: Colors.orange,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+
               const SizedBox(height: 10),
+
+              // Row 2: Client Name with Type Icon
               Row(
                 children: [
                   Icon(typeIcon, size: 18, color: typeColor),
@@ -3112,6 +3207,8 @@ class _JobCard extends StatelessWidget {
                   ),
                 ],
               ),
+
+              // Row 3: Location
               Padding(
                 padding: const EdgeInsets.only(left: 26, top: 2),
                 child: Text(
@@ -3121,7 +3218,10 @@ class _JobCard extends StatelessWidget {
                   overflow: TextOverflow.ellipsis,
                 ),
               ),
+
               const SizedBox(height: 10),
+
+              // Row 4: Schedule
               Row(
                 children: [
                   const Icon(

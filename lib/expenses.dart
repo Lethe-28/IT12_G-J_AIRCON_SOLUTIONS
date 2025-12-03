@@ -243,6 +243,7 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
               color: Colors.white,
               child: Column(
                 children: [
+                  // 1. Month Selector & Add Button
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
@@ -284,40 +285,46 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
                   ),
                   const SizedBox(height: 16),
 
-                  // Summary Cards
-                  Row(
-                    children: [
-                      Expanded(
-                        child: _SummaryCard(
-                          label: "Cash In",
-                          amount: _totalIn,
-                          color: Colors.green,
-                          icon: Icons.arrow_downward,
+                  // 2. Summary Cards (Scrollable for Mobile)
+                  SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    child: Row(
+                      children: [
+                        SizedBox(
+                          width: 110, // Fixed width ensures consistency
+                          child: _SummaryCard(
+                            label: "Cash In",
+                            amount: _totalIn,
+                            color: Colors.green,
+                            icon: Icons.arrow_downward,
+                          ),
                         ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: _SummaryCard(
-                          label: "Cash Out",
-                          amount: _totalOut,
-                          color: Colors.red,
-                          icon: Icons.arrow_upward,
+                        const SizedBox(width: 8),
+                        SizedBox(
+                          width: 110,
+                          child: _SummaryCard(
+                            label: "Cash Out",
+                            amount: _totalOut,
+                            color: Colors.red,
+                            icon: Icons.arrow_upward,
+                          ),
                         ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: _SummaryCard(
-                          label: "Net Cash",
-                          amount: netCash,
-                          color: netCash >= 0 ? Colors.blue : Colors.orange,
-                          icon: Icons.account_balance_wallet,
+                        const SizedBox(width: 8),
+                        SizedBox(
+                          width: 120, // Slightly wider for Net Cash label
+                          child: _SummaryCard(
+                            label: "Net Cash",
+                            amount: netCash,
+                            color: netCash >= 0 ? Colors.blue : Colors.orange,
+                            icon: Icons.account_balance_wallet,
+                          ),
                         ),
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
                   const SizedBox(height: 16),
 
-                  // Search Bar
+                  // 3. Search Bar
                   TextField(
                     controller: _searchController,
                     decoration: InputDecoration(
@@ -336,7 +343,7 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
                   ),
                   const SizedBox(height: 12),
 
-                  // Filter Chips
+                  // 4. Filter Chips (Scrollable)
                   SingleChildScrollView(
                     scrollDirection: Axis.horizontal,
                     child: Row(
@@ -384,10 +391,12 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
             ),
             const Divider(height: 1),
 
+            // --- TRANSACTION LIST ---
             Expanded(
               child: _filteredTransactions.isEmpty
                   ? LayoutBuilder(
                       builder: (context, constraints) {
+                        // FIX: Scrollable Empty State to prevent overflow on small screens
                         return SingleChildScrollView(
                           physics: const AlwaysScrollableScrollPhysics(),
                           child: ConstrainedBox(
@@ -553,7 +562,7 @@ class _TransactionCard extends StatelessWidget {
     final color = isIncome ? Colors.green : Colors.red;
 
     return Container(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(12), // Reduced padding for mobile
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(12),
@@ -568,8 +577,9 @@ class _TransactionCard extends StatelessWidget {
       ),
       child: Row(
         children: [
+          // Icon
           Container(
-            padding: const EdgeInsets.all(10),
+            padding: const EdgeInsets.all(8),
             decoration: BoxDecoration(
               color: color.withOpacity(0.1),
               shape: BoxShape.circle,
@@ -579,10 +589,12 @@ class _TransactionCard extends StatelessWidget {
                   ? Icons.home
                   : (isIncome ? Icons.attach_money : Icons.shopping_bag),
               color: color,
-              size: 20,
+              size: 18,
             ),
           ),
-          const SizedBox(width: 16),
+          const SizedBox(width: 12),
+
+          // Description (Expanded takes remaining space)
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -591,17 +603,20 @@ class _TransactionCard extends StatelessWidget {
                   txn.description,
                   style: const TextStyle(
                     fontWeight: FontWeight.bold,
-                    fontSize: 15,
+                    fontSize: 14,
                   ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis, // Prevents overflow
                 ),
                 const SizedBox(height: 4),
-                Row(
+                // Tags Row
+                Wrap(
+                  spacing: 4,
                   children: [
                     if (txn.relatedJob != null)
                       Container(
-                        margin: const EdgeInsets.only(right: 8),
                         padding: const EdgeInsets.symmetric(
-                          horizontal: 6,
+                          horizontal: 4,
                           vertical: 2,
                         ),
                         decoration: BoxDecoration(
@@ -618,25 +633,24 @@ class _TransactionCard extends StatelessWidget {
                         ),
                       ),
                     Text(
-                      txn.category,
-                      style: const TextStyle(fontSize: 12, color: Colors.grey),
-                    ),
-                    const SizedBox(width: 8),
-                    Text(
-                      "${txn.date.month}/${txn.date.day}",
-                      style: const TextStyle(fontSize: 12, color: Colors.grey),
+                      "${txn.category} • ${txn.date.month}/${txn.date.day}",
+                      style: const TextStyle(fontSize: 11, color: Colors.grey),
                     ),
                   ],
                 ),
               ],
             ),
           ),
+
+          const SizedBox(width: 8),
+
+          // Amount (Flexible allows it to shrink slightly if needed)
           Text(
-            "${isIncome ? '+' : '-'} ₱${txn.amount.toStringAsFixed(2)}",
+            "${isIncome ? '+' : '-'}₱${txn.amount.toStringAsFixed(0)}", // Removed decimals for space if preferred, or keep .2f
             style: TextStyle(
               color: color,
               fontWeight: FontWeight.bold,
-              fontSize: 16,
+              fontSize: 15,
             ),
           ),
         ],
