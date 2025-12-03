@@ -386,12 +386,28 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
 
             Expanded(
               child: _filteredTransactions.isEmpty
-                  ? const Center(
-                      child: EmptyState(
-                        icon: Icons.receipt_long,
-                        title: "No Transactions",
-                        message: "No records found matching your criteria.",
-                      ),
+                  ? LayoutBuilder(
+                      builder: (context, constraints) {
+                        return SingleChildScrollView(
+                          physics: const AlwaysScrollableScrollPhysics(),
+                          child: ConstrainedBox(
+                            constraints: BoxConstraints(
+                              minHeight: constraints.maxHeight,
+                            ),
+                            child: const Center(
+                              child: Padding(
+                                padding: EdgeInsets.all(20.0),
+                                child: EmptyState(
+                                  icon: Icons.receipt_long,
+                                  title: "No Transactions",
+                                  message:
+                                      "No records found matching your criteria.",
+                                ),
+                              ),
+                            ),
+                          ),
+                        );
+                      },
                     )
                   : ListView.separated(
                       padding: const EdgeInsets.all(16),
@@ -480,7 +496,7 @@ class _SummaryCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(12), // Reduced padding slightly
       decoration: BoxDecoration(
         color: color.withOpacity(0.1),
         borderRadius: BorderRadius.circular(12),
@@ -493,17 +509,23 @@ class _SummaryCard extends StatelessWidget {
             children: [
               Icon(icon, size: 16, color: color),
               const SizedBox(width: 4),
-              Text(
-                label,
-                style: TextStyle(
-                  color: color,
-                  fontWeight: FontWeight.bold,
-                  fontSize: 12,
+              // FIX: Flexible allows text to shrink if needed
+              Expanded(
+                child: Text(
+                  label,
+                  style: TextStyle(
+                    color: color,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 11, // Slightly smaller font
+                  ),
+                  overflow: TextOverflow.ellipsis,
+                  maxLines: 1,
                 ),
               ),
             ],
           ),
           const SizedBox(height: 8),
+          // FIX: FittedBox forces the amount to scale down instead of overflowing
           FittedBox(
             fit: BoxFit.scaleDown,
             child: Text(
