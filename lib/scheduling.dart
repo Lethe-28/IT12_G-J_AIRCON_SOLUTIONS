@@ -1431,24 +1431,46 @@ class _JobBillingManagerState extends State<_JobBillingManager>
     bool isBold = false,
     Color? color,
   }) {
+    // Default Display Values
+    String displayLabel = label;
+    String displayValue = "₱${value.toStringAsFixed(2)}";
+    Color? finalColor = color;
+
+    // SMART LOGIC: Handle Credit (Negative Balance)
+    if (label == "Balance Due") {
+      if (value < 0) {
+        // Scenario: Client paid more than the current bill (Deposit/Wallet)
+        displayLabel = "Credit / Advance";
+        // Accounting style: (₱500.00) indicates negative/credit
+        displayValue = "(₱${value.abs().toStringAsFixed(2)})";
+        finalColor = Colors.blue; // Friendly color
+      } else if (value > 0) {
+        // Scenario: Client owes money
+        finalColor = Colors.red;
+      } else {
+        // Scenario: Fully Paid
+        finalColor = Colors.grey;
+      }
+    }
+
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 4),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
           Text(
-            label,
+            displayLabel,
             style: TextStyle(
               fontWeight: isBold ? FontWeight.bold : FontWeight.normal,
               fontSize: isBold ? 16 : 14,
             ),
           ),
           Text(
-            "₱${value.toStringAsFixed(2)}",
+            displayValue,
             style: TextStyle(
               fontWeight: isBold ? FontWeight.bold : FontWeight.normal,
               fontSize: isBold ? 18 : 14,
-              color: color,
+              color: finalColor,
             ),
           ),
         ],
