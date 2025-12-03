@@ -1028,6 +1028,7 @@ class _JobBillingManagerState extends State<_JobBillingManager>
         'quantity': qty,
         'actual_price': price,
       });
+      widget.onJobUpdated();
       _fetchBillingData();
     } catch (e) {
       if (mounted)
@@ -1109,6 +1110,7 @@ class _JobBillingManagerState extends State<_JobBillingManager>
               });
               if (mounted) {
                 Navigator.pop(context);
+                widget.onJobUpdated();
                 _fetchBillingData();
                 ScaffoldMessenger.of(context).showSnackBar(
                   const SnackBar(content: Text("Payment Recorded!")),
