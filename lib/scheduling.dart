@@ -70,6 +70,9 @@ class _SchedulingScreenState extends State<SchedulingScreen> {
   DateTime _focusedDate = DateTime.now();
   DateTime _selectedDate = DateTime.now();
 
+  // NEW: Filter State for "Action Needed" view
+  bool _showActionItems = false;
+
   @override
   void initState() {
     super.initState();
@@ -84,7 +87,6 @@ class _SchedulingScreenState extends State<SchedulingScreen> {
       final response = await supabase
           .from('job_orders')
           .select(
-            // UPDATED QUERY: Fetch counts for line items and payments
             '*, customers(id, first_name, last_name, company_name, city, barangay, customer_type_id), job_types(job_type_name), job_order_line_items(count), payments(count)',
           )
           .order('date_scheduled', ascending: false);
@@ -100,7 +102,6 @@ class _SchedulingScreenState extends State<SchedulingScreen> {
 
         if (customer != null) {
           custId = customer['id'];
-          // Check if Corporate (ID 1 = Corporate)
           isCorp = customer['customer_type_id'] == 1;
           if (customer['company_name'] != null &&
               customer['company_name'].toString().isNotEmpty) {
@@ -119,24 +120,19 @@ class _SchedulingScreenState extends State<SchedulingScreen> {
           start = DateTime.parse(row['date_scheduled']).toLocal();
         }
 
-        // 1. Parse Scheduled End
         DateTime? schedEnd;
         if (row['date_scheduled_end'] != null) {
           schedEnd = DateTime.parse(row['date_scheduled_end']).toLocal();
         }
 
-        // 2. Parse Actual Completion
         DateTime? actualEnd;
         if (row['date_completed'] != null) {
           actualEnd = DateTime.parse(row['date_completed']).toLocal();
         }
 
-        // 3. CALCULATE STATUS FLAGS
-        // It is "Unbilled" if line_items count is 0
+        // Status Logic
         final int itemsCount = row['job_order_line_items'][0]['count'] as int;
         final bool unbilled = itemsCount == 0;
-
-        // It is "Unpaid" if items exist BUT payments count is 0
         final int payCount = row['payments'][0]['count'] as int;
         final bool unpaid = itemsCount > 0 && payCount == 0;
 
@@ -154,7 +150,6 @@ class _SchedulingScreenState extends State<SchedulingScreen> {
             notes: row['notes'],
             customerId: custId,
             isCorporate: isCorp,
-            // Pass flags to model
             isUnbilled: unbilled,
             isUnpaid: unpaid,
           ),
@@ -177,10 +172,8 @@ class _SchedulingScreenState extends State<SchedulingScreen> {
   void _onAddOrEdit({JobOrder? existingJob}) async {
     final result = await showDialog(
       context: context,
-      builder: (context) => _JobOrderDialog(
-        initialDate: _selectedDate,
-        existingJob: existingJob, // Pass job for editing
-      ),
+      builder: (context) =>
+          _JobOrderDialog(initialDate: _selectedDate, existingJob: existingJob),
     );
 
     if (result == true) {
@@ -213,7 +206,6 @@ class _SchedulingScreenState extends State<SchedulingScreen> {
       );
       final check = DateTime(day.year, day.month, day.day);
 
-      // UPDATED: Use scheduledEndDate for multi-day bars
       if (o.scheduledEndDate != null) {
         final end = DateTime(
           o.scheduledEndDate!.year,
@@ -225,6 +217,13 @@ class _SchedulingScreenState extends State<SchedulingScreen> {
       }
       return DateUtils.isSameDay(start, check);
     }).toList();
+  }
+
+  // NEW: Get all jobs that need attention, regardless of date
+  List<JobOrder> _getActionableJobs() {
+    return _orders.where((o) => o.isUnbilled || o.isUnpaid).toList()
+      // Sort oldest first so you fix overdue items first
+      ..sort((a, b) => a.startDateTime.compareTo(b.startDateTime));
   }
 
   void _changeMonth(int increment) {
@@ -239,7 +238,11 @@ class _SchedulingScreenState extends State<SchedulingScreen> {
   @override
   Widget build(BuildContext context) {
     final isMobileView = MediaQuery.of(context).size.width < 600;
-    final selectedDayJobs = _getJobsForDay(_selectedDate);
+
+    // DECIDE WHAT TO SHOW: Calendar Jobs OR Action Items
+    final actionableJobs = _getActionableJobs();
+    final calendarJobs = _getJobsForDay(_selectedDate);
+    final displayedJobs = _showActionItems ? actionableJobs : calendarJobs;
 
     return AppShell(
       selectedIndex: 1,
@@ -249,6 +252,7 @@ class _SchedulingScreenState extends State<SchedulingScreen> {
           color: const Color(0xFFF8FAFC),
           child: Column(
             children: [
+              // --- HEADER ---
               Container(
                 padding: EdgeInsets.symmetric(
                   horizontal: isMobileView ? 16 : 32,
@@ -258,26 +262,39 @@ class _SchedulingScreenState extends State<SchedulingScreen> {
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    Row(
-                      children: [
-                        IconButton(
-                          icon: const Icon(Icons.chevron_left),
-                          onPressed: () => _changeMonth(-1),
-                        ),
-                        Text(
-                          "${_monthName(_focusedDate.month)} ${_focusedDate.year}",
-                          style: const TextStyle(
-                            fontSize: 20,
-                            fontWeight: FontWeight.w800,
-                            color: Color(0xFF1E293B),
+                    // Month Selector (Hide if in Action Mode to reduce confusion)
+                    if (!_showActionItems)
+                      Row(
+                        children: [
+                          IconButton(
+                            icon: const Icon(Icons.chevron_left),
+                            onPressed: () => _changeMonth(-1),
                           ),
+                          Text(
+                            "${_monthName(_focusedDate.month)} ${_focusedDate.year}",
+                            style: const TextStyle(
+                              fontSize: 20,
+                              fontWeight: FontWeight.w800,
+                              color: Color(0xFF1E293B),
+                            ),
+                          ),
+                          IconButton(
+                            icon: const Icon(Icons.chevron_right),
+                            onPressed: () => _changeMonth(1),
+                          ),
+                        ],
+                      )
+                    else
+                      // Title for Action Mode
+                      const Text(
+                        "Pending Actions",
+                        style: TextStyle(
+                          fontSize: 20,
+                          fontWeight: FontWeight.w800,
+                          color: Color(0xFF1E293B),
                         ),
-                        IconButton(
-                          icon: const Icon(Icons.chevron_right),
-                          onPressed: () => _changeMonth(1),
-                        ),
-                      ],
-                    ),
+                      ),
+
                     ElevatedButton.icon(
                       onPressed: () => _onAddOrEdit(),
                       style: ElevatedButton.styleFrom(
@@ -301,24 +318,90 @@ class _SchedulingScreenState extends State<SchedulingScreen> {
                 ),
               ),
               const Divider(height: 1),
+
+              // --- SCROLLABLE CONTENT ---
               Expanded(
                 child: SingleChildScrollView(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Container(
-                        color: Colors.white,
-                        padding: const EdgeInsets.only(bottom: 16),
-                        child: _buildCalendarGrid(),
-                      ),
+                      // 1. ACTION BANNER (Only shows if issues exist)
+                      if (actionableJobs.isNotEmpty)
+                        GestureDetector(
+                          onTap: () {
+                            setState(() {
+                              // Toggle between Action Mode and Calendar Mode
+                              _showActionItems = !_showActionItems;
+                            });
+                          },
+                          child: Container(
+                            width: double.infinity,
+                            padding: const EdgeInsets.symmetric(
+                              vertical: 12,
+                              horizontal: 24,
+                            ),
+                            color: _showActionItems
+                                ? Colors.grey[200]
+                                : Colors.orange[50], // Highlight if pending
+                            child: Row(
+                              children: [
+                                Icon(
+                                  _showActionItems
+                                      ? Icons.arrow_back
+                                      : Icons.warning_amber_rounded,
+                                  color: _showActionItems
+                                      ? Colors.black
+                                      : Colors.orange[800],
+                                ),
+                                const SizedBox(width: 12),
+                                Expanded(
+                                  child: Text(
+                                    _showActionItems
+                                        ? "Back to Calendar"
+                                        : "⚠️ ${actionableJobs.length} Jobs need billing or payment",
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                      color: _showActionItems
+                                          ? Colors.black
+                                          : Colors.orange[900],
+                                    ),
+                                  ),
+                                ),
+                                if (!_showActionItems)
+                                  const Text(
+                                    "View All",
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                      color: Colors.blue,
+                                      decoration: TextDecoration.underline,
+                                    ),
+                                  ),
+                              ],
+                            ),
+                          ),
+                        ),
+
+                      // 2. CALENDAR GRID (Hide if in Action Mode)
+                      if (!_showActionItems)
+                        Container(
+                          color: Colors.white,
+                          padding: const EdgeInsets.only(bottom: 16),
+                          child: _buildCalendarGrid(),
+                        ),
+
                       const Divider(height: 1),
+
+                      // 3. JOB LIST
                       Padding(
                         padding: const EdgeInsets.all(20),
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
+                            // Dynamic Title
                             Text(
-                              "Schedule for ${_monthName(_selectedDate.month)} ${_selectedDate.day}",
+                              _showActionItems
+                                  ? "Jobs Requiring Attention (${actionableJobs.length})"
+                                  : "Schedule for ${_monthName(_selectedDate.month)} ${_selectedDate.day}",
                               style: const TextStyle(
                                 fontSize: 18,
                                 fontWeight: FontWeight.w700,
@@ -326,21 +409,29 @@ class _SchedulingScreenState extends State<SchedulingScreen> {
                               ),
                             ),
                             const SizedBox(height: 16),
-                            if (selectedDayJobs.isEmpty)
+
+                            // Empty State
+                            if (displayedJobs.isEmpty)
                               Center(
                                 child: Padding(
                                   padding: const EdgeInsets.all(32.0),
                                   child: Column(
                                     children: [
                                       Icon(
-                                        Icons.event_available,
+                                        _showActionItems
+                                            ? Icons.check_circle_outline
+                                            : Icons.event_available,
                                         size: 48,
                                         color: Colors.grey[300],
                                       ),
                                       const SizedBox(height: 12),
-                                      const Text(
-                                        "No jobs scheduled for this day.",
-                                        style: TextStyle(color: Colors.grey),
+                                      Text(
+                                        _showActionItems
+                                            ? "All caught up! No pending bills."
+                                            : "No jobs scheduled for this day.",
+                                        style: const TextStyle(
+                                          color: Colors.grey,
+                                        ),
                                       ),
                                     ],
                                   ),
@@ -350,13 +441,13 @@ class _SchedulingScreenState extends State<SchedulingScreen> {
                               ListView.separated(
                                 shrinkWrap: true,
                                 physics: const NeverScrollableScrollPhysics(),
-                                itemCount: selectedDayJobs.length,
+                                itemCount: displayedJobs.length,
                                 separatorBuilder: (ctx, i) =>
                                     const SizedBox(height: 12),
                                 itemBuilder: (ctx, i) => GestureDetector(
                                   onTap: () =>
-                                      _showJobDetails(selectedDayJobs[i]),
-                                  child: _JobCard(order: selectedDayJobs[i]),
+                                      _showJobDetails(displayedJobs[i]),
+                                  child: _JobCard(order: displayedJobs[i]),
                                 ),
                               ),
                           ],
