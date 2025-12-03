@@ -1,8 +1,7 @@
 import 'package:flutter/material.dart';
-import 'data/app_state.dart';
-import 'data/models.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import 'ui_app_shell.dart';
-import 'shared/widgets.dart' show AnimatedCard, HoverCard, AnimatedButton, EmptyState, isMobile;
+import 'shared/widgets.dart'; // Assumes EmptyState, AnimatedCard, etc.
 
 class ServiceItemsScreen extends StatefulWidget {
   const ServiceItemsScreen({super.key});
@@ -12,109 +11,80 @@ class ServiceItemsScreen extends StatefulWidget {
 }
 
 class _ServiceItemsScreenState extends State<ServiceItemsScreen> {
-  final List<ServiceItemData> _serviceItems = [];
-  String _searchQuery = '';
-  String _filterType = 'All';
+  final _supabase = Supabase.instance.client;
+  bool _isLoading = true;
 
-  bool get _isAdmin => AppState.currentRole == UserRole.admin;
+  List<ServiceItem> _items = [];
+  String _searchQuery = '';
+  String _filterType = 'All'; // 'All', 'Service', 'Material'
 
   @override
   void initState() {
     super.initState();
-    _seedData();
+    _fetchItems();
   }
 
-  void _seedData() {
-    _serviceItems.addAll([
-      const ServiceItemData(
-        id: 1,
-        itemName: 'AC Installation',
-        itemType: 'Service',
-        price: 5000.0,
-      ),
-      const ServiceItemData(
-        id: 2,
-        itemName: 'Preventive Maintenance',
-        itemType: 'Service',
-        price: 1500.0,
-      ),
-      const ServiceItemData(
-        id: 3,
-        itemName: 'Freon Refill',
-        itemType: 'Material',
-        price: 2500.0,
-      ),
-      const ServiceItemData(
-        id: 4,
-        itemName: 'AC Cleaning',
-        itemType: 'Service',
-        price: 800.0,
-      ),
-      const ServiceItemData(
-        id: 5,
-        itemName: 'Compressor Replacement',
-        itemType: 'Material',
-        price: 12000.0,
-      ),
-    ]);
-  }
+  Future<void> _fetchItems() async {
+    setState(() => _isLoading = true);
+    try {
+      final response = await _supabase
+          .from('service_items')
+          .select()
+          .order('item_name', ascending: true);
 
-  List<ServiceItemData> get _filteredItems {
-    var filtered = _serviceItems;
+      final List<ServiceItem> loaded = [];
+      for (var row in response) {
+        loaded.add(ServiceItem.fromMap(row));
+      }
 
-    if (_filterType != 'All') {
-      filtered = filtered.where((i) => i.itemType == _filterType).toList();
+      if (mounted) {
+        setState(() {
+          _items = loaded;
+          _isLoading = false;
+        });
+      }
+    } catch (e) {
+      debugPrint('Error fetching items: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error loading data: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+        setState(() => _isLoading = false);
+      }
     }
-
-    if (_searchQuery.isNotEmpty) {
-      final q = _searchQuery.toLowerCase();
-      filtered = filtered
-          .where(
-            (i) =>
-                i.itemName.toLowerCase().contains(q) ||
-                i.itemType.toLowerCase().contains(q),
-          )
-          .toList();
-    }
-
-    return filtered;
   }
 
-  Future<void> _onAddOrEdit({ServiceItemData? existing}) async {
-    final ServiceItemData? result = await showModalBottomSheet<ServiceItemData>(
+  // --- CRUD ACTIONS ---
+
+  Future<void> _onAddOrEdit({ServiceItem? existing}) async {
+    final bool? result = await showModalBottomSheet<bool>(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
       builder: (context) => _ServiceItemDialog(item: existing),
     );
-    if (result == null) return;
 
-    setState(() {
-      if (existing == null) {
-        final newId = _serviceItems.isNotEmpty ? _serviceItems.last.id + 1 : 1;
-        _serviceItems.add(
-          ServiceItemData(
-            id: newId,
-            itemName: result.itemName,
-            itemType: result.itemType,
-            price: result.price,
-          ),
-        );
-      } else {
-        final index = _serviceItems.indexWhere((i) => i.id == existing.id);
-        if (index != -1) {
-          _serviceItems[index] = result;
-        }
-      }
-    });
+    if (result == true) {
+      _fetchItems(); // Refresh list
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(existing == null ? 'Item Added' : 'Item Updated'),
+          backgroundColor: Colors.green,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
   }
 
-  void _onDelete(ServiceItemData item) async {
+  Future<void> _onDelete(ServiceItem item) async {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Delete Service Item'),
-        content: Text('Are you sure you want to delete "${item.itemName}"?'),
+        title: const Text('Delete Item'),
+        content: Text('Are you sure you want to delete "${item.name}"?'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
@@ -122,177 +92,161 @@ class _ServiceItemsScreenState extends State<ServiceItemsScreen> {
           ),
           TextButton(
             onPressed: () => Navigator.pop(context, true),
+            style: TextButton.styleFrom(foregroundColor: Colors.red),
             child: const Text('Delete'),
           ),
         ],
       ),
     );
-    if (confirmed != true) return;
-    setState(() {
-      _serviceItems.removeWhere((i) => i.id == item.id);
-    });
+
+    if (confirmed == true) {
+      try {
+        await _supabase.from('service_items').delete().eq('id', item.id);
+        setState(() {
+          _items.removeWhere((i) => i.id == item.id);
+        });
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Item deleted'),
+              behavior: SnackBarBehavior.floating,
+            ),
+          );
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Delete failed: $e'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+      }
+    }
+  }
+
+  List<ServiceItem> get _filteredItems {
+    var filtered = _items;
+
+    if (_filterType != 'All') {
+      // Normalize casing just in case
+      filtered = filtered
+          .where((i) => i.type.toLowerCase() == _filterType.toLowerCase())
+          .toList();
+    }
+
+    if (_searchQuery.isNotEmpty) {
+      final q = _searchQuery.toLowerCase();
+      filtered = filtered.where((i) {
+        return i.name.toLowerCase().contains(q) ||
+            i.type.toLowerCase().contains(q);
+      }).toList();
+    }
+
+    return filtered;
   }
 
   String _formatPrice(double price) => '₱${price.toStringAsFixed(2)}';
 
   @override
   Widget build(BuildContext context) {
-    final items = _filteredItems;
-    final fontSize = _isAdmin ? 14.0 : 16.0;
-
-    // FIX: Detect mobile layout
-    final isMobileView = MediaQuery.of(context).size.width < 600;
+    final filteredList = _filteredItems;
+    final isMobileView = MediaQuery.of(context).size.width < 800;
 
     return AppShell(
-      selectedIndex: 8,
-      body: Column(
-        children: [
-          Expanded(
-            child: SingleChildScrollView(
-              padding: EdgeInsets.all(_isAdmin ? 20 : 24),
+      selectedIndex: 8, // 8 = Service Items Tab
+      // Pass FAB to Shell
+      floatingActionButton: isMobileView
+          ? FloatingActionButton(
+              onPressed: () => _onAddOrEdit(),
+              backgroundColor: Colors.teal,
+              foregroundColor: Colors.white,
+              child: const Icon(Icons.add),
+            )
+          : null,
+
+      body: Container(
+        color: const Color(0xFFF8FAFC),
+        child: Column(
+          children: [
+            // --- HEADER ---
+            Container(
+              padding: const EdgeInsets.all(24),
+              color: Colors.white,
               child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // FIX: Responsive Header
-                  if (isMobileView) ...[
-                    const Text(
-                      'Service Items & Catalog',
-                      style: TextStyle(
-                        fontSize: 24,
-                        fontWeight: FontWeight.w700,
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Service & Parts Catalog',
+                            style: TextStyle(
+                              fontSize: 24,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          SizedBox(height: 4),
+                          Text(
+                            'Manage pricing for services and materials.',
+                            style: TextStyle(color: Colors.grey),
+                          ),
+                        ],
                       ),
-                    ),
-                    const SizedBox(height: 12),
-                    if (_isAdmin)
-                      SizedBox(
-                        width: double.infinity,
-                        child: AnimatedButton(
+                      if (!isMobileView)
+                        ElevatedButton.icon(
                           onPressed: () => _onAddOrEdit(),
-                          icon: Icons.add,
-                          backgroundColor: Theme.of(context).colorScheme.primary,
-                          foregroundColor: Colors.white,
-                          child: const Text('Add Service Item'),
-                        ),
-                      ),
-                  ] else ...[
-                    Row(
-                      children: [
-                        Text(
-                          'Service Items & Catalog',
-                          style: TextStyle(
-                            fontSize: _isAdmin ? 24 : 28,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                        const Spacer(),
-                        if (_isAdmin)
-                          AnimatedButton(
-                            onPressed: () => _onAddOrEdit(),
-                            icon: Icons.add,
-                            backgroundColor: Theme.of(context).colorScheme.primary,
+                          icon: const Icon(Icons.add),
+                          label: const Text('Add Item'),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.teal,
                             foregroundColor: Colors.white,
-                            child: const Text('Add Service Item'),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 20,
+                              vertical: 16,
+                            ),
                           ),
-                      ],
-                    ),
-                  ],
+                        ),
+                    ],
+                  ),
+                  const SizedBox(height: 24),
 
-                  const SizedBox(height: 16),
-
-                  // FIX: Responsive Filters
-                  if (isMobileView) ...[
-                    AnimatedCard(
-                      delay: const Duration(milliseconds: 200),
-                      child: HoverCard(
-                        padding: EdgeInsets.zero,
+                  // Filter Row
+                  Row(
+                    children: [
+                      Expanded(
+                        flex: 2,
                         child: TextField(
                           onChanged: (v) => setState(() => _searchQuery = v),
-                          style: TextStyle(fontSize: fontSize),
                           decoration: InputDecoration(
-                            hintText: 'Search by name or type...',
+                            hintText: 'Search items...',
                             prefixIcon: const Icon(Icons.search),
-                            filled: true,
-                            fillColor: Colors.white,
                             border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(10),
+                              borderRadius: BorderRadius.circular(12),
                               borderSide: BorderSide.none,
                             ),
-                          ),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    AnimatedCard(
-                      delay: const Duration(milliseconds: 250),
-                      child: HoverCard(
-                        padding: EdgeInsets.zero,
-                        child: Container(
-                          width: double.infinity,
-                          padding: const EdgeInsets.symmetric(horizontal: 12),
-                          decoration: BoxDecoration(
-                            color: Colors.white,
-                            borderRadius: BorderRadius.circular(10),
-                            border: Border.all(color: const Color(0xFFE2E8F0)),
-                          ),
-                          child: DropdownButtonHideUnderline(
-                            child: DropdownButton<String>(
-                              value: _filterType,
-                              isExpanded: true,
-                              items: const [
-                                DropdownMenuItem(
-                                  value: 'All',
-                                  child: Text('All Types'),
-                                ),
-                                DropdownMenuItem(
-                                  value: 'Service',
-                                  child: Text('Service'),
-                                ),
-                                DropdownMenuItem(
-                                  value: 'Material',
-                                  child: Text('Material'),
-                                ),
-                              ],
-                              onChanged: (v) =>
-                                  setState(() => _filterType = v ?? 'All'),
+                            filled: true,
+                            fillColor: Colors.grey[100],
+                            contentPadding: const EdgeInsets.symmetric(
+                              horizontal: 16,
+                              vertical: 14,
                             ),
                           ),
                         ),
                       ),
-                    ),
-                  ] else ...[
-                    AnimatedCard(
-                      delay: const Duration(milliseconds: 200),
-                      child: HoverCard(
-                        padding: EdgeInsets.zero,
-                        child: Row(
-                          children: [
-                            Expanded(
-                              child: TextField(
-                                onChanged: (v) => setState(() => _searchQuery = v),
-                                style: TextStyle(fontSize: fontSize),
-                                decoration: InputDecoration(
-                              hintText: 'Search by name or type...',
-                              prefixIcon: const Icon(Icons.search),
-                              filled: true,
-                              fillColor: Colors.white,
-                              border: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(10),
-                                borderSide: BorderSide.none,
-                              ),
-                            ),
-                          ),
+                      const SizedBox(width: 12),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 12),
+                        decoration: BoxDecoration(
+                          color: Colors.grey[100],
+                          borderRadius: BorderRadius.circular(12),
                         ),
-                        const SizedBox(width: 12),
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 12),
-                          decoration: BoxDecoration(
-                            color: Colors.white,
-                            borderRadius: BorderRadius.circular(10),
-                            border: Border.all(color: const Color(0xFFE2E8F0)),
-                          ),
+                        child: DropdownButtonHideUnderline(
                           child: DropdownButton<String>(
                             value: _filterType,
-                            underline: const SizedBox(),
                             items: const [
                               DropdownMenuItem(
                                 value: 'All',
@@ -300,134 +254,219 @@ class _ServiceItemsScreenState extends State<ServiceItemsScreen> {
                               ),
                               DropdownMenuItem(
                                 value: 'Service',
-                                child: Text('Service'),
+                                child: Text('Services Only'),
                               ),
                               DropdownMenuItem(
                                 value: 'Material',
-                                child: Text('Material'),
+                                child: Text('Materials Only'),
                               ),
                             ],
                             onChanged: (v) =>
                                 setState(() => _filterType = v ?? 'All'),
                           ),
                         ),
-                      ],
-                    ),
-                        ),
                       ),
-                  ],
-
-                  const SizedBox(height: 16),
-
-                  // FIX: Mobile Cards vs Desktop Table
-                  if (isMobileView)
-                    ...items.asMap().entries.map((e) => AnimatedCard(
-                      delay: Duration(milliseconds: 300 + (e.key * 50)),
-                      child: _buildMobileCard(e.value),
-                    ))
-                  else
-                    AnimatedCard(
-                      delay: const Duration(milliseconds: 300),
-                      child: HoverCard(
-                        padding: EdgeInsets.zero,
-                        child: Container(
-                      decoration: _cardDeco(),
-                      child: SingleChildScrollView(
-                        scrollDirection: Axis.horizontal,
-                        child: ConstrainedBox(
-                          constraints: const BoxConstraints(minWidth: 800),
-                          child: DataTable(
-                            columns: [
-                              DataColumn(
-                                label: Text(
-                                  'ITEM NAME',
-                                  style: TextStyle(
-                                    fontSize: fontSize,
-                                    fontWeight: FontWeight.w700,
-                                  ),
-                                ),
-                              ),
-                              DataColumn(
-                                label: Text(
-                                  'TYPE',
-                                  style: TextStyle(
-                                    fontSize: fontSize,
-                                    fontWeight: FontWeight.w700,
-                                  ),
-                                ),
-                              ),
-                              DataColumn(
-                                label: Text(
-                                  'PRICE',
-                                  style: TextStyle(
-                                    fontSize: fontSize,
-                                    fontWeight: FontWeight.w700,
-                                  ),
-                                ),
-                              ),
-                              DataColumn(
-                                label: Text(
-                                  'ACTIONS',
-                                  style: TextStyle(
-                                    fontSize: fontSize,
-                                    fontWeight: FontWeight.w700,
-                                  ),
-                                ),
-                              ),
-                            ],
-                            rows: items.map((i) => _dataRow(i)).toList(),
-                          ),
-                        ),
-                      ),
-                        ),
-                      ),
-                    ),
+                    ],
+                  ),
                 ],
               ),
             ),
-          ),
-        ],
+            const Divider(height: 1),
+
+            // --- LIST CONTENT ---
+            Expanded(
+              child: _isLoading
+                  ? const Center(child: CircularProgressIndicator())
+                  : filteredList.isEmpty
+                  ? const Center(
+                      child: EmptyState(
+                        icon: Icons.inventory_2_outlined,
+                        title: 'No items found',
+                        message: 'Try adjusting filters or add a new item.',
+                      ),
+                    )
+                  : isMobileView
+                  ? ListView.separated(
+                      padding: const EdgeInsets.all(16),
+                      itemCount: filteredList.length,
+                      separatorBuilder: (ctx, i) => const SizedBox(height: 12),
+                      itemBuilder: (ctx, i) => _MobileItemCard(
+                        item: filteredList[i],
+                        onEdit: () => _onAddOrEdit(existing: filteredList[i]),
+                        onDelete: () => _onDelete(filteredList[i]),
+                      ),
+                    )
+                  : SingleChildScrollView(
+                      padding: const EdgeInsets.all(24),
+                      child: _DesktopItemTable(
+                        items: filteredList,
+                        onEdit: (i) => _onAddOrEdit(existing: i),
+                        onDelete: (i) => _onDelete(i),
+                      ),
+                    ),
+            ),
+          ],
+        ),
       ),
     );
   }
+}
 
-  // New Mobile Card Widget
-  Widget _buildMobileCard(ServiceItemData i) {
-    final typeColor = i.itemType == 'Service' ? Colors.blue : Colors.purple;
+// --- DESKTOP TABLE ---
+class _DesktopItemTable extends StatelessWidget {
+  final List<ServiceItem> items;
+  final Function(ServiceItem) onEdit;
+  final Function(ServiceItem) onDelete;
+
+  const _DesktopItemTable({
+    required this.items,
+    required this.onEdit,
+    required this.onDelete,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.05),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: DataTable(
+        headingRowColor: MaterialStateProperty.all(Colors.grey[50]),
+        columns: const [
+          DataColumn(
+            label: Text(
+              'ITEM NAME',
+              style: TextStyle(fontWeight: FontWeight.bold),
+            ),
+          ),
+          DataColumn(
+            label: Text('TYPE', style: TextStyle(fontWeight: FontWeight.bold)),
+          ),
+          DataColumn(
+            label: Text('PRICE', style: TextStyle(fontWeight: FontWeight.bold)),
+          ),
+          DataColumn(
+            label: Text(
+              'ACTIONS',
+              style: TextStyle(fontWeight: FontWeight.bold),
+            ),
+          ),
+        ],
+        rows: items.map((i) {
+          final isService = i.type == 'Service';
+          return DataRow(
+            cells: [
+              DataCell(
+                Text(
+                  i.name,
+                  style: const TextStyle(fontWeight: FontWeight.bold),
+                ),
+              ),
+              DataCell(
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 4,
+                  ),
+                  decoration: BoxDecoration(
+                    color: isService ? Colors.blue[50] : Colors.teal[50],
+                    borderRadius: BorderRadius.circular(6),
+                    border: Border.all(
+                      color: isService ? Colors.blue[100]! : Colors.teal[100]!,
+                    ),
+                  ),
+                  child: Text(
+                    i.type,
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.bold,
+                      color: isService ? Colors.blue[800] : Colors.teal[800],
+                    ),
+                  ),
+                ),
+              ),
+              DataCell(
+                Text(
+                  '₱${i.price.toStringAsFixed(2)}',
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w600,
+                    color: Colors.green,
+                  ),
+                ),
+              ),
+              DataCell(
+                Row(
+                  children: [
+                    IconButton(
+                      icon: const Icon(Icons.edit_outlined, color: Colors.blue),
+                      onPressed: () => onEdit(i),
+                      tooltip: "Edit",
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.delete_outline, color: Colors.red),
+                      onPressed: () => onDelete(i),
+                      tooltip: "Delete",
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          );
+        }).toList(),
+      ),
+    );
+  }
+}
+
+// --- MOBILE CARD ---
+class _MobileItemCard extends StatelessWidget {
+  final ServiceItem item;
+  final VoidCallback onEdit;
+  final VoidCallback onDelete;
+
+  const _MobileItemCard({
+    required this.item,
+    required this.onEdit,
+    required this.onDelete,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final isService = item.type == 'Service';
+    final typeColor = isService ? Colors.blue : Colors.teal;
 
     return Container(
-      margin: const EdgeInsets.only(bottom: 12),
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(12),
         border: Border.all(color: const Color(0xFFE2E8F0)),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.05),
-            blurRadius: 8,
-            offset: const Offset(0, 2),
-          ),
-        ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Expanded(
                 child: Text(
-                  i.itemName,
+                  item.name,
                   style: const TextStyle(
                     fontSize: 16,
-                    fontWeight: FontWeight.w700,
+                    fontWeight: FontWeight.bold,
                   ),
                 ),
               ),
               Text(
-                _formatPrice(i.price),
+                '₱${item.price.toStringAsFixed(2)}',
                 style: const TextStyle(
                   fontSize: 16,
                   fontWeight: FontWeight.w700,
@@ -444,7 +483,7 @@ class _ServiceItemsScreenState extends State<ServiceItemsScreen> {
               borderRadius: BorderRadius.circular(8),
             ),
             child: Text(
-              i.itemType,
+              item.type,
               style: TextStyle(
                 fontSize: 12,
                 color: typeColor,
@@ -452,116 +491,36 @@ class _ServiceItemsScreenState extends State<ServiceItemsScreen> {
               ),
             ),
           ),
-          if (_isAdmin) ...[
-            const SizedBox(height: 12),
-            const Divider(),
-            const SizedBox(height: 8),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.end,
-              children: [
-                TextButton.icon(
-                  onPressed: () => _onAddOrEdit(existing: i),
-                  icon: const Icon(Icons.edit, size: 16),
-                  label: const Text('Edit'),
+          const Divider(height: 24),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.end,
+            children: [
+              TextButton.icon(
+                onPressed: onEdit,
+                icon: const Icon(Icons.edit, size: 16),
+                label: const Text('Edit'),
+              ),
+              const SizedBox(width: 8),
+              TextButton.icon(
+                onPressed: onDelete,
+                icon: const Icon(Icons.delete, size: 16),
+                label: const Text(
+                  'Delete',
+                  style: TextStyle(color: Colors.red),
                 ),
-                const SizedBox(width: 8),
-                TextButton.icon(
-                  onPressed: () => _onDelete(i),
-                  icon: const Icon(Icons.delete, size: 16),
-                  label: const Text(
-                    'Delete',
-                    style: TextStyle(color: Colors.red),
-                  ),
-                  style: TextButton.styleFrom(foregroundColor: Colors.red),
-                ),
-              ],
-            ),
-          ],
+                style: TextButton.styleFrom(foregroundColor: Colors.red),
+              ),
+            ],
+          ),
         ],
       ),
     );
   }
-
-  DataRow _dataRow(ServiceItemData i) {
-    final fontSize = _isAdmin ? 14.0 : 16.0;
-    final typeColor = i.itemType == 'Service' ? Colors.blue : Colors.purple;
-
-    return DataRow(
-      cells: [
-        DataCell(
-          Text(
-            i.itemName,
-            style: TextStyle(fontSize: fontSize, fontWeight: FontWeight.w600),
-          ),
-        ),
-        DataCell(
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-            decoration: BoxDecoration(
-              color: typeColor.withOpacity(0.1),
-              borderRadius: BorderRadius.circular(999),
-            ),
-            child: Text(
-              i.itemType,
-              style: TextStyle(
-                fontSize: fontSize - 2,
-                color: typeColor,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-          ),
-        ),
-        DataCell(
-          Text(
-            _formatPrice(i.price),
-            style: TextStyle(
-              fontSize: fontSize,
-              fontWeight: FontWeight.w600,
-              color: Colors.green,
-            ),
-          ),
-        ),
-        DataCell(
-          _isAdmin
-              ? Row(
-                  children: [
-                    IconButton(
-                      icon: const Icon(
-                        Icons.edit_outlined,
-                        size: 18,
-                        color: Colors.black87,
-                      ),
-                      onPressed: () => _onAddOrEdit(existing: i),
-                    ),
-                    const SizedBox(width: 4),
-                    IconButton(
-                      icon: const Icon(
-                        Icons.delete_outline,
-                        size: 18,
-                        color: Colors.red,
-                      ),
-                      onPressed: () => _onDelete(i),
-                    ),
-                  ],
-                )
-              : const Text(
-                  'View only',
-                  style: TextStyle(fontSize: 12, color: Colors.black54),
-                ),
-        ),
-      ],
-    );
-  }
-
-  BoxDecoration _cardDeco() => BoxDecoration(
-    color: Colors.white,
-    borderRadius: BorderRadius.circular(12),
-    border: Border.all(color: const Color(0xFFE2E8F0)),
-  );
 }
 
+// --- ADD/EDIT DIALOG ---
 class _ServiceItemDialog extends StatefulWidget {
-  final ServiceItemData? item;
+  final ServiceItem? item;
   const _ServiceItemDialog({this.item});
 
   @override
@@ -569,197 +528,214 @@ class _ServiceItemDialog extends StatefulWidget {
 }
 
 class _ServiceItemDialogState extends State<_ServiceItemDialog> {
-  late TextEditingController _nameController;
-  late TextEditingController _priceController;
+  final _formKey = GlobalKey<FormState>();
+  final _nameCtrl = TextEditingController();
+  final _priceCtrl = TextEditingController();
+
   String _itemType = 'Service';
+  bool _isSubmitting = false;
 
   @override
   void initState() {
     super.initState();
-    final i = widget.item;
-    _nameController = TextEditingController(text: i?.itemName ?? '');
-    _priceController = TextEditingController(
-      text: i != null ? i.price.toStringAsFixed(2) : '',
-    );
-    _itemType = i?.itemType ?? 'Service';
+    if (widget.item != null) {
+      _nameCtrl.text = widget.item!.name;
+      _priceCtrl.text = widget.item!.price.toStringAsFixed(2);
+      _itemType = widget.item!.type;
+    }
   }
 
-  @override
-  void dispose() {
-    _nameController.dispose();
-    _priceController.dispose();
-    super.dispose();
-  }
+  Future<void> _submit() async {
+    if (!_formKey.currentState!.validate()) return;
+    setState(() => _isSubmitting = true);
 
-  void _submit() {
-    if (_nameController.text.trim().isEmpty ||
-        _priceController.text.trim().isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Item name and price are required')),
-      );
-      return;
+    final price = double.tryParse(_priceCtrl.text.trim()) ?? 0.0;
+
+    final data = {
+      'item_name': _nameCtrl.text.trim(),
+      'item_type': _itemType,
+      'price': price,
+    };
+
+    try {
+      if (widget.item == null) {
+        await Supabase.instance.client.from('service_items').insert(data);
+      } else {
+        await Supabase.instance.client
+            .from('service_items')
+            .update(data)
+            .eq('id', widget.item!.id);
+      }
+      if (mounted) Navigator.pop(context, true);
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error saving: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isSubmitting = false);
     }
-
-    final price = double.tryParse(_priceController.text.trim());
-    if (price == null || price < 0) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please enter a valid price')),
-      );
-      return;
-    }
-
-    final item = ServiceItemData(
-      id: widget.item?.id ?? 0,
-      itemName: _nameController.text.trim(),
-      itemType: _itemType,
-      price: price,
-    );
-    Navigator.of(context).pop(item);
   }
 
   @override
   Widget build(BuildContext context) {
     return Container(
       constraints: BoxConstraints(
-        maxHeight: MediaQuery.of(context).size.height * 0.92,
+        maxHeight: MediaQuery.of(context).size.height * 0.9,
       ),
       decoration: const BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
       child: Column(
-        mainAxisSize: MainAxisSize.min,
+        mainAxisSize: MainAxisSize.min, // Hug content
         children: [
-          // Header with drag handle
+          // Header
           Container(
-            padding: const EdgeInsets.fromLTRB(24, 12, 24, 16),
+            padding: const EdgeInsets.all(20),
             decoration: const BoxDecoration(
               border: Border(bottom: BorderSide(color: Color(0xFFE2E8F0))),
             ),
-            child: Column(
+            child: Row(
               children: [
-                Container(
-                  width: 40,
-                  height: 4,
-                  margin: const EdgeInsets.only(bottom: 12),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFE2E8F0),
-                    borderRadius: BorderRadius.circular(2),
+                const Icon(Icons.inventory_2, color: Colors.teal),
+                const SizedBox(width: 12),
+                Text(
+                  widget.item == null ? 'Add Item' : 'Edit Item',
+                  style: const TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
                   ),
                 ),
-                Row(
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.all(10),
-                      decoration: BoxDecoration(
-                        color: Colors.teal.withOpacity(0.1),
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                      child: const Icon(
-                        Icons.build,
-                        color: Colors.teal,
-                        size: 24,
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Text(
-                        widget.item == null
-                            ? 'Add Service Item'
-                            : 'Edit Service Item',
-                        style: const TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                    ),
-                    IconButton(
-                      onPressed: () => Navigator.pop(context),
-                      icon: const Icon(Icons.close, size: 20),
-                      padding: EdgeInsets.zero,
-                      constraints: const BoxConstraints(),
-                    ),
-                  ],
+                const Spacer(),
+                IconButton(
+                  onPressed: () => Navigator.pop(context),
+                  icon: const Icon(Icons.close),
                 ),
               ],
             ),
           ),
-          // Content
+
+          // Form
           Flexible(
             child: SingleChildScrollView(
               padding: const EdgeInsets.all(24),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  TextField(
-                    controller: _nameController,
-                    decoration: const InputDecoration(labelText: 'Item Name *'),
-                  ),
-                  const SizedBox(height: 12),
-                  DropdownButtonFormField<String>(
-                    initialValue: _itemType,
-                    decoration: const InputDecoration(labelText: 'Item Type *'),
-                    items: const [
-                      DropdownMenuItem(
-                        value: 'Service',
-                        child: Text('Service'),
+              child: Form(
+                key: _formKey,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    TextFormField(
+                      controller: _nameCtrl,
+                      decoration: const InputDecoration(
+                        labelText: 'Item Name *',
+                        border: OutlineInputBorder(),
                       ),
-                      DropdownMenuItem(
-                        value: 'Material',
-                        child: Text('Material'),
-                      ),
-                    ],
-                    onChanged: (v) =>
-                        setState(() => _itemType = v ?? 'Service'),
-                  ),
-                  const SizedBox(height: 12),
-                  TextField(
-                    controller: _priceController,
-                    decoration: const InputDecoration(labelText: 'Price (₱) *'),
-                    keyboardType: const TextInputType.numberWithOptions(
-                      decimal: true,
+                      validator: (v) => v!.isEmpty ? 'Required' : null,
                     ),
-                  ),
-                ],
+                    const SizedBox(height: 16),
+                    DropdownButtonFormField<String>(
+                      value: _itemType,
+                      decoration: const InputDecoration(
+                        labelText: 'Item Type *',
+                        border: OutlineInputBorder(),
+                      ),
+                      items: const [
+                        DropdownMenuItem(
+                          value: 'Service',
+                          child: Text('Service (Labor)'),
+                        ),
+                        DropdownMenuItem(
+                          value: 'Material',
+                          child: Text('Material (Parts)'),
+                        ),
+                      ],
+                      onChanged: (v) =>
+                          setState(() => _itemType = v ?? 'Service'),
+                    ),
+                    const SizedBox(height: 16),
+                    TextFormField(
+                      controller: _priceCtrl,
+                      decoration: const InputDecoration(
+                        labelText: 'Price (₱) *',
+                        border: OutlineInputBorder(),
+                      ),
+                      keyboardType: const TextInputType.numberWithOptions(
+                        decimal: true,
+                      ),
+                      validator: (v) {
+                        if (v == null || v.isEmpty) return 'Required';
+                        if (double.tryParse(v) == null) return 'Invalid number';
+                        return null;
+                      },
+                    ),
+                  ],
+                ),
               ),
             ),
           ),
+
           // Footer
           Container(
             padding: const EdgeInsets.all(24),
             decoration: const BoxDecoration(
-              color: Colors.white,
               border: Border(top: BorderSide(color: Color(0xFFE2E8F0))),
             ),
-            child: Row(
-              children: [
-                Expanded(
-                  child: OutlinedButton(
-                    onPressed: () => Navigator.of(context).pop(),
-                    style: OutlinedButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(vertical: 14),
-                    ),
-                    child: const Text('Cancel'),
+            child: SizedBox(
+              width: double.infinity,
+              child: ElevatedButton(
+                onPressed: _isSubmitting ? null : _submit,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.teal,
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(vertical: 16),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
                   ),
                 ),
-                const SizedBox(width: 12),
-                Expanded(
-                  flex: 2,
-                  child: ElevatedButton(
-                    onPressed: _submit,
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.teal,
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(vertical: 14),
-                    ),
-                    child: const Text('Save Service Item'),
-                  ),
-                ),
-              ],
+                child: _isSubmitting
+                    ? const SizedBox(
+                        height: 20,
+                        width: 20,
+                        child: CircularProgressIndicator(
+                          color: Colors.white,
+                          strokeWidth: 2,
+                        ),
+                      )
+                    : Text(widget.item == null ? 'Save Item' : 'Update Item'),
+              ),
             ),
           ),
         ],
       ),
+    );
+  }
+}
+
+// --- LOCAL DATA MODEL ---
+class ServiceItem {
+  final int id;
+  final String name;
+  final String type;
+  final double price;
+
+  ServiceItem({
+    required this.id,
+    required this.name,
+    required this.type,
+    required this.price,
+  });
+
+  factory ServiceItem.fromMap(Map<String, dynamic> map) {
+    return ServiceItem(
+      id: map['id'],
+      name: map['item_name'] ?? 'Unknown Item',
+      type: map['item_type'] ?? 'Service',
+      price: (map['price'] as num?)?.toDouble() ?? 0.0,
     );
   }
 }
