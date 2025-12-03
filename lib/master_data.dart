@@ -1,8 +1,7 @@
 import 'package:flutter/material.dart';
-import 'data/app_state.dart';
-import 'data/models.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import 'ui_app_shell.dart';
-import 'shared_header.dart';
+import 'shared/widgets.dart'; // Assumes EmptyState, etc.
 
 class MasterDataScreen extends StatefulWidget {
   const MasterDataScreen({super.key});
@@ -11,12 +10,14 @@ class MasterDataScreen extends StatefulWidget {
   State<MasterDataScreen> createState() => _MasterDataScreenState();
 }
 
-class _MasterDataScreenState extends State<MasterDataScreen> with SingleTickerProviderStateMixin {
+class _MasterDataScreenState extends State<MasterDataScreen>
+    with SingleTickerProviderStateMixin {
   late TabController _tabController;
 
   @override
   void initState() {
     super.initState();
+    // 5 Tabs: Brands, AC Types | Job Types, Statuses, Client Types
     _tabController = TabController(length: 5, vsync: this);
   }
 
@@ -29,1013 +30,751 @@ class _MasterDataScreenState extends State<MasterDataScreen> with SingleTickerPr
   @override
   Widget build(BuildContext context) {
     return AppShell(
-      selectedIndex: AppState.currentRole == UserRole.admin ? 9 : 1,
-      body: Column(
-        children: [
-          SharedHeader(
-            welcomeText: 'Master Data Settings',
-            subtitleText: 'Maintain brands, types, statuses, and references.',
-            notificationCount: 0,
-            showGreeting: false,
-          ),
-          Expanded(
-            child: Column(
-              children: [
-                Container(
-                  color: Colors.white,
-                  child: TabBar(
+      selectedIndex: 9, // Master Data Tab
+      body: Container(
+        color: const Color(0xFFF8FAFC),
+        child: Column(
+          children: [
+            // --- HEADER ---
+            Container(
+              padding: const EdgeInsets.fromLTRB(24, 24, 24, 0),
+              color: Colors.white,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Master Data Settings',
+                    style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
+                  ),
+                  const SizedBox(height: 4),
+                  const Text(
+                    'Manage brands, types, and view system definitions.',
+                    style: TextStyle(color: Colors.grey),
+                  ),
+                  const SizedBox(height: 16),
+
+                  // Standard Tab Bar (Blue Text + Underline)
+                  TabBar(
                     controller: _tabController,
                     isScrollable: true,
+                    labelColor: Colors.blue[700],
+                    unselectedLabelColor: Colors.grey[600],
+                    indicatorColor: Colors.blue[700],
+                    indicatorWeight: 3,
+                    labelStyle: const TextStyle(fontWeight: FontWeight.bold),
+                    tabAlignment: TabAlignment.start,
                     tabs: const [
+                      // EDITABLE
                       Tab(text: 'Brands'),
-                      Tab(text: 'Aircon Types'),
+                      Tab(text: 'AC Types'),
+                      // SYSTEM (Read Only)
                       Tab(text: 'Job Types'),
-                      Tab(text: 'Job Statuses'),
-                      Tab(text: 'Customer Types'),
+                      Tab(text: 'Statuses'),
+                      Tab(text: 'Client Types'),
                     ],
                   ),
-                ),
-                Expanded(
-                  child: TabBarView(
-                    controller: _tabController,
-                    children: const [
-                      _BrandsTab(),
-                      _AirconTypesTab(),
-                      _JobTypesTab(),
-                      _JobStatusesTab(),
-                      _CustomerTypesTab(),
-                    ],
+                ],
+              ),
+            ),
+            const Divider(height: 1, thickness: 1, color: Color(0xFFE2E8F0)),
+
+            // --- TAB CONTENT ---
+            Expanded(
+              child: TabBarView(
+                controller: _tabController,
+                children: const [
+                  // 1. EDITABLE TABS
+                  _EditableMasterTab(
+                    tableName: 'brands',
+                    nameField: 'brand_name',
+                    label: 'Brand',
+                    icon: Icons.sell,
+                    color: Colors.blue,
+                  ),
+                  _EditableMasterTab(
+                    tableName: 'aircon_types',
+                    nameField: 'type_name',
+                    label: 'Aircon Type',
+                    icon: Icons.ac_unit,
+                    color: Colors.teal,
+                  ),
+
+                  // 2. SYSTEM TABS (Read Only / Hardcoded Logic)
+                  _SystemMasterTab(
+                    tableName: 'job_types',
+                    nameField: 'job_type_name',
+                    label: 'Job Type',
+                    icon: Icons.work,
+                    color: Colors.purple,
+                    description: "These define the core workflow logic.",
+                  ),
+                  _StaticSystemTab(
+                    label: 'Job Status',
+                    data: ['Pending', 'In Progress', 'Completed', 'Cancelled'],
+                    icon: Icons.flag,
+                    color: Colors.orange,
+                  ),
+                  _StaticSystemTab(
+                    label: 'Customer Type',
+                    data: ['B2B (Corporate)', 'B2C (Individual)'],
+                    icon: Icons.people,
+                    color: Colors.indigo,
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ==============================================================================
+// 1. EDITABLE TAB (For Brands & AC Types)
+// ==============================================================================
+
+class _EditableMasterTab extends StatefulWidget {
+  final String tableName;
+  final String nameField;
+  final String label;
+  final IconData icon;
+  final MaterialColor color;
+
+  const _EditableMasterTab({
+    required this.tableName,
+    required this.nameField,
+    required this.label,
+    required this.icon,
+    required this.color,
+  });
+
+  @override
+  State<_EditableMasterTab> createState() => _EditableMasterTabState();
+}
+
+class _EditableMasterTabState extends State<_EditableMasterTab> {
+  final _supabase = Supabase.instance.client;
+  bool _isLoading = true;
+  List<Map<String, dynamic>> _data = [];
+  String _searchQuery = '';
+
+  @override
+  void initState() {
+    super.initState();
+    _fetchData();
+  }
+
+  Future<void> _fetchData() async {
+    setState(() => _isLoading = true);
+    try {
+      final res = await _supabase
+          .from(widget.tableName)
+          .select()
+          .order(widget.nameField, ascending: true);
+
+      if (mounted) {
+        setState(() {
+          _data = List<Map<String, dynamic>>.from(res);
+          _isLoading = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  Future<void> _addOrEdit({Map<String, dynamic>? item}) async {
+    final TextEditingController controller = TextEditingController(
+      text: item != null ? item[widget.nameField] : '',
+    );
+
+    await showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(
+          item == null ? 'Add ${widget.label}' : 'Edit ${widget.label}',
+        ),
+        content: TextField(
+          controller: controller,
+          decoration: InputDecoration(
+            labelText: '${widget.label} Name',
+            border: const OutlineInputBorder(),
+          ),
+          autofocus: true,
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text("Cancel"),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              final val = controller.text.trim();
+              if (val.isEmpty) return;
+
+              try {
+                if (item == null) {
+                  await _supabase.from(widget.tableName).insert({
+                    widget.nameField: val,
+                  });
+                } else {
+                  await _supabase
+                      .from(widget.tableName)
+                      .update({widget.nameField: val})
+                      .eq('id', item['id']);
+                }
+                if (mounted) {
+                  Navigator.pop(ctx);
+                  _fetchData();
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text("Saved successfully")),
+                  );
+                }
+              } catch (e) {
+                ScaffoldMessenger.of(
+                  context,
+                ).showSnackBar(SnackBar(content: Text("Error: $e")));
+              }
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: widget.color,
+              foregroundColor: Colors.white,
+            ),
+            child: const Text("Save"),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _delete(int id) async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text("Delete Item"),
+        content: const Text("Are you sure? This cannot be undone."),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text("Cancel"),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: TextButton.styleFrom(foregroundColor: Colors.red),
+            child: const Text("Delete"),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm == true) {
+      try {
+        await _supabase.from(widget.tableName).delete().eq('id', id);
+        _fetchData();
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text("Cannot delete: Item might be in use."),
+            ),
+          );
+        }
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final filtered = _data.where((item) {
+      final name = item[widget.nameField].toString().toLowerCase();
+      return name.contains(_searchQuery.toLowerCase());
+    }).toList();
+
+    final isMobile = MediaQuery.of(context).size.width < 800;
+
+    return Padding(
+      padding: const EdgeInsets.all(24),
+      child: Column(
+        children: [
+          // Header Row with Search & Add Button
+          Row(
+            children: [
+              Expanded(
+                child: TextField(
+                  onChanged: (v) => setState(() => _searchQuery = v),
+                  decoration: InputDecoration(
+                    hintText: "Search ${widget.label}s...",
+                    prefixIcon: const Icon(Icons.search),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: BorderSide.none,
+                    ),
+                    filled: true,
+                    fillColor: Colors.white,
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 14,
+                    ),
                   ),
                 ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-// Brands Tab
-class _BrandsTab extends StatefulWidget {
-  const _BrandsTab();
-
-  @override
-  State<_BrandsTab> createState() => _BrandsTabState();
-}
-
-class _BrandsTabState extends State<_BrandsTab> {
-  final List<BrandData> _brands = [];
-  String _searchQuery = '';
-
-  @override
-  void initState() {
-    super.initState();
-    _seedData();
-  }
-
-  void _seedData() {
-    _brands.addAll([
-      const BrandData(id: 1, name: 'Daikin'),
-      const BrandData(id: 2, name: 'Carrier'),
-      const BrandData(id: 3, name: 'Panasonic'),
-      const BrandData(id: 4, name: 'LG'),
-      const BrandData(id: 5, name: 'Samsung'),
-      const BrandData(id: 6, name: 'Mitsubishi Electric'),
-      const BrandData(id: 7, name: 'Toshiba'),
-    ]);
-  }
-
-  List<BrandData> get _filteredBrands {
-    if (_searchQuery.isEmpty) return _brands;
-    final q = _searchQuery.toLowerCase();
-    return _brands.where((b) => b.name.toLowerCase().contains(q)).toList();
-  }
-
-  void _onAddOrEdit({BrandData? existing}) async {
-    final BrandData? result = await showDialog<BrandData>(
-      context: context,
-      builder: (context) => _BrandDialog(brand: existing),
-    );
-    if (result == null) return;
-
-    setState(() {
-      if (existing == null) {
-        final newId = _brands.isNotEmpty ? _brands.last.id + 1 : 1;
-        _brands.add(BrandData(id: newId, name: result.name));
-      } else {
-        final index = _brands.indexWhere((b) => b.id == existing.id);
-        if (index != -1) {
-          _brands[index] = result;
-        }
-      }
-    });
-  }
-
-  void _onDelete(BrandData brand) async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Delete Brand'),
-        content: Text('Are you sure you want to delete "${brand.name}"?'),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
-          TextButton(onPressed: () => Navigator.pop(context, true), child: const Text('Delete')),
-        ],
-      ),
-    );
-    if (confirmed != true) return;
-    setState(() {
-      _brands.removeWhere((b) => b.id == brand.id);
-    });
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final brands = _filteredBrands;
-    return Padding(
-      padding: const EdgeInsets.all(20),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              const Text('Brands', style: TextStyle(fontSize: 24, fontWeight: FontWeight.w700)),
-              const Spacer(),
+              ),
+              const SizedBox(width: 12),
               ElevatedButton.icon(
-                onPressed: () => _onAddOrEdit(),
+                onPressed: () => _addOrEdit(),
                 icon: const Icon(Icons.add),
-                label: const Text('Add Brand'),
+                label: Text("Add ${widget.label}"),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: widget.color,
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 20,
+                    vertical: 16,
+                  ),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
               ),
             ],
           ),
           const SizedBox(height: 16),
-          TextField(
-            onChanged: (v) => setState(() => _searchQuery = v),
-            decoration: InputDecoration(
-              hintText: 'Search brands...',
-              prefixIcon: const Icon(Icons.search),
-              filled: true,
-              fillColor: Colors.white,
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(10),
-                borderSide: BorderSide.none,
-              ),
-            ),
-          ),
-          const SizedBox(height: 16),
+
+          // Content
           Expanded(
-            child: Container(
-              decoration: _cardDeco(),
-              child: ListView.builder(
-                itemCount: brands.length,
-                itemBuilder: (context, index) {
-                  final brand = brands[index];
-                  return ListTile(
-                    title: Text(brand.name, style: const TextStyle(fontWeight: FontWeight.w600)),
-                    trailing: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        IconButton(
-                          icon: const Icon(Icons.edit_outlined, size: 18),
-                          onPressed: () => _onAddOrEdit(existing: brand),
-                        ),
-                        IconButton(
-                          icon: const Icon(Icons.delete_outline, size: 18, color: Colors.red),
-                          onPressed: () => _onDelete(brand),
-                        ),
-                      ],
+            child: _isLoading
+                ? const Center(child: CircularProgressIndicator())
+                : filtered.isEmpty
+                ? Center(
+                    child: Text(
+                      "No ${widget.label}s found.",
+                      style: const TextStyle(color: Colors.grey),
                     ),
-                  );
-                },
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  BoxDecoration _cardDeco() => BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: const Color(0xFFE2E8F0)),
-      );
-}
-
-class _BrandDialog extends StatefulWidget {
-  final BrandData? brand;
-  const _BrandDialog({this.brand});
-
-  @override
-  State<_BrandDialog> createState() => _BrandDialogState();
-}
-
-class _BrandDialogState extends State<_BrandDialog> {
-  late TextEditingController _nameController;
-
-  @override
-  void initState() {
-    super.initState();
-    _nameController = TextEditingController(text: widget.brand?.name ?? '');
-  }
-
-  @override
-  void dispose() {
-    _nameController.dispose();
-    super.dispose();
-  }
-
-  void _submit() {
-    if (_nameController.text.trim().isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Brand name is required')),
-      );
-      return;
-    }
-    Navigator.of(context).pop(BrandData(id: widget.brand?.id ?? 0, name: _nameController.text.trim()));
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Dialog(
-      child: Container(
-        width: 400,
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(
-              widget.brand == null ? 'Add Brand' : 'Edit Brand',
-              style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w700),
-            ),
-            const SizedBox(height: 20),
-            TextField(
-              controller: _nameController,
-              decoration: const InputDecoration(labelText: 'Brand Name *'),
-            ),
-            const SizedBox(height: 24),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.end,
-              children: [
-                TextButton(
-                  onPressed: () => Navigator.of(context).pop(),
-                  child: const Text('Cancel'),
-                ),
-                const SizedBox(width: 12),
-                ElevatedButton(onPressed: _submit, child: const Text('Save')),
-              ],
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-// Aircon Types Tab
-class _AirconTypesTab extends StatefulWidget {
-  const _AirconTypesTab();
-
-  @override
-  State<_AirconTypesTab> createState() => _AirconTypesTabState();
-}
-
-class _AirconTypesTabState extends State<_AirconTypesTab> {
-  final List<AirconTypeData> _types = [];
-  String _searchQuery = '';
-
-  @override
-  void initState() {
-    super.initState();
-    _seedData();
-  }
-
-  void _seedData() {
-    _types.addAll([
-      const AirconTypeData(id: 1, typeName: 'Split Type'),
-      const AirconTypeData(id: 2, typeName: 'Window Type'),
-      const AirconTypeData(id: 3, typeName: 'Centralized'),
-      const AirconTypeData(id: 4, typeName: 'Portable'),
-      const AirconTypeData(id: 5, typeName: 'Cassette'),
-      const AirconTypeData(id: 6, typeName: 'Ducted'),
-    ]);
-  }
-
-  List<AirconTypeData> get _filteredTypes {
-    if (_searchQuery.isEmpty) return _types;
-    final q = _searchQuery.toLowerCase();
-    return _types.where((t) => t.typeName.toLowerCase().contains(q)).toList();
-  }
-
-  void _onAddOrEdit({AirconTypeData? existing}) async {
-    final AirconTypeData? result = await showDialog<AirconTypeData>(
-      context: context,
-      builder: (context) => _AirconTypeDialog(type: existing),
-    );
-    if (result == null) return;
-
-    setState(() {
-      if (existing == null) {
-        final newId = _types.isNotEmpty ? _types.last.id + 1 : 1;
-        _types.add(AirconTypeData(id: newId, typeName: result.typeName));
-      } else {
-        final index = _types.indexWhere((t) => t.id == existing.id);
-        if (index != -1) {
-          _types[index] = result;
-        }
-      }
-    });
-  }
-
-  void _onDelete(AirconTypeData type) async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Delete Aircon Type'),
-        content: Text('Are you sure you want to delete "${type.typeName}"?'),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
-          TextButton(onPressed: () => Navigator.pop(context, true), child: const Text('Delete')),
-        ],
-      ),
-    );
-    if (confirmed != true) return;
-    setState(() {
-      _types.removeWhere((t) => t.id == type.id);
-    });
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final types = _filteredTypes;
-    return Padding(
-      padding: const EdgeInsets.all(20),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              const Text('Aircon Types', style: TextStyle(fontSize: 24, fontWeight: FontWeight.w700)),
-              const Spacer(),
-              ElevatedButton.icon(
-                onPressed: () => _onAddOrEdit(),
-                icon: const Icon(Icons.add),
-                label: const Text('Add Type'),
-              ),
-            ],
-          ),
-          const SizedBox(height: 16),
-          TextField(
-            onChanged: (v) => setState(() => _searchQuery = v),
-            decoration: InputDecoration(
-              hintText: 'Search aircon types...',
-              prefixIcon: const Icon(Icons.search),
-              filled: true,
-              fillColor: Colors.white,
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(10),
-                borderSide: BorderSide.none,
-              ),
-            ),
-          ),
-          const SizedBox(height: 16),
-          Expanded(
-            child: Container(
-              decoration: _cardDeco(),
-              child: ListView.builder(
-                itemCount: types.length,
-                itemBuilder: (context, index) {
-                  final type = types[index];
-                  return ListTile(
-                    title: Text(type.typeName, style: const TextStyle(fontWeight: FontWeight.w600)),
-                    trailing: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        IconButton(
-                          icon: const Icon(Icons.edit_outlined, size: 18),
-                          onPressed: () => _onAddOrEdit(existing: type),
-                        ),
-                        IconButton(
-                          icon: const Icon(Icons.delete_outline, size: 18, color: Colors.red),
-                          onPressed: () => _onDelete(type),
-                        ),
-                      ],
+                  )
+                : isMobile
+                // FIX: Mobile List with Scrolling Physics
+                ? ListView.separated(
+                    physics: const AlwaysScrollableScrollPhysics(),
+                    itemCount: filtered.length,
+                    separatorBuilder: (c, i) => const SizedBox(height: 12),
+                    itemBuilder: (c, i) => _MobileCard(
+                      item: filtered[i],
+                      nameField: widget.nameField,
+                      color: widget.color,
+                      icon: widget.icon,
+                      onEdit: () => _addOrEdit(item: filtered[i]),
+                      onDelete: () => _delete(filtered[i]['id']),
                     ),
-                  );
-                },
-              ),
-            ),
+                  )
+                // FIX: Desktop Table with Scrollable Container
+                : _DesktopTable(
+                    data: filtered,
+                    nameField: widget.nameField,
+                    color: widget.color,
+                    icon: widget.icon,
+                    onEdit: (item) => _addOrEdit(item: item),
+                    onDelete: (id) => _delete(id),
+                  ),
           ),
         ],
       ),
     );
   }
-
-  BoxDecoration _cardDeco() => BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: const Color(0xFFE2E8F0)),
-      );
 }
 
-class _AirconTypeDialog extends StatefulWidget {
-  final AirconTypeData? type;
-  const _AirconTypeDialog({this.type});
+// ==============================================================================
+// 2. SYSTEM TAB (For Job Types) - READ ONLY
+// ==============================================================================
+
+class _SystemMasterTab extends StatefulWidget {
+  final String tableName;
+  final String nameField;
+  final String label;
+  final IconData icon;
+  final MaterialColor color;
+  final String description;
+
+  const _SystemMasterTab({
+    required this.tableName,
+    required this.nameField,
+    required this.label,
+    required this.icon,
+    required this.color,
+    required this.description,
+  });
 
   @override
-  State<_AirconTypeDialog> createState() => _AirconTypeDialogState();
+  State<_SystemMasterTab> createState() => _SystemMasterTabState();
 }
 
-class _AirconTypeDialogState extends State<_AirconTypeDialog> {
-  late TextEditingController _nameController;
+class _SystemMasterTabState extends State<_SystemMasterTab> {
+  final _supabase = Supabase.instance.client;
+  List<Map<String, dynamic>> _data = [];
+  bool _isLoading = true;
 
   @override
   void initState() {
     super.initState();
-    _nameController = TextEditingController(text: widget.type?.typeName ?? '');
+    _fetchData();
   }
 
-  @override
-  void dispose() {
-    _nameController.dispose();
-    super.dispose();
-  }
+  Future<void> _fetchData() async {
+    final res = await _supabase
+        .from(widget.tableName)
+        .select()
+        .order('id', ascending: true);
 
-  void _submit() {
-    if (_nameController.text.trim().isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Type name is required')),
-      );
-      return;
+    if (mounted) {
+      setState(() {
+        _data = List<Map<String, dynamic>>.from(res);
+        _isLoading = false;
+      });
     }
-    Navigator.of(context).pop(AirconTypeData(id: widget.type?.id ?? 0, typeName: _nameController.text.trim()));
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Dialog(
-      child: Container(
-        width: 400,
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(
-              widget.type == null ? 'Add Aircon Type' : 'Edit Aircon Type',
-              style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w700),
-            ),
-            const SizedBox(height: 20),
-            TextField(
-              controller: _nameController,
-              decoration: const InputDecoration(labelText: 'Type Name *'),
-            ),
-            const SizedBox(height: 24),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.end,
-              children: [
-                TextButton(
-                  onPressed: () => Navigator.of(context).pop(),
-                  child: const Text('Cancel'),
-                ),
-                const SizedBox(width: 12),
-                ElevatedButton(onPressed: _submit, child: const Text('Save')),
-              ],
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-// Job Types Tab
-class _JobTypesTab extends StatefulWidget {
-  const _JobTypesTab();
-
-  @override
-  State<_JobTypesTab> createState() => _JobTypesTabState();
-}
-
-class _JobTypesTabState extends State<_JobTypesTab> {
-  final List<JobTypeData> _jobTypes = [];
-  String _searchQuery = '';
-
-  @override
-  void initState() {
-    super.initState();
-    _seedData();
-  }
-
-  void _seedData() {
-    _jobTypes.addAll([
-      const JobTypeData(id: 1, jobType: 'Installation'),
-      const JobTypeData(id: 2, jobType: 'Maintenance'),
-      const JobTypeData(id: 3, jobType: 'Repair'),
-      const JobTypeData(id: 4, jobType: 'Cleaning'),
-      const JobTypeData(id: 5, jobType: 'Inspection'),
-    ]);
-  }
-
-  List<JobTypeData> get _filteredJobTypes {
-    if (_searchQuery.isEmpty) return _jobTypes;
-    final q = _searchQuery.toLowerCase();
-    return _jobTypes.where((j) => j.jobType.toLowerCase().contains(q)).toList();
-  }
-
-  void _onAddOrEdit({JobTypeData? existing}) async {
-    final JobTypeData? result = await showDialog<JobTypeData>(
-      context: context,
-      builder: (context) => _JobTypeDialog(jobType: existing),
-    );
-    if (result == null) return;
-
-    setState(() {
-      if (existing == null) {
-        final newId = _jobTypes.isNotEmpty ? _jobTypes.last.id + 1 : 1;
-        _jobTypes.add(JobTypeData(id: newId, jobType: result.jobType));
-      } else {
-        final index = _jobTypes.indexWhere((j) => j.id == existing.id);
-        if (index != -1) {
-          _jobTypes[index] = result;
-        }
-      }
-    });
-  }
-
-  void _onDelete(JobTypeData jobType) async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Delete Job Type'),
-        content: Text('Are you sure you want to delete "${jobType.jobType}"?'),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
-          TextButton(onPressed: () => Navigator.pop(context, true), child: const Text('Delete')),
-        ],
-      ),
-    );
-    if (confirmed != true) return;
-    setState(() {
-      _jobTypes.removeWhere((j) => j.id == jobType.id);
-    });
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final jobTypes = _filteredJobTypes;
-    return Padding(
-      padding: const EdgeInsets.all(20),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              const Text('Job Types', style: TextStyle(fontSize: 24, fontWeight: FontWeight.w700)),
-              const Spacer(),
-              ElevatedButton.icon(
-                onPressed: () => _onAddOrEdit(),
-                icon: const Icon(Icons.add),
-                label: const Text('Add Job Type'),
-              ),
-            ],
-          ),
-          const SizedBox(height: 16),
-          TextField(
-            onChanged: (v) => setState(() => _searchQuery = v),
-            decoration: InputDecoration(
-              hintText: 'Search job types...',
-              prefixIcon: const Icon(Icons.search),
-              filled: true,
-              fillColor: Colors.white,
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(10),
-                borderSide: BorderSide.none,
-              ),
-            ),
-          ),
-          const SizedBox(height: 16),
-          Expanded(
-            child: Container(
-              decoration: _cardDeco(),
-              child: ListView.builder(
-                itemCount: jobTypes.length,
-                itemBuilder: (context, index) {
-                  final jobType = jobTypes[index];
-                  return ListTile(
-                    title: Text(jobType.jobType, style: const TextStyle(fontWeight: FontWeight.w600)),
-                    trailing: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        IconButton(
-                          icon: const Icon(Icons.edit_outlined, size: 18),
-                          onPressed: () => _onAddOrEdit(existing: jobType),
-                        ),
-                        IconButton(
-                          icon: const Icon(Icons.delete_outline, size: 18, color: Colors.red),
-                          onPressed: () => _onDelete(jobType),
-                        ),
-                      ],
-                    ),
-                  );
-                },
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  BoxDecoration _cardDeco() => BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: const Color(0xFFE2E8F0)),
-      );
-}
-
-class _JobTypeDialog extends StatefulWidget {
-  final JobTypeData? jobType;
-  const _JobTypeDialog({this.jobType});
-
-  @override
-  State<_JobTypeDialog> createState() => _JobTypeDialogState();
-}
-
-class _JobTypeDialogState extends State<_JobTypeDialog> {
-  late TextEditingController _nameController;
-
-  @override
-  void initState() {
-    super.initState();
-    _nameController = TextEditingController(text: widget.jobType?.jobType ?? '');
-  }
-
-  @override
-  void dispose() {
-    _nameController.dispose();
-    super.dispose();
-  }
-
-  void _submit() {
-    if (_nameController.text.trim().isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Job type name is required')),
-      );
-      return;
-    }
-    Navigator.of(context).pop(JobTypeData(id: widget.jobType?.id ?? 0, jobType: _nameController.text.trim()));
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Dialog(
-      child: Container(
-        width: 400,
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(
-              widget.jobType == null ? 'Add Job Type' : 'Edit Job Type',
-              style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w700),
-            ),
-            const SizedBox(height: 20),
-            TextField(
-              controller: _nameController,
-              decoration: const InputDecoration(labelText: 'Job Type Name *'),
-            ),
-            const SizedBox(height: 24),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.end,
-              children: [
-                TextButton(
-                  onPressed: () => Navigator.of(context).pop(),
-                  child: const Text('Cancel'),
-                ),
-                const SizedBox(width: 12),
-                ElevatedButton(onPressed: _submit, child: const Text('Save')),
-              ],
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-// Job Statuses Tab
-class _JobStatusesTab extends StatefulWidget {
-  const _JobStatusesTab();
-
-  @override
-  State<_JobStatusesTab> createState() => _JobStatusesTabState();
-}
-
-class _JobStatusesTabState extends State<_JobStatusesTab> {
-  final List<JobStatusData> _statuses = [];
-  String _searchQuery = '';
-
-  @override
-  void initState() {
-    super.initState();
-    _seedData();
-  }
-
-  void _seedData() {
-    _statuses.addAll([
-      const JobStatusData(id: 1, status: 'Pending'),
-      const JobStatusData(id: 2, status: 'In Progress'),
-      const JobStatusData(id: 3, status: 'Completed'),
-      const JobStatusData(id: 4, status: 'Cancelled'),
-      const JobStatusData(id: 5, status: 'On Hold'),
-    ]);
-  }
-
-  List<JobStatusData> get _filteredStatuses {
-    if (_searchQuery.isEmpty) return _statuses;
-    final q = _searchQuery.toLowerCase();
-    return _statuses.where((s) => s.status.toLowerCase().contains(q)).toList();
-  }
-
-  void _onAddOrEdit({JobStatusData? existing}) async {
-    final JobStatusData? result = await showDialog<JobStatusData>(
-      context: context,
-      builder: (context) => _JobStatusDialog(status: existing),
-    );
-    if (result == null) return;
-
-    setState(() {
-      if (existing == null) {
-        final newId = _statuses.isNotEmpty ? _statuses.last.id + 1 : 1;
-        _statuses.add(JobStatusData(id: newId, status: result.status));
-      } else {
-        final index = _statuses.indexWhere((s) => s.id == existing.id);
-        if (index != -1) {
-          _statuses[index] = result;
-        }
-      }
-    });
-  }
-
-  void _onDelete(JobStatusData status) async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Delete Job Status'),
-        content: Text('Are you sure you want to delete "${status.status}"?'),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
-          TextButton(onPressed: () => Navigator.pop(context, true), child: const Text('Delete')),
-        ],
-      ),
-    );
-    if (confirmed != true) return;
-    setState(() {
-      _statuses.removeWhere((s) => s.id == status.id);
-    });
-  }
-
-  Color _getStatusColor(String status) {
-    switch (status.toLowerCase()) {
-      case 'pending':
-        return Colors.orange;
-      case 'in progress':
-        return Colors.blue;
-      case 'completed':
-        return Colors.green;
-      case 'cancelled':
-        return Colors.red;
-      case 'on hold':
-        return Colors.grey;
-      default:
-        return Colors.black54;
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final statuses = _filteredStatuses;
-    return Padding(
-      padding: const EdgeInsets.all(20),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              const Text('Job Statuses', style: TextStyle(fontSize: 24, fontWeight: FontWeight.w700)),
-              const Spacer(),
-              ElevatedButton.icon(
-                onPressed: () => _onAddOrEdit(),
-                icon: const Icon(Icons.add),
-                label: const Text('Add Status'),
-              ),
-            ],
-          ),
-          const SizedBox(height: 16),
-          TextField(
-            onChanged: (v) => setState(() => _searchQuery = v),
-            decoration: InputDecoration(
-              hintText: 'Search statuses...',
-              prefixIcon: const Icon(Icons.search),
-              filled: true,
-              fillColor: Colors.white,
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(10),
-                borderSide: BorderSide.none,
-              ),
-            ),
-          ),
-          const SizedBox(height: 16),
-          Expanded(
-            child: Container(
-              decoration: _cardDeco(),
-              child: ListView.builder(
-                itemCount: statuses.length,
-                itemBuilder: (context, index) {
-                  final status = statuses[index];
-                  final color = _getStatusColor(status.status);
-                  return ListTile(
-                    leading: Container(
-                      width: 12,
-                      height: 12,
-                      decoration: BoxDecoration(
-                        color: color,
-                        shape: BoxShape.circle,
-                      ),
-                    ),
-                    title: Text(status.status, style: const TextStyle(fontWeight: FontWeight.w600)),
-                    trailing: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        IconButton(
-                          icon: const Icon(Icons.edit_outlined, size: 18),
-                          onPressed: () => _onAddOrEdit(existing: status),
-                        ),
-                        IconButton(
-                          icon: const Icon(Icons.delete_outline, size: 18, color: Colors.red),
-                          onPressed: () => _onDelete(status),
-                        ),
-                      ],
-                    ),
-                  );
-                },
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  BoxDecoration _cardDeco() => BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: const Color(0xFFE2E8F0)),
-      );
-}
-
-class _JobStatusDialog extends StatefulWidget {
-  final JobStatusData? status;
-  const _JobStatusDialog({this.status});
-
-  @override
-  State<_JobStatusDialog> createState() => _JobStatusDialogState();
-}
-
-class _JobStatusDialogState extends State<_JobStatusDialog> {
-  late TextEditingController _nameController;
-
-  @override
-  void initState() {
-    super.initState();
-    _nameController = TextEditingController(text: widget.status?.status ?? '');
-  }
-
-  @override
-  void dispose() {
-    _nameController.dispose();
-    super.dispose();
-  }
-
-  void _submit() {
-    if (_nameController.text.trim().isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Status name is required')),
-      );
-      return;
-    }
-    Navigator.of(context).pop(JobStatusData(id: widget.status?.id ?? 0, status: _nameController.text.trim()));
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Dialog(
-      child: Container(
-        width: 400,
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(
-              widget.status == null ? 'Add Job Status' : 'Edit Job Status',
-              style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w700),
-            ),
-            const SizedBox(height: 20),
-            TextField(
-              controller: _nameController,
-              decoration: const InputDecoration(labelText: 'Status Name *'),
-            ),
-            const SizedBox(height: 24),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.end,
-              children: [
-                TextButton(
-                  onPressed: () => Navigator.of(context).pop(),
-                  child: const Text('Cancel'),
-                ),
-                const SizedBox(width: 12),
-                ElevatedButton(onPressed: _submit, child: const Text('Save')),
-              ],
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-// Customer Types Tab
-class _CustomerTypesTab extends StatefulWidget {
-  const _CustomerTypesTab();
-
-  @override
-  State<_CustomerTypesTab> createState() => _CustomerTypesTabState();
-}
-
-class _CustomerTypesTabState extends State<_CustomerTypesTab> {
-  final List<CustomerTypeData> _customerTypes = [];
-
-  @override
-  void initState() {
-    super.initState();
-    _seedData();
-  }
-
-  void _seedData() {
-    _customerTypes.addAll([
-      const CustomerTypeData(id: 1, type: CustomerTypeKind.b2b),
-      const CustomerTypeData(id: 2, type: CustomerTypeKind.b2c),
-    ]);
   }
 
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.all(20),
+      padding: const EdgeInsets.all(24),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text('Customer Types', style: TextStyle(fontSize: 24, fontWeight: FontWeight.w700)),
-          const SizedBox(height: 16),
           Container(
-            decoration: _cardDeco(),
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: Colors.amber[50],
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: Colors.amber[200]!),
+            ),
+            child: Row(
               children: [
-                const Text(
-                  'Customer Types are predefined system values:',
-                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+                const Icon(Icons.lock, color: Colors.amber, size: 20),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    "System Definition: ${widget.description}",
+                    style: TextStyle(color: Colors.amber[900], fontSize: 13),
+                  ),
                 ),
-                const SizedBox(height: 16),
-                ..._customerTypes.map((ct) => ListTile(
-                      leading: Container(
-                        width: 12,
-                        height: 12,
-                        decoration: BoxDecoration(
-                          color: ct.type == CustomerTypeKind.b2b ? Colors.blue : Colors.green,
-                          shape: BoxShape.circle,
-                        ),
-                      ),
-                      title: Text(
-                        ct.type == CustomerTypeKind.b2b ? 'B2B - Business to Business' : 'B2C - Business to Customer',
-                        style: const TextStyle(fontWeight: FontWeight.w600),
-                      ),
-                      subtitle: Text('ID: ${ct.id}'),
-                    )),
               ],
+            ),
+          ),
+          const SizedBox(height: 16),
+
+          Expanded(
+            child: _isLoading
+                ? const Center(child: CircularProgressIndicator())
+                : Container(
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(12),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withOpacity(0.05),
+                          blurRadius: 4,
+                        ),
+                      ],
+                    ),
+                    child: ListView.separated(
+                      physics: const AlwaysScrollableScrollPhysics(),
+                      padding: const EdgeInsets.all(8),
+                      itemCount: _data.length,
+                      separatorBuilder: (ctx, i) => const Divider(height: 1),
+                      itemBuilder: (ctx, i) {
+                        final item = _data[i];
+                        return ListTile(
+                          leading: Container(
+                            padding: const EdgeInsets.all(8),
+                            decoration: BoxDecoration(
+                              color: widget.color.withOpacity(0.1),
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: Icon(
+                              widget.icon,
+                              size: 18,
+                              color: widget.color,
+                            ),
+                          ),
+                          title: Text(
+                            item[widget.nameField],
+                            style: const TextStyle(fontWeight: FontWeight.bold),
+                          ),
+                          subtitle: Text("ID: ${item['id']}"),
+                          trailing: const Icon(
+                            Icons.lock,
+                            size: 16,
+                            color: Colors.grey,
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ==============================================================================
+// 3. STATIC SYSTEM TAB (For Hardcoded Lists like Statuses)
+// ==============================================================================
+
+class _StaticSystemTab extends StatelessWidget {
+  final String label;
+  final List<String> data;
+  final IconData icon;
+  final MaterialColor color;
+
+  const _StaticSystemTab({
+    required this.label,
+    required this.data,
+    required this.icon,
+    required this.color,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.all(24),
+      child: Column(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: Colors.grey[100],
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: Colors.grey[300]!),
+            ),
+            child: const Row(
+              children: [
+                Icon(Icons.info_outline, color: Colors.grey, size: 20),
+                SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    "These values are hardcoded into the system logic and cannot be changed.",
+                    style: TextStyle(color: Colors.black54, fontSize: 13),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 16),
+          Expanded(
+            child: Container(
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(12),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.05),
+                    blurRadius: 4,
+                  ),
+                ],
+              ),
+              child: ListView.separated(
+                physics: const AlwaysScrollableScrollPhysics(),
+                padding: const EdgeInsets.all(8),
+                itemCount: data.length,
+                separatorBuilder: (ctx, i) => const Divider(height: 1),
+                itemBuilder: (ctx, i) {
+                  return ListTile(
+                    leading: Icon(icon, size: 18, color: color),
+                    title: Text(
+                      data[i],
+                      style: const TextStyle(fontWeight: FontWeight.bold),
+                    ),
+                    trailing: const Icon(
+                      Icons.lock,
+                      size: 16,
+                      color: Colors.grey,
+                    ),
+                  );
+                },
+              ),
             ),
           ),
         ],
       ),
     );
   }
+}
 
-  BoxDecoration _cardDeco() => BoxDecoration(
+// ==============================================================================
+// HELPER WIDGETS
+// ==============================================================================
+
+class _MobileCard extends StatelessWidget {
+  final Map<String, dynamic> item;
+  final String nameField;
+  final MaterialColor color;
+  final IconData icon;
+  final VoidCallback onEdit;
+  final VoidCallback onDelete;
+
+  const _MobileCard({
+    required this.item,
+    required this.nameField,
+    required this.color,
+    required this.icon,
+    required this.onEdit,
+    required this.onDelete,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(12),
         border: Border.all(color: const Color(0xFFE2E8F0)),
-      );
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.05),
+            blurRadius: 4,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: color.withOpacity(0.1),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Icon(icon, color: color, size: 20),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              item[nameField],
+              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+            ),
+          ),
+          IconButton(
+            icon: const Icon(Icons.edit, size: 18, color: Colors.grey),
+            onPressed: onEdit,
+          ),
+          IconButton(
+            icon: const Icon(Icons.delete, size: 18, color: Colors.red),
+            onPressed: onDelete,
+          ),
+        ],
+      ),
+    );
+  }
 }
 
+class _DesktopTable extends StatelessWidget {
+  final List<Map<String, dynamic>> data;
+  final String nameField;
+  final MaterialColor color;
+  final IconData icon;
+  final Function(Map<String, dynamic>) onEdit;
+  final Function(int) onDelete;
+
+  const _DesktopTable({
+    required this.data,
+    required this.nameField,
+    required this.color,
+    required this.icon,
+    required this.onEdit,
+    required this.onDelete,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.05),
+            blurRadius: 4,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      // FIX: Added ClipRRect and SingleChildScrollView for scrolling
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(12),
+        child: SingleChildScrollView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(minWidth: double.infinity),
+            child: DataTable(
+              headingRowColor: MaterialStateProperty.all(Colors.grey[50]),
+              columns: const [
+                DataColumn(
+                  label: Text(
+                    "NAME",
+                    style: TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                ),
+                DataColumn(
+                  label: Text(
+                    "ID",
+                    style: TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                ),
+                DataColumn(
+                  label: Text(
+                    "ACTIONS",
+                    style: TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                ),
+              ],
+              rows: data.map((item) {
+                return DataRow(
+                  cells: [
+                    DataCell(
+                      Row(
+                        children: [
+                          Icon(icon, size: 16, color: color),
+                          const SizedBox(width: 12),
+                          Text(
+                            item[nameField],
+                            style: const TextStyle(fontWeight: FontWeight.w600),
+                          ),
+                        ],
+                      ),
+                    ),
+                    DataCell(Text(item['id'].toString())),
+                    DataCell(
+                      Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          IconButton(
+                            icon: const Icon(
+                              Icons.edit_outlined,
+                              color: Colors.blue,
+                            ),
+                            onPressed: () => onEdit(item),
+                            tooltip: "Edit",
+                          ),
+                          IconButton(
+                            icon: const Icon(
+                              Icons.delete_outline,
+                              color: Colors.red,
+                            ),
+                            onPressed: () => onDelete(item['id']),
+                            tooltip: "Delete",
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                );
+              }).toList(),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
