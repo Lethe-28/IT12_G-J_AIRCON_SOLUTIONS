@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'ui_app_shell.dart';
+import 'data/app_state.dart';
 import 'theme/app_theme.dart';
 import 'shared/widgets.dart'
     show
@@ -346,10 +347,14 @@ class _SchedulingScreenState extends State<SchedulingScreen> {
                               color: _showActionItems
                                   ? AppTheme.surface
                                   : AppTheme.warning.withOpacity(0.1),
-                              boxShadow: _showActionItems ? [] : AppTheme.glow(AppTheme.warning),
+                              boxShadow: _showActionItems
+                                  ? []
+                                  : AppTheme.glow(AppTheme.warning),
                               border: Border(
                                 bottom: BorderSide(
-                                  color: _showActionItems ? AppTheme.borderColor : AppTheme.warning.withOpacity(0.3),
+                                  color: _showActionItems
+                                      ? AppTheme.borderColor
+                                      : AppTheme.warning.withOpacity(0.3),
                                 ),
                               ),
                             ),
@@ -617,6 +622,7 @@ class _JobBillingManagerState extends State<_JobBillingManager>
   late TabController _tabController;
   bool _isLoading = true;
   final _supabase = Supabase.instance.client;
+  late String _currentStatus;
 
   List<Map<String, dynamic>> _lineItems = [];
   List<Map<String, dynamic>> _serviceCatalog = [];
@@ -629,7 +635,104 @@ class _JobBillingManagerState extends State<_JobBillingManager>
   void initState() {
     super.initState();
     _tabController = TabController(length: 2, vsync: this);
+    _currentStatus = widget.job.status;
     _fetchBillingData();
+  }
+
+  // 1. Live Status Update (For the Header Dropdown)
+  Future<void> _updateStatus(String newStatus) async {
+    try {
+      await _supabase
+          .from('job_orders')
+          .update({'status': newStatus})
+          .eq('id', widget.job.dbId);
+
+      setState(() => _currentStatus = newStatus);
+      widget.onJobUpdated(); // Refresh parent list
+
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text("Status updated to $newStatus")));
+    } catch (e) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text("Error: $e")));
+    }
+  }
+
+  // 2. Manual Close Logic (With "Unpaid" Warning)
+  Future<void> _completeJob() async {
+    // Validation: Warn if Unbilled or Unpaid
+    if (widget.job.isUnbilled || widget.job.isUnpaid) {
+      final confirm = await showConfirmDialog(
+        context: context,
+        title: "Job Incomplete?",
+        message:
+            "This job has pending billing or payments. Are you sure you want to close it?",
+        confirmLabel: "Close Anyway",
+        isDestructive: true,
+      );
+      if (confirm != true) return;
+    } else {
+      // Standard Confirmation
+      final confirm = await showConfirmDialog(
+        context: context,
+        title: "Complete Job",
+        message: "This will mark the job as finished and lock it from editing.",
+        confirmLabel: "Complete Job",
+      );
+      if (confirm != true) return;
+    }
+
+    try {
+      await _supabase
+          .from('job_orders')
+          .update({
+            'status': 'Completed',
+            'date_completed': DateTime.now().toUtc().toIso8601String(),
+          })
+          .eq('id', widget.job.dbId);
+
+      if (mounted) {
+        Navigator.pop(context); // Close dialog
+        widget.onJobUpdated();
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("Job Completed Successfully!")),
+        );
+      }
+    } catch (e) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text("Error: $e")));
+    }
+  }
+
+  // 3. Admin Re-open Logic
+  Future<void> _reopenJob() async {
+    final confirm = await showConfirmDialog(
+      context: context,
+      title: "Re-open Job?",
+      message: "This will unlock the job and move it back to 'Pending'.",
+      confirmLabel: "Re-open",
+    );
+
+    if (confirm == true) {
+      try {
+        await _supabase
+            .from('job_orders')
+            .update({'status': 'Pending', 'date_completed': null})
+            .eq('id', widget.job.dbId);
+
+        if (mounted) {
+          Navigator.pop(context);
+          widget.onJobUpdated();
+        }
+      } catch (e) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text("Error: $e")));
+      }
+    }
   }
 
   Future<void> _fetchBillingData() async {
@@ -1157,22 +1260,82 @@ class _JobBillingManagerState extends State<_JobBillingManager>
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
+                      // Status Changer Row
                       Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
-                          Expanded(
-                            child: Text(
-                              widget.job.clientName,
-                              style: const TextStyle(
-                                fontSize: 22,
-                                fontWeight: FontWeight.bold,
+                          Text(
+                            "${widget.job.jobType} • ${widget.job.displayId}",
+                            style: const TextStyle(color: Colors.grey),
+                          ),
+                          const SizedBox(width: 12),
+
+                          // LOGIC: If 'Completed', show locked badge. Else show Dropdown.
+                          if (_currentStatus == 'Completed')
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 8,
+                                vertical: 2,
                               ),
+                              decoration: BoxDecoration(
+                                color: Colors.green.withOpacity(0.1),
+                                borderRadius: BorderRadius.circular(4),
+                              ),
+                              child: const Row(
+                                children: [
+                                  Icon(
+                                    Icons.lock,
+                                    size: 12,
+                                    color: Colors.green,
+                                  ),
+                                  SizedBox(width: 4),
+                                  Text(
+                                    "COMPLETED",
+                                    style: TextStyle(
+                                      color: Colors.green,
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 11,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            )
+                          else
+                            DropdownButton<String>(
+                              // Ensure current status is valid, else fallback to Pending
+                              value:
+                                  [
+                                    'Pending',
+                                    'In Progress',
+                                    'On Hold',
+                                  ].contains(_currentStatus)
+                                  ? _currentStatus
+                                  : 'Pending',
+                              underline: Container(
+                                height: 1,
+                                color: Colors.blue,
+                              ),
+                              style: const TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.bold,
+                                color: Colors.blue,
+                              ),
+                              icon: const Icon(
+                                Icons.arrow_drop_down,
+                                color: Colors.blue,
+                                size: 18,
+                              ),
+                              onChanged: (newValue) {
+                                if (newValue != null) _updateStatus(newValue);
+                              },
+                              items: ['Pending', 'In Progress', 'On Hold'].map((
+                                String status,
+                              ) {
+                                return DropdownMenuItem<String>(
+                                  value: status,
+                                  child: Text(status),
+                                );
+                              }).toList(),
                             ),
-                          ),
-                          IconButton(
-                            onPressed: () => Navigator.pop(context),
-                            icon: const Icon(Icons.close),
-                          ),
                         ],
                       ),
                       Text(
@@ -1264,6 +1427,47 @@ class _JobBillingManagerState extends State<_JobBillingManager>
           style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
         ),
         const SizedBox(height: 12),
+        // DYNAMIC ACTIONS BASED ON STATUS
+        if (widget.job.status == 'Completed')
+          // LOCKED VIEW
+          Column(
+            children: [
+              const SizedBox(
+                width: double.infinity,
+                child: Card(
+                  color: Color(0xFFF0FDF4), // Light Green
+                  elevation: 0,
+                  child: Padding(
+                    padding: EdgeInsets.all(16.0),
+                    child: Center(
+                      child: Text(
+                        "This job is completed and locked.",
+                        style: TextStyle(
+                          color: Colors.green,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 12),
+              // Re-open Button (Admin Only)
+              if (AppState.currentRole == UserRole.admin)
+                SizedBox(
+                  width: double.infinity,
+                  child: OutlinedButton.icon(
+                    onPressed: _reopenJob,
+                    icon: const Icon(Icons.lock_open),
+                    label: const Text("Re-open Job (Admin Only)"),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: Colors.orange[800],
+                      side: BorderSide(color: Colors.orange[800]!),
+                    ),
+                  ),
+                ),
+            ],
+          ),
         Wrap(
           spacing: 12,
           runSpacing: 12,
@@ -1291,6 +1495,13 @@ class _JobBillingManagerState extends State<_JobBillingManager>
               label: "Delete Job",
               color: Colors.red,
               onTap: _deleteJob,
+            ),
+            // COMPLETE BUTTON (New)
+            _ActionButton(
+              icon: Icons.check_circle,
+              label: "Complete Job",
+              color: Colors.green,
+              onTap: _completeJob,
             ),
           ],
         ),
@@ -3176,7 +3387,7 @@ class _JobCard extends StatelessWidget {
     final bool isCorp = order.isCorporate;
     final Color typeColor = isCorp ? AppTheme.primary : Colors.teal;
     final IconData typeIcon = isCorp ? Icons.business : Icons.person;
-    
+
     // Check if active/needs attention for glow
     final bool needsAttention = order.isUnbilled || order.isUnpaid;
 
@@ -3184,11 +3395,11 @@ class _JobCard extends StatelessWidget {
       decoration: BoxDecoration(
         color: AppTheme.surface,
         borderRadius: AppTheme.borderRadius,
-        boxShadow: needsAttention 
-            ? AppTheme.glow(AppTheme.warning) 
+        boxShadow: needsAttention
+            ? AppTheme.glow(AppTheme.warning)
             : AppTheme.shadow,
-        border: needsAttention 
-            ? Border.all(color: AppTheme.warning.withOpacity(0.5)) 
+        border: needsAttention
+            ? Border.all(color: AppTheme.warning.withOpacity(0.5))
             : Border.all(color: AppTheme.borderColor),
       ),
       child: ClipRRect(
@@ -3198,9 +3409,7 @@ class _JobCard extends StatelessWidget {
           padding: const EdgeInsets.all(16),
           decoration: BoxDecoration(
             color: AppTheme.surface,
-            border: Border(
-              left: BorderSide(color: typeColor, width: 4),
-            ),
+            border: Border(left: BorderSide(color: typeColor, width: 4)),
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -3211,7 +3420,10 @@ class _JobCard extends StatelessWidget {
                 children: [
                   Text(
                     order.jobType,
-                    style: AppTheme.heading3.copyWith(color: AppTheme.info, fontSize: 14),
+                    style: AppTheme.heading3.copyWith(
+                      color: AppTheme.info,
+                      fontSize: 14,
+                    ),
                   ),
                   Container(
                     padding: const EdgeInsets.symmetric(
@@ -3351,10 +3563,7 @@ class _JobCard extends StatelessWidget {
                     color: AppTheme.textSecondary,
                   ),
                   const SizedBox(width: 6),
-                  Text(
-                    dateText,
-                    style: AppTheme.caption,
-                  ),
+                  Text(dateText, style: AppTheme.caption),
                 ],
               ),
             ],

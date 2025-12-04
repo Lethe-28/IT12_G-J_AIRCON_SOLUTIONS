@@ -43,7 +43,8 @@ class DashboardProvider extends ChangeNotifier {
 
   /// Refresh if data is stale (older than 30 seconds)
   Future<void> refreshIfNeeded() async {
-    if (_lastFetch == null || DateTime.now().difference(_lastFetch!) > const Duration(seconds: 30)) {
+    if (_lastFetch == null ||
+        DateTime.now().difference(_lastFetch!) > const Duration(seconds: 30)) {
       await fetchDashboardData();
     }
   }
@@ -51,11 +52,11 @@ class DashboardProvider extends ChangeNotifier {
   Future<void> _fetchPendingJobs() async {
     try {
       final supabase = Supabase.instance.client;
-      final response = await supabase
-          .from('job_orders')
-          .select('id')
-          .inFilter('status', ['Pending', 'Scheduled', 'In Progress']);
-      
+      final response = await supabase.from('job_orders').select('id').inFilter(
+        'status',
+        ['Pending', 'Scheduled', 'In Progress'],
+      );
+
       _pendingJobsCount = response.length;
     } catch (e) {
       debugPrint('Error fetching pending jobs: $e');
@@ -91,24 +92,33 @@ class DashboardProvider extends ChangeNotifier {
 
       final response = await supabase
           .from('job_orders')
-          .select('*, customers(first_name, last_name, company_name), job_types(job_type_name)')
-          .gte('date_scheduled', startDate.toIso8601String())
-          .lte('date_scheduled', endDate.toIso8601String())
+          .select(
+            '*, customers(first_name, last_name, company_name), job_types(job_type_name)',
+          )
+          .gte(
+            'date_scheduled',
+            startDate.toUtc().toIso8601String(),
+          ) // Ensure query uses UTC
+          .lte('date_scheduled', endDate.toUtc().toIso8601String())
           .order('date_scheduled', ascending: true);
 
       _todayJobs = response.map<TodayJobItem>((row) {
         final customer = row['customers'];
         String clientName = 'Unknown';
         if (customer != null) {
-          if (customer['company_name'] != null && customer['company_name'].toString().isNotEmpty) {
+          if (customer['company_name'] != null &&
+              customer['company_name'].toString().isNotEmpty) {
             clientName = customer['company_name'];
           } else {
             clientName = '${customer['first_name']} ${customer['last_name']}';
           }
         }
 
-        DateTime scheduled = DateTime.parse(row['date_scheduled']);
-        String time = '${scheduled.hour.toString().padLeft(2, '0')}:${scheduled.minute.toString().padLeft(2, '0')}';
+        // FIX: Convert to Local Time before formatting
+        DateTime scheduled = DateTime.parse(row['date_scheduled']).toLocal();
+
+        String time =
+            '${scheduled.hour == 0 ? 12 : (scheduled.hour > 12 ? scheduled.hour - 12 : scheduled.hour)}:${scheduled.minute.toString().padLeft(2, '0')}';
         if (scheduled.hour < 12) {
           time += ' AM';
         } else {
@@ -164,7 +174,10 @@ class DashboardProvider extends ChangeNotifier {
 
       final response = await query;
 
-      _totalRevenue = response.fold<double>(0, (sum, row) => sum + (row['amount'] ?? 0.0));
+      _totalRevenue = response.fold<double>(
+        0,
+        (sum, row) => sum + (row['amount'] ?? 0.0),
+      );
     } catch (e) {
       debugPrint('Error fetching total revenue: $e');
       _totalRevenue = 0.0;
@@ -195,9 +208,7 @@ class DashboardProvider extends ChangeNotifier {
           startDate = null; // All time
       }
 
-      var query = supabase
-          .from('expenses')
-          .select('amount');
+      var query = supabase.from('expenses').select('amount');
 
       if (startDate != null) {
         query = query.gte('date', startDate.toIso8601String());
@@ -205,7 +216,10 @@ class DashboardProvider extends ChangeNotifier {
 
       final response = await query;
 
-      _totalExpenses = response.fold<double>(0, (sum, row) => sum + (row['amount'] ?? 0.0));
+      _totalExpenses = response.fold<double>(
+        0,
+        (sum, row) => sum + (row['amount'] ?? 0.0),
+      );
     } catch (e) {
       debugPrint('Error fetching total expenses: $e');
       _totalExpenses = 0.0;
@@ -226,14 +240,17 @@ class DashboardProvider extends ChangeNotifier {
           .limit(5);
 
       for (var payment in pendingPayments) {
-        _attentionItems.add(AttentionItem(
-          title: 'Payment verification needed',
-          reference: payment['reference_number'] ?? 'REF-${payment['job_order_id']}',
-          priority: 'High',
-          color: Colors.orange,
-          type: AttentionType.payment,
-          relatedId: payment['job_order_id'],
-        ));
+        _attentionItems.add(
+          AttentionItem(
+            title: 'Payment verification needed',
+            reference:
+                payment['reference_number'] ?? 'REF-${payment['job_order_id']}',
+            priority: 'High',
+            color: Colors.orange,
+            type: AttentionType.payment,
+            relatedId: payment['job_order_id'],
+          ),
+        );
       }
 
       // 2. Pending expense approvals
@@ -244,14 +261,17 @@ class DashboardProvider extends ChangeNotifier {
           .limit(5);
 
       for (var expense in pendingExpenses) {
-        _attentionItems.add(AttentionItem(
-          title: 'Expense approval required',
-          reference: expense['reference_number'] ?? 'EXP-${expense['job_order_id']}',
-          priority: 'Medium',
-          color: Colors.purple,
-          type: AttentionType.expense,
-          relatedId: expense['job_order_id'],
-        ));
+        _attentionItems.add(
+          AttentionItem(
+            title: 'Expense approval required',
+            reference:
+                expense['reference_number'] ?? 'EXP-${expense['job_order_id']}',
+            priority: 'Medium',
+            color: Colors.purple,
+            type: AttentionType.expense,
+            relatedId: expense['job_order_id'],
+          ),
+        );
       }
 
       // 3. Overdue job orders
@@ -264,20 +284,24 @@ class DashboardProvider extends ChangeNotifier {
           .limit(5);
 
       for (var job in overdueJobs) {
-        _attentionItems.add(AttentionItem(
-          title: 'Job order overdue',
-          reference: job['client_jo_number'] ?? 'JO-${job['id']}',
-          priority: 'High',
-          color: Colors.red,
-          type: AttentionType.scheduling,
-          relatedId: job['id'],
-        ));
+        _attentionItems.add(
+          AttentionItem(
+            title: 'Job order overdue',
+            reference: job['client_jo_number'] ?? 'JO-${job['id']}',
+            priority: 'High',
+            color: Colors.red,
+            type: AttentionType.scheduling,
+            relatedId: job['id'],
+          ),
+        );
       }
 
       // Sort by priority
       _attentionItems.sort((a, b) {
         const priorityOrder = {'High': 0, 'Medium': 1, 'Low': 2};
-        return (priorityOrder[a.priority] ?? 3).compareTo(priorityOrder[b.priority] ?? 3);
+        return (priorityOrder[a.priority] ?? 3).compareTo(
+          priorityOrder[b.priority] ?? 3,
+        );
       });
 
       // Limit to top 10
