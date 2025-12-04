@@ -1,15 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:intl/intl.dart';
 import 'ui_app_shell.dart';
+import 'theme/app_theme.dart';
 import 'shared/widgets.dart' show AnimatedCard, HoverCard, AnimatedButton, isMobile;
-
-// --- Design Constants ---
-const Color kPrimaryColor = Color(0xFF2563EB);
-const Color kTextPrimary = Color(0xFF1E293B);
-const Color kTextSecondary = Color(0xFF64748B);
-const Color kBorderColor = Color(0xFFE2E8F0);
-const Color kSuccessColor = Color(0xFF10B981);
-const Color kWarningColor = Color(0xFFF59E0B);
-const Color kDangerColor = Color(0xFFEF4444);
 
 // --- Main Screen ---
 
@@ -20,123 +14,321 @@ class ReportsScreen extends StatefulWidget {
   State<ReportsScreen> createState() => _ReportsScreenState();
 }
 
-enum _ReportRange { thisMonth, last30Days, allTime }
-enum _ReportType { serviceSummary, expenseReport, technicianProductivity }
+enum _ReportRange { today, weekly, monthly, last6Months, yearly }
 
 class _ReportsScreenState extends State<ReportsScreen> {
-  _ReportRange _selectedRange = _ReportRange.thisMonth;
-  _ReportType _selectedType = _ReportType.serviceSummary;
+  _ReportRange _selectedRange = _ReportRange.monthly;
+  
+  bool _isLoading = false;
+  _ReportData _reportData = _ReportData.empty();
+  List<_ChartDataPoint> _serviceChartData = [];
+  List<_FinancialChartPoint> _financialChartData = [];
+  List<_TopCustomer> _topCustomers = [];
+
+  @override
+  void initState() {
+    super.initState();
+    _fetchReportData();
+  }
+
+  Future<void> _fetchReportData() async {
+    if (!mounted) return;
+    setState(() => _isLoading = true);
+
+    try {
+      final supabase = Supabase.instance.client;
+      final now = DateTime.now();
+      DateTime startDate;
+      DateTime endDate = DateTime(now.year, now.month, now.day, 23, 59, 59);
+
+      switch (_selectedRange) {
+        case _ReportRange.today:
+          startDate = DateTime(now.year, now.month, now.day);
+          break;
+        case _ReportRange.weekly:
+          startDate = now.subtract(Duration(days: now.weekday - 1));
+          startDate = DateTime(startDate.year, startDate.month, startDate.day);
+          break;
+        case _ReportRange.monthly:
+          startDate = DateTime(now.year, now.month, 1);
+          break;
+        case _ReportRange.last6Months:
+          startDate = DateTime(now.year, now.month - 5, 1);
+          break;
+        case _ReportRange.yearly:
+          startDate = DateTime(now.year, 1, 1);
+          break;
+      }
+
+      final startStr = startDate.toIso8601String();
+      final endStr = endDate.toIso8601String();
+
+      // 1. Fetch Job Orders
+      final jobsResponse = await supabase
+          .from('job_orders')
+          .select('id, status, date_scheduled, customer_id, customers(company_name, first_name, last_name), job_types(job_type_name)')
+          .gte('date_scheduled', startStr)
+          .lte('date_scheduled', endStr);
+
+      // 2. Fetch Payments
+      final paymentsResponse = await supabase
+          .from('payments')
+          .select('amount, payment_date')
+          .eq('status', 'Verified')
+          .gte('payment_date', startStr)
+          .lte('payment_date', endStr);
+
+      // 3. Fetch Expenses
+      final expensesResponse = await supabase
+          .from('expenses')
+          .select('amount, date')
+          .gte('date', startStr)
+          .lte('date', endStr);
+
+      // --- Process Data ---
+
+      int totalJobs = jobsResponse.length;
+      int installations = 0;
+      int maintenance = 0;
+      int repairs = 0;
+      int completedJobs = 0;
+
+      Map<String, _ChartDataPoint> serviceMap = {};
+      Map<String, _FinancialChartPoint> financialMap = {};
+      Map<int, _TopCustomer> customerAggMap = {};
+      
+      // For Business Insights
+      Map<String, int> jobTypeCounts = {};
+      Map<String, int> dayCounts = {};
+
+      String getKey(DateTime date) {
+        if (_selectedRange == _ReportRange.today || _selectedRange == _ReportRange.weekly) {
+          return DateFormat('EEE').format(date);
+        } else if (_selectedRange == _ReportRange.monthly) {
+          return DateFormat('dd').format(date);
+        } else {
+          return DateFormat('MMM').format(date);
+        }
+      }
+
+      for (var job in jobsResponse) {
+        final typeName = (job['job_types']?['job_type_name'] ?? 'Unknown').toString();
+        final typeKey = typeName.toLowerCase();
+        final status = (job['status'] ?? '').toString().toLowerCase();
+        final date = DateTime.parse(job['date_scheduled']);
+
+        if (status == 'completed') completedJobs++;
+        
+        // Categorize
+        if (typeKey.contains('install')) installations++;
+        else if (typeKey.contains('maintenance') || typeKey.contains('clean')) maintenance++;
+        else if (typeKey.contains('repair')) repairs++;
+
+        // Top Service Logic
+        jobTypeCounts[typeName] = (jobTypeCounts[typeName] ?? 0) + 1;
+
+        // Busiest Day Logic
+        final dayName = DateFormat('EEEE').format(date);
+        dayCounts[dayName] = (dayCounts[dayName] ?? 0) + 1;
+
+        final key = getKey(date);
+
+        if (!serviceMap.containsKey(key)) {
+          serviceMap[key] = _ChartDataPoint(label: key, installations: 0, maintenance: 0, repairs: 0);
+        }
+        if (typeKey.contains('install')) serviceMap[key]!.installations++;
+        else if (typeKey.contains('maintenance') || typeKey.contains('clean')) serviceMap[key]!.maintenance++;
+        else if (typeKey.contains('repair')) serviceMap[key]!.repairs++;
+
+        // Top Customers
+        if (job['customer_id'] != null && job['customers'] != null) {
+          final cid = job['customer_id'] as int;
+          final cData = job['customers'];
+          final name = cData['company_name'] ?? '${cData['first_name']} ${cData['last_name']}';
+          
+          if (!customerAggMap.containsKey(cid)) {
+            customerAggMap[cid] = _TopCustomer(name: name, jobCount: 0);
+          }
+          customerAggMap[cid]!.jobCount++;
+        }
+      }
+
+      // Determine Top Service
+      String topService = 'N/A';
+      int maxServiceCount = 0;
+      jobTypeCounts.forEach((key, value) {
+        if (value > maxServiceCount) {
+          maxServiceCount = value;
+          topService = key;
+        }
+      });
+
+      // Determine Busiest Day
+      String busiestDay = 'N/A';
+      int maxDayCount = 0;
+      dayCounts.forEach((key, value) {
+        if (value > maxDayCount) {
+          maxDayCount = value;
+          busiestDay = key;
+        }
+      });
+
+      double totalPayments = 0;
+      for (var p in paymentsResponse) {
+        final amount = (p['amount'] as num).toDouble();
+        totalPayments += amount;
+        final date = DateTime.parse(p['payment_date']);
+        final key = getKey(date);
+
+        if (!financialMap.containsKey(key)) {
+          financialMap[key] = _FinancialChartPoint(label: key, income: 0, expense: 0);
+        }
+        financialMap[key]!.income += amount;
+      }
+
+      double totalExpenses = 0;
+      for (var e in expensesResponse) {
+        final amount = (e['amount'] as num).toDouble();
+        totalExpenses += amount;
+        final date = DateTime.parse(e['date']);
+        final key = getKey(date);
+
+        if (!financialMap.containsKey(key)) {
+          financialMap[key] = _FinancialChartPoint(label: key, income: 0, expense: 0);
+        }
+        financialMap[key]!.expense += amount;
+      }
+
+      _serviceChartData = serviceMap.values.toList();
+      _financialChartData = financialMap.values.toList();
+      
+      _topCustomers = customerAggMap.values.toList()
+        ..sort((a, b) => b.jobCount.compareTo(a.jobCount));
+      if (_topCustomers.length > 5) _topCustomers = _topCustomers.sublist(0, 5);
+
+      if (mounted) {
+        setState(() {
+          _reportData = _ReportData(
+            totalJobs: totalJobs,
+            installations: installations,
+            maintenance: maintenance,
+            repairs: repairs,
+            completedJobs: completedJobs,
+            totalPayments: totalPayments,
+            totalExpenses: totalExpenses,
+            topService: topService,
+            busiestDay: busiestDay,
+          );
+          _isLoading = false;
+        });
+      }
+
+    } catch (e) {
+      debugPrint('Error fetching report data: $e');
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
-    final report = _ReportData.forRange(_selectedRange);
+    final bool mobile = isMobile(context);
     
     return AppShell(
       selectedIndex: 4,
       body: Container(
-        color: const Color(0xFFF8FAFC),
+        color: AppTheme.background,
         child: Column(
           children: [
-            // Header & Controls - Responsive
+            // Header
             Container(
-              padding: EdgeInsets.all(isMobile(context) ? 16 : 24),
-              color: Colors.white,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+              padding: EdgeInsets.symmetric(horizontal: mobile ? 16 : 24, vertical: 16),
+              decoration: const BoxDecoration(
+                color: AppTheme.surface,
+                border: Border(bottom: BorderSide(color: AppTheme.borderColor)),
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.end, // Align to right
                 children: [
-                  if (isMobile(context)) ...[
-                    const Text('Reports & Analytics', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700, color: kTextPrimary)),
-                    const SizedBox(height: 12),
-                    SizedBox(
-                      width: double.infinity,
-                      child: OutlinedButton.icon(
-                        onPressed: () {},
-                        icon: const Icon(Icons.download, size: 16),
-                        label: const Text('Export All Reports'),
-                        style: OutlinedButton.styleFrom(
-                          foregroundColor: kTextSecondary,
-                          side: const BorderSide(color: kBorderColor),
-                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                        ),
+                  // Dropdown Filter
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: AppTheme.background,
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: AppTheme.borderColor),
+                    ),
+                    child: DropdownButtonHideUnderline(
+                      child: DropdownButton<_ReportRange>(
+                        value: _selectedRange,
+                        isDense: true,
+                        icon: const Icon(Icons.keyboard_arrow_down, color: AppTheme.textSecondary),
+                        style: AppTheme.body.copyWith(fontWeight: FontWeight.w600),
+                        items: const [
+                          DropdownMenuItem(value: _ReportRange.today, child: Text("Today")),
+                          DropdownMenuItem(value: _ReportRange.weekly, child: Text("Weekly")),
+                          DropdownMenuItem(value: _ReportRange.monthly, child: Text("Monthly")),
+                          DropdownMenuItem(value: _ReportRange.last6Months, child: Text("Last 6 Months")),
+                          DropdownMenuItem(value: _ReportRange.yearly, child: Text("Yearly")),
+                        ],
+                        onChanged: (val) {
+                          if (val != null) _updateRange(val);
+                        },
                       ),
-                    ),
-                  ] else ...[
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        const Text('Reports & Analytics', style: TextStyle(fontSize: 24, fontWeight: FontWeight.w700, color: kTextPrimary)),
-                        OutlinedButton.icon(
-                          onPressed: () {},
-                          icon: const Icon(Icons.download, size: 16),
-                          label: const Text('Export All Reports'),
-                          style: OutlinedButton.styleFrom(
-                            foregroundColor: kTextSecondary,
-                            side: const BorderSide(color: kBorderColor),
-                            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
-                  const SizedBox(height: 24),
-                  // Filters Row - Always scrollable
-                  SingleChildScrollView(
-                    scrollDirection: Axis.horizontal,
-                    child: Row(
-                      children: [
-                        // Range Selector
-                        Container(
-                          decoration: BoxDecoration(
-                            color: const Color(0xFFF1F5F9),
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          padding: const EdgeInsets.all(4),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              _RangeTab('This month', _ReportRange.thisMonth == _selectedRange, () => setState(() => _selectedRange = _ReportRange.thisMonth)),
-                              _RangeTab('Last 30 days', _ReportRange.last30Days == _selectedRange, () => setState(() => _selectedRange = _ReportRange.last30Days)),
-                              _RangeTab('All time', _ReportRange.allTime == _selectedRange, () => setState(() => _selectedRange = _ReportRange.allTime)),
-                            ],
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        // Type Tabs - Scrollable
-                        _TypeTab('Service Summary', _ReportType.serviceSummary == _selectedType, () => setState(() => _selectedType = _ReportType.serviceSummary)),
-                        const SizedBox(width: 8),
-                        _TypeTab('Expense Report', _ReportType.expenseReport == _selectedType, () => setState(() => _selectedType = _ReportType.expenseReport)),
-                        const SizedBox(width: 8),
-                        _TypeTab('Technician Productivity', _ReportType.technicianProductivity == _selectedType, () => setState(() => _selectedType = _ReportType.technicianProductivity)),
-                      ],
                     ),
                   ),
                 ],
               ),
             ),
-            const Divider(height: 1, color: kBorderColor),
 
-            // Main Content - Responsive padding
+            // Content
             Expanded(
-              child: SingleChildScrollView(
-                padding: EdgeInsets.all(isMobile(context) ? 16 : 32),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    // KPI Grid
-                    _buildKpiGrid(report),
-                    SizedBox(height: isMobile(context) ? 16 : 32),
-                    
-                    // Financial Section
-                    Text("Financial Overview", style: TextStyle(fontSize: isMobile(context) ? 16 : 18, fontWeight: FontWeight.w600, color: kTextPrimary)),
-                    const SizedBox(height: 16),
-                    _buildFinancialGrid(report),
-                    SizedBox(height: isMobile(context) ? 16 : 32),
+              child: _isLoading 
+                ? const Center(child: CircularProgressIndicator())
+                : SingleChildScrollView(
+                  padding: EdgeInsets.all(mobile ? 16 : 32),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      // KPI Grid
+                      _buildKpiGrid(_reportData, mobile),
+                      SizedBox(height: mobile ? 16 : 32),
+                      
+                      // Financials
+                      Text("Financial Overview", style: AppTheme.heading2),
+                      const SizedBox(height: 12),
+                      _buildFinancialGrid(_reportData, mobile),
+                      SizedBox(height: mobile ? 16 : 32),
 
-                    // Charts Section
-                    _buildChartSection(),
-                  ],
+                      // Business Insights
+                      Text("Business Insights", style: AppTheme.heading2),
+                      const SizedBox(height: 12),
+                      _buildBusinessInsights(mobile),
+                      SizedBox(height: mobile ? 16 : 32),
+
+                      // Charts (Hidden for Today)
+                      if (_selectedRange != _ReportRange.today) ...[
+                        Text("Performance Analytics", style: AppTheme.heading2),
+                        const SizedBox(height: 12),
+                        if (mobile) ...[
+                           _buildServiceChart(),
+                           const SizedBox(height: 16),
+                           _buildFinancialChart(),
+                           const SizedBox(height: 16),
+                           _buildTopCustomers(),
+                        ] else 
+                          Wrap(
+                            spacing: 24,
+                            runSpacing: 24,
+                            children: [
+                              SizedBox(width: 500, child: _buildServiceChart()),
+                              SizedBox(width: 500, child: _buildFinancialChart()),
+                              SizedBox(width: 500, child: _buildTopCustomers()),
+                            ],
+                          ),
+                      ],
+                    ],
+                  ),
                 ),
-              ),
             ),
           ],
         ),
@@ -144,15 +336,21 @@ class _ReportsScreenState extends State<ReportsScreen> {
     );
   }
 
-  Widget _buildKpiGrid(_ReportData report) {
+  void _updateRange(_ReportRange range) {
+    setState(() {
+      _selectedRange = range;
+    });
+    _fetchReportData();
+  }
+
+  Widget _buildKpiGrid(_ReportData report, bool mobile) {
     return LayoutBuilder(
       builder: (context, constraints) {
-        // Responsive Logic
         int crossAxisCount = 4;
         if (constraints.maxWidth < 1200) crossAxisCount = 2;
-        if (constraints.maxWidth < 600) crossAxisCount = 1;
+        if (mobile) crossAxisCount = 2; 
         
-        final gap = 24.0;
+        final gap = mobile ? 12.0 : 24.0;
         final totalGap = gap * (crossAxisCount - 1);
         final width = (constraints.maxWidth - totalGap) / crossAxisCount;
 
@@ -160,49 +358,33 @@ class _ReportsScreenState extends State<ReportsScreen> {
           spacing: gap,
           runSpacing: gap,
           children: [
-            AnimatedCard(
-              delay: const Duration(milliseconds: 200),
-              child: _KpiCard(
-                title: 'Total Jobs',
-                value: report.totalJobs.toString(),
-                trend: '+12%',
-                icon: Icons.work_outline,
-                color: kPrimaryColor,
-                width: width,
-              ),
+            _KpiCard(
+              title: 'Total Jobs',
+              value: report.totalJobs.toString(),
+              icon: Icons.work_outline,
+              color: AppTheme.primary,
+              width: width,
             ),
-            AnimatedCard(
-              delay: const Duration(milliseconds: 250),
-              child: _KpiCard(
-                title: 'Installations',
-                value: report.installations.toString(),
-                trend: '+8%',
-                icon: Icons.construction,
-                color: kSuccessColor,
-                width: width,
-              ),
+            _KpiCard(
+              title: 'Installations',
+              value: report.installations.toString(),
+              icon: Icons.construction,
+              color: AppTheme.success,
+              width: width,
             ),
-            AnimatedCard(
-              delay: const Duration(milliseconds: 300),
-              child: _KpiCard(
-                title: 'Maintenance',
-                value: report.maintenance.toString(),
-                trend: '+15%',
-                icon: Icons.cleaning_services,
-                color: Colors.teal,
-                width: width,
-              ),
+            _KpiCard(
+              title: 'Maintenance',
+              value: report.maintenance.toString(),
+              icon: Icons.cleaning_services,
+              color: Colors.teal,
+              width: width,
             ),
-            AnimatedCard(
-              delay: const Duration(milliseconds: 350),
-              child: _KpiCard(
-                title: 'Repairs',
-                value: report.repairs.toString(),
-                trend: '-5%',
-                icon: Icons.build_circle_outlined,
-                color: kWarningColor,
-                width: width,
-              ),
+            _KpiCard(
+              title: 'Repairs',
+              value: report.repairs.toString(),
+              icon: Icons.build_circle_outlined,
+              color: AppTheme.warning,
+              width: width,
             ),
           ],
         );
@@ -210,46 +392,43 @@ class _ReportsScreenState extends State<ReportsScreen> {
     );
   }
 
-  Widget _buildFinancialGrid(_ReportData report) {
+  Widget _buildFinancialGrid(_ReportData report, bool mobile) {
     return LayoutBuilder(
       builder: (context, constraints) {
         int crossAxisCount = 3;
         if (constraints.maxWidth < 900) crossAxisCount = 1;
+        if (mobile) crossAxisCount = 1;
         
-        final gap = 24.0;
+        final gap = mobile ? 12.0 : 24.0;
         final width = crossAxisCount == 1 ? constraints.maxWidth : (constraints.maxWidth - (gap * 2)) / 3;
 
         return Wrap(
           spacing: gap,
           runSpacing: gap,
           children: [
-            AnimatedCard(
-              delay: const Duration(milliseconds: 400),
-              child: _FinancialCard(
-                label: 'Total Payments',
-                amount: report.totalPaymentsFormatted,
-                subtext: 'Cash-in',
-                width: width,
-              ),
+            _FinancialCard(
+              label: 'Total Revenue',
+              amount: report.totalPaymentsFormatted,
+              subtext: 'Verified Payments',
+              width: width,
+              color: AppTheme.success,
+              icon: Icons.arrow_upward,
             ),
-            AnimatedCard(
-              delay: const Duration(milliseconds: 450),
-              child: _FinancialCard(
-                label: 'Total Expenses',
-                amount: report.totalExpensesFormatted,
-                subtext: 'Cash-out',
-                isExpense: true,
-                width: width,
-              ),
+            _FinancialCard(
+              label: 'Total Expenses',
+              amount: report.totalExpensesFormatted,
+              subtext: 'Recorded Expenses',
+              width: width,
+              color: AppTheme.error,
+              icon: Icons.arrow_downward,
             ),
-            AnimatedCard(
-              delay: const Duration(milliseconds: 500),
-              child: _FinancialCard(
-                label: 'Net Cash',
-                amount: report.netCashFormatted,
-                subtext: 'Difference',
-                width: width,
-              ),
+            _FinancialCard(
+              label: 'Net Income',
+              amount: report.netCashFormatted,
+              subtext: 'Revenue - Expenses',
+              width: width,
+              color: AppTheme.primary,
+              icon: Icons.account_balance_wallet,
             ),
           ],
         );
@@ -257,199 +436,135 @@ class _ReportsScreenState extends State<ReportsScreen> {
     );
   }
 
-  Widget _buildChartSection() {
-    // Mock Data for Chart
-    final months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun'];
-    final installs = [12.0, 16.0, 18.0, 20.0, 22.0, 25.0];
-    final maintenance = [17.0, 22.0, 19.0, 25.0, 30.0, 33.0];
-    final repairs = [8.0, 12.0, 10.0, 15.0, 18.0, 20.0];
+  Widget _buildBusinessInsights(bool mobile) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        int crossAxisCount = 4;
+        if (constraints.maxWidth < 1200) crossAxisCount = 2;
+        if (mobile) crossAxisCount = 2;
 
-    return AnimatedCard(
-      delay: const Duration(milliseconds: 550),
-      child: Container(
+        final gap = mobile ? 12.0 : 24.0;
+        final totalGap = gap * (crossAxisCount - 1);
+        final width = (constraints.maxWidth - totalGap) / crossAxisCount;
+
+        return Wrap(
+          spacing: gap,
+          runSpacing: gap,
+          children: [
+             _InsightCard(
+               title: 'Avg. Job Value',
+               value: _reportData.avgJobValue,
+               icon: Icons.attach_money,
+               color: Colors.indigo,
+               width: width,
+             ),
+             _InsightCard(
+               title: 'Completion Rate',
+               value: _reportData.completionRate,
+               icon: Icons.check_circle_outline,
+               color: Colors.green,
+               width: width,
+             ),
+             _InsightCard(
+               title: 'Top Service',
+               value: _reportData.topService,
+               icon: Icons.star_outline,
+               color: Colors.orange,
+               width: width,
+             ),
+             _InsightCard(
+               title: 'Busiest Day',
+               value: _reportData.busiestDay,
+               icon: Icons.calendar_today,
+               color: Colors.purple,
+               width: width,
+             ),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _buildServiceChart() {
+    return _ChartContainer(
+      title: 'Service Trends',
+      child: _serviceChartData.isEmpty 
+        ? const Center(child: Text("No data"))
+        : _BusinessBarChart(
+            data: _serviceChartData.map((d) => _BarGroup(
+              label: d.label,
+              values: [
+                _BarValue(d.installations.toDouble(), AppTheme.primary),
+                _BarValue(d.maintenance.toDouble(), AppTheme.success),
+                _BarValue(d.repairs.toDouble(), AppTheme.warning),
+              ]
+            )).toList(),
+          ),
+    );
+  }
+
+  Widget _buildFinancialChart() {
+    return _ChartContainer(
+      title: 'Income vs Expenses',
+      child: _financialChartData.isEmpty 
+        ? const Center(child: Text("No data"))
+        : _BusinessBarChart(
+            data: _financialChartData.map((d) => _BarGroup(
+              label: d.label,
+              values: [
+                _BarValue(d.income, AppTheme.success),
+                _BarValue(d.expense, AppTheme.error),
+              ]
+            )).toList(),
+          ),
+    );
+  }
+
+  Widget _buildTopCustomers() {
+    return _ChartContainer(
+      title: 'Top Customers (by Volume)',
+      child: _topCustomers.isEmpty
+        ? const Center(child: Text("No data"))
+        : Column(
+            children: _topCustomers.map((c) => Padding(
+              padding: const EdgeInsets.symmetric(vertical: 8),
+              child: Row(
+                children: [
+                  CircleAvatar(
+                    radius: 16,
+                    backgroundColor: AppTheme.primary.withOpacity(0.1),
+                    child: Text(c.name[0].toUpperCase(), style: const TextStyle(fontSize: 12, color: AppTheme.primary, fontWeight: FontWeight.bold)),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(child: Text(c.name, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13))),
+                  Text('${c.jobCount} Jobs', style: const TextStyle(color: AppTheme.textSecondary, fontSize: 12)),
+                ],
+              ),
+            )).toList(),
+          ),
+    );
+  }
+}
+
+// --- Reusable Widgets ---
+
+class _ChartContainer extends StatelessWidget {
+  final String title;
+  final Widget child;
+  const _ChartContainer({required this.title, required this.child});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
       padding: const EdgeInsets.all(24),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: kBorderColor),
-      ),
+      decoration: AppTheme.cardDecoration,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          LayoutBuilder(
-            builder: (context, constraints) {
-              final isNarrow = constraints.maxWidth < 500;
-              if (isNarrow) {
-                return Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text("Service Summary (Last 6 Months)", style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: kTextPrimary)),
-                    const SizedBox(height: 12),
-                    Wrap(
-                      spacing: 8,
-                      runSpacing: 8,
-                      children: [
-                        _ChartFilterBtn('6M', true),
-                        _ChartFilterBtn('1Y', false),
-                        OutlinedButton.icon(
-                          onPressed: (){}, 
-                          icon: const Icon(Icons.picture_as_pdf, size: 14),
-                          label: const Text('PDF', style: TextStyle(fontSize: 12)),
-                          style: OutlinedButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8)),
-                        ),
-                      ],
-                    ),
-                  ],
-                );
-              }
-              return Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  const Text("Service Summary (Last 6 Months)", style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: kTextPrimary)),
-                  Flexible(
-                    child: SingleChildScrollView(
-                      scrollDirection: Axis.horizontal,
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          _ChartFilterBtn('6M', true),
-                          const SizedBox(width: 8),
-                          _ChartFilterBtn('1Y', false),
-                          const SizedBox(width: 8),
-                          OutlinedButton.icon(
-                            onPressed: (){}, 
-                            icon: const Icon(Icons.picture_as_pdf, size: 14),
-                            label: const Text('PDF', style: TextStyle(fontSize: 12)),
-                            style: OutlinedButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8)),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ],
-              );
-            },
-          ),
-          const SizedBox(height: 32),
-          // Chart Visualization
-          SizedBox(
-            height: 250,
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.end,
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: List.generate(months.length, (i) {
-                return Column(
-                  mainAxisAlignment: MainAxisAlignment.end,
-                  children: [
-                    Row(
-                      crossAxisAlignment: CrossAxisAlignment.end,
-                      children: [
-                        _Bar(height: installs[i] * 4, color: kPrimaryColor),
-                        const SizedBox(width: 4),
-                        _Bar(height: maintenance[i] * 4, color: kSuccessColor),
-                        const SizedBox(width: 4),
-                        _Bar(height: repairs[i] * 4, color: kWarningColor),
-                      ],
-                    ),
-                    const SizedBox(height: 12),
-                    Text(months[i], style: const TextStyle(fontSize: 12, color: kTextSecondary)),
-                  ],
-                );
-              }),
-            ),
-          ),
+          Text(title, style: AppTheme.heading3),
           const SizedBox(height: 24),
-          // Legend - Responsive
-          LayoutBuilder(
-            builder: (context, constraints) {
-              if (constraints.maxWidth < 400) {
-                return Column(
-                  children: const [
-                    _ChartLegend(color: kPrimaryColor, label: 'Installations'),
-                    SizedBox(height: 8),
-                    _ChartLegend(color: kSuccessColor, label: 'Maintenance'),
-                    SizedBox(height: 8),
-                    _ChartLegend(color: kWarningColor, label: 'Repairs'),
-                  ],
-                );
-              }
-              return Wrap(
-                alignment: WrapAlignment.center,
-                spacing: 24,
-                children: const [
-                  _ChartLegend(color: kPrimaryColor, label: 'Installations'),
-                  _ChartLegend(color: kSuccessColor, label: 'Maintenance'),
-                  _ChartLegend(color: kWarningColor, label: 'Repairs'),
-                ],
-              );
-            },
-          )
+          SizedBox(height: 250, child: child), 
         ],
-      ),
-      ),
-    );
-  }
-}
-
-// --- Widgets ---
-
-class _RangeTab extends StatelessWidget {
-  final String label;
-  final bool isSelected;
-  final VoidCallback onTap;
-
-  const _RangeTab(this.label, this.isSelected, this.onTap);
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-        decoration: BoxDecoration(
-          color: isSelected ? Colors.white : Colors.transparent,
-          borderRadius: BorderRadius.circular(6),
-          boxShadow: isSelected ? [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 4)] : null,
-        ),
-        child: Text(
-          label,
-          style: TextStyle(
-            fontSize: 13,
-            fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500,
-            color: isSelected ? kTextPrimary : kTextSecondary,
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _TypeTab extends StatelessWidget {
-  final String label;
-  final bool isSelected;
-  final VoidCallback onTap;
-
-  const _TypeTab(this.label, this.isSelected, this.onTap);
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-        decoration: BoxDecoration(
-          color: isSelected ? const Color(0xFFEFF6FF) : Colors.white,
-          borderRadius: BorderRadius.circular(20),
-          border: Border.all(color: isSelected ? kPrimaryColor.withOpacity(0.2) : kBorderColor),
-        ),
-        child: Text(
-          label,
-          style: TextStyle(
-            fontSize: 13,
-            fontWeight: FontWeight.w600,
-            color: isSelected ? kPrimaryColor : kTextSecondary,
-          ),
-        ),
       ),
     );
   }
@@ -458,7 +573,6 @@ class _TypeTab extends StatelessWidget {
 class _KpiCard extends StatelessWidget {
   final String title;
   final String value;
-  final String trend;
   final IconData icon;
   final Color color;
   final double width;
@@ -466,7 +580,6 @@ class _KpiCard extends StatelessWidget {
   const _KpiCard({
     required this.title,
     required this.value,
-    required this.trend,
     required this.icon,
     required this.color,
     required this.width,
@@ -476,29 +589,33 @@ class _KpiCard extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       width: width,
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: kBorderColor),
+      padding: const EdgeInsets.all(16),
+      decoration: AppTheme.cardDecoration.copyWith(
+        boxShadow: AppTheme.glow(color), // Add glow based on card color
       ),
-      height: 160,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
         children: [
-          Container(
-            padding: const EdgeInsets.all(8),
-            decoration: BoxDecoration(color: color.withOpacity(0.1), borderRadius: BorderRadius.circular(8)),
-            child: Icon(icon, size: 20, color: color),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(color: color.withOpacity(0.1), borderRadius: BorderRadius.circular(10)),
+                child: Icon(icon, size: 20, color: color),
+              ),
+            ],
           ),
-          const Spacer(),
-          Text(title, style: const TextStyle(fontSize: 13, color: kTextSecondary, fontWeight: FontWeight.w500)),
+          const SizedBox(height: 16),
+          FittedBox(
+            fit: BoxFit.scaleDown,
+            child: Text(value, style: AppTheme.heading1),
+          ),
           const SizedBox(height: 4),
-          Text(value, style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w700, color: kTextPrimary)),
-          const SizedBox(height: 4),
-          Text(trend, style: const TextStyle(fontSize: 11, color: kTextSecondary)), // Simplified trend for clean look
+          Text(title, style: AppTheme.caption),
         ],
-      ), // Fixed height for uniformity
+      ),
     );
   }
 }
@@ -508,128 +625,326 @@ class _FinancialCard extends StatelessWidget {
   final String amount;
   final String subtext;
   final double width;
-  final bool isExpense;
+  final Color color;
+  final IconData icon;
 
   const _FinancialCard({
     required this.label,
     required this.amount,
     required this.subtext,
     required this.width,
-    this.isExpense = false,
+    required this.color,
+    required this.icon,
   });
 
   @override
   Widget build(BuildContext context) {
     return Container(
       width: width,
-      padding: const EdgeInsets.all(24),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: kBorderColor),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+      padding: const EdgeInsets.all(20),
+      decoration: AppTheme.cardDecoration,
+      child: Row(
         children: [
-          Text(label, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: kTextPrimary)),
-          const SizedBox(height: 8),
-          Text(amount, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w700, color: kTextPrimary)),
-          const SizedBox(height: 4),
-          Text(subtext, style: const TextStyle(fontSize: 12, color: kTextSecondary)),
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: color.withOpacity(0.1),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Icon(icon, color: color, size: 24),
+          ),
+          const SizedBox(width: 16),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(label, style: AppTheme.caption.copyWith(fontWeight: FontWeight.w600)),
+                const SizedBox(height: 4),
+                FittedBox(
+                  fit: BoxFit.scaleDown,
+                  alignment: Alignment.centerLeft,
+                  child: Text(amount, style: AppTheme.heading2),
+                ),
+                const SizedBox(height: 2),
+                Text(subtext, style: TextStyle(fontSize: 11, color: color.withOpacity(0.8), fontWeight: FontWeight.w500)),
+              ],
+            ),
+          ),
         ],
       ),
     );
   }
 }
 
-class _ChartFilterBtn extends StatelessWidget {
-  final String label;
-  final bool selected;
-  const _ChartFilterBtn(this.label, this.selected);
+class _InsightCard extends StatelessWidget {
+  final String title;
+  final String value;
+  final IconData icon;
+  final Color color;
+  final double width;
+
+  const _InsightCard({
+    required this.title,
+    required this.value,
+    required this.icon,
+    required this.color,
+    required this.width,
+  });
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      width: width,
+      padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: selected ? Colors.white : Colors.transparent,
-        border: Border.all(color: selected ? kTextSecondary : kBorderColor),
-        borderRadius: BorderRadius.circular(20),
+        color: color.withOpacity(0.05),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: color.withOpacity(0.1)),
       ),
-      child: Text(label, style: TextStyle(fontSize: 12, fontWeight: selected ? FontWeight.w600 : FontWeight.w400)),
+      child: Row(
+        children: [
+          Icon(icon, color: color, size: 28),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                FittedBox(
+                  fit: BoxFit.scaleDown,
+                  alignment: Alignment.centerLeft,
+                  child: Text(value, style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: color)),
+                ),
+                Text(title, style: TextStyle(fontSize: 12, color: color.withOpacity(0.8), fontWeight: FontWeight.w600)),
+              ],
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
 
-class _Bar extends StatelessWidget {
-  final double height;
-  final Color color;
-  const _Bar({required this.height, required this.color});
-  
+// --- Improved Business Chart ---
+
+class _BusinessBarChart extends StatelessWidget {
+  final List<_BarGroup> data;
+  const _BusinessBarChart({required this.data});
+
   @override
   Widget build(BuildContext context) {
-    return Container(
-      width: 12,
-      height: height,
-      decoration: BoxDecoration(color: color, borderRadius: BorderRadius.circular(4)),
+    if (data.isEmpty) return const SizedBox();
+
+    double maxVal = 0;
+    for (var group in data) {
+      for (var val in group.values) {
+        if (val.value > maxVal) maxVal = val.value;
+      }
+    }
+    if (maxVal == 0) maxVal = 1;
+
+    // Grid lines count
+    const int gridLines = 5;
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final double height = constraints.maxHeight;
+        // Use a fixed height for labels to ensure they don't overflow
+        const double labelHeight = 24.0;
+        
+        return Column(
+          children: [
+            // Chart Area
+            Expanded(
+              child: Stack(
+                children: [
+                  // Grid Lines & Y-Axis Labels
+                  Column(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: List.generate(gridLines + 1, (index) {
+                      final double value = maxVal - (maxVal * (index / gridLines));
+                      return Row(
+                        children: [
+                          SizedBox(
+                            width: 40,
+                            child: Text(
+                              value >= 1000 ? '${(value/1000).toStringAsFixed(1)}k' : value.toStringAsFixed(0),
+                              style: const TextStyle(fontSize: 10, color: AppTheme.textSecondary),
+                              textAlign: TextAlign.right,
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(child: Container(height: 1, color: AppTheme.borderColor.withOpacity(0.5))),
+                        ],
+                      );
+                    }),
+                  ),
+                  
+                  // Bars
+                  Padding(
+                    padding: const EdgeInsets.only(left: 48, top: 8), // Align with grid
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.end,
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: data.map((group) {
+                        return Expanded(
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            crossAxisAlignment: CrossAxisAlignment.end,
+                            children: group.values.map((val) {
+                              // Calculate height relative to the chart area
+                              // Ensure we don't divide by zero or get negative
+                              final double relativeHeight = (val.value / maxVal);
+                              return Flexible(
+                                child: FractionallySizedBox(
+                                  heightFactor: relativeHeight == 0 ? 0.01 : relativeHeight, 
+                                  child: Container(
+                                    width: 16, // Wider bars
+                                    margin: const EdgeInsets.symmetric(horizontal: 2),
+                                    decoration: BoxDecoration(
+                                      color: val.color,
+                                      borderRadius: const BorderRadius.vertical(top: Radius.circular(4)),
+                                    ),
+                                  ),
+                                ),
+                              );
+                            }).toList(),
+                          ),
+                        );
+                      }).toList(),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            
+            // Labels Area
+            SizedBox(
+              height: labelHeight,
+              child: Padding(
+                padding: const EdgeInsets.only(left: 48),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: data.map((group) {
+                    return Expanded(
+                      child: Center(
+                        child: Text(
+                          group.label,
+                          style: const TextStyle(fontSize: 10, color: AppTheme.textSecondary, fontWeight: FontWeight.w500),
+                          textAlign: TextAlign.center,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                    );
+                  }).toList(),
+                ),
+              ),
+            ),
+          ],
+        );
+      },
     );
   }
 }
 
-class _ChartLegend extends StatelessWidget {
-  final Color color;
+class _BarGroup {
   final String label;
-  const _ChartLegend({required this.color, required this.label});
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      children: [
-        Container(width: 12, height: 12, decoration: BoxDecoration(color: color, borderRadius: BorderRadius.circular(2))),
-        const SizedBox(width: 8),
-        Text(label, style: const TextStyle(fontSize: 12, color: kTextSecondary)),
-      ],
-    );
-  }
+  final List<_BarValue> values;
+  _BarGroup({required this.label, required this.values});
 }
 
-// --- Helper Data ---
+class _BarValue {
+  final double value;
+  final Color color;
+  _BarValue(this.value, this.color);
+}
+
+// --- Data Models ---
 
 class _ReportData {
   final int totalJobs;
   final int installations;
   final int maintenance;
   final int repairs;
+  final int completedJobs;
   final double totalPayments;
   final double totalExpenses;
+  final String topService;
+  final String busiestDay;
 
   const _ReportData({
     required this.totalJobs,
     required this.installations,
     required this.maintenance,
     required this.repairs,
+    required this.completedJobs,
     required this.totalPayments,
     required this.totalExpenses,
+    required this.topService,
+    required this.busiestDay,
   });
+
+  factory _ReportData.empty() {
+    return const _ReportData(
+      totalJobs: 0,
+      installations: 0,
+      maintenance: 0,
+      repairs: 0,
+      completedJobs: 0,
+      totalPayments: 0,
+      totalExpenses: 0,
+      topService: 'N/A',
+      busiestDay: 'N/A',
+    );
+  }
 
   double get netCash => totalPayments - totalExpenses;
   String get totalPaymentsFormatted => '₱${totalPayments.toStringAsFixed(2)}';
   String get totalExpensesFormatted => '₱${totalExpenses.toStringAsFixed(2)}';
   String get netCashFormatted => '₱${netCash.toStringAsFixed(2)}';
-
-  static _ReportData forRange(_ReportRange range) {
-    // Mock Logic for demo
-    double multiplier = 1.0;
-    if (range == _ReportRange.last30Days) multiplier = 0.8;
-    if (range == _ReportRange.allTime) multiplier = 12.5;
-
-    return _ReportData(
-      totalJobs: (285 * multiplier).round(),
-      installations: (112 * multiplier).round(),
-      maintenance: (143 * multiplier).round(),
-      repairs: (83 * multiplier).round(),
-      totalPayments: 22000.0 * multiplier,
-      totalExpenses: 3330.0 * multiplier,
-    );
+  
+  String get avgJobValue {
+    if (totalJobs == 0) return '₱0.00';
+    return '₱${(totalPayments / totalJobs).toStringAsFixed(2)}';
   }
+
+  String get completionRate {
+    if (totalJobs == 0) return '0%';
+    return '${((completedJobs / totalJobs) * 100).toStringAsFixed(0)}%';
+  }
+}
+
+class _ChartDataPoint {
+  final String label;
+  int installations;
+  int maintenance;
+  int repairs;
+
+  _ChartDataPoint({
+    required this.label,
+    required this.installations,
+    required this.maintenance,
+    required this.repairs,
+  });
+}
+
+class _FinancialChartPoint {
+  final String label;
+  double income;
+  double expense;
+
+  _FinancialChartPoint({required this.label, required this.income, required this.expense});
+}
+
+class _CustomerChartPoint {
+  final String label;
+  final int count;
+
+  _CustomerChartPoint({required this.label, required this.count});
+}
+
+class _TopCustomer {
+  final String name;
+  int jobCount;
+  _TopCustomer({required this.name, required this.jobCount});
 }

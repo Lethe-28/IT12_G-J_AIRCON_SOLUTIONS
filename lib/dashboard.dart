@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'data/app_state.dart';
 import 'data/dashboard_provider.dart';
 import 'ui_app_shell.dart';
+import 'theme/app_theme.dart';
 import 'shared_header.dart';
 import 'shared/widgets.dart' show AnimatedCard, isMobile;
 
@@ -24,6 +25,18 @@ class _DashboardScreenState extends State<DashboardScreen> {
   void initState() {
     super.initState();
     _loadData();
+    
+    // Mark welcome as shown after the first build
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!AppState.hasShownWelcome) {
+        AppState.hasShownWelcome = true;
+        // We don't need to setState here because the next rebuild (e.g. from navigation) will pick it up,
+        // or if we want it to change immediately we could, but usually "pop up" implies initial state.
+        // If the user wants it to disappear *while* looking at it, we'd need a timer or interaction.
+        // For now, "everytime the user login" implies session start. 
+        // So next time they come to dashboard in this session, it will say "Dashboard".
+      }
+    });
   }
 
   Future<void> _loadData() async {
@@ -240,7 +253,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
       body: Column(
         children: [
           SharedHeader(
-            welcomeText: AppState.headerWelcomeText(),
+            welcomeText: AppState.hasShownWelcome 
+                ? '' 
+                : AppState.headerWelcomeText(),
             subtitleText: AppState.headerSubtitle(),
             notificationCount: _dashboardProvider.attentionItems.length,
             onSearchChanged: (value) {
@@ -453,20 +468,20 @@ class _DashboardScreenState extends State<DashboardScreen> {
           onTap: () => Navigator.of(context).pushReplacementNamed('/payments'),
         );
 
-        final documentsCard = _OverviewCard(
-          title: 'Pending Docs',
-          value: _dashboardProvider.pendingDocsCount.toString(),
-          icon: Icons.description,
-          color: Colors.blue,
+        final expensesCard = _OverviewCard(
+          title: 'Total Expenses',
+          value: '₱${_dashboardProvider.totalExpenses.toStringAsFixed(0)}',
+          icon: Icons.money_off,
+          color: Colors.red,
           fontSize: fontSize,
-          onTap: () => Navigator.of(context).pushReplacementNamed('/documents'),
+          onTap: () => Navigator.of(context).pushReplacementNamed('/expenses'),
         );
 
         // MOBILE: Horizontal Scroll (Carousel)
         // This prevents overflow by giving cards infinite horizontal space
         if (isMobileView) {
           return SizedBox(
-            height: 130, // Give enough height so it doesn't overflow vertically
+            height: 170, // Increased height to prevent overflow
             // We use a negative margin on the parent to allow cards to touch the screen edge
             // while keeping the main padding for the rest of the content.
             child: ListView(
@@ -494,7 +509,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   width: 160,
                   child: AnimatedCard(
                     delay: const Duration(milliseconds: 300),
-                    child: documentsCard,
+                    child: expensesCard,
                   ),
                 ),
               ],
@@ -523,7 +538,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
             Expanded(
               child: AnimatedCard(
                 delay: const Duration(milliseconds: 300),
-                child: documentsCard,
+                child: expensesCard,
               ),
             ),
           ],
@@ -532,18 +547,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
-  BoxDecoration _whiteCardDeco() => BoxDecoration(
-    color: Colors.white,
-    borderRadius: BorderRadius.circular(12),
-    border: Border.all(color: const Color(0xFFE2E8F0)),
-    boxShadow: [
-      BoxShadow(
-        color: Colors.black.withOpacity(0.02),
-        blurRadius: 4,
-        offset: const Offset(0, 2),
-      ),
-    ],
-  );
+  BoxDecoration _whiteCardDeco() => AppTheme.cardDecoration;
 
   Widget _attentionCard() {
     return Container(
@@ -773,6 +777,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
               color: statusColor,
               fontWeight: FontWeight.w700,
             ),
+            overflow: TextOverflow.ellipsis,
           ),
         ),
       ],
@@ -802,63 +807,44 @@ class _OverviewCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Material(
-      color: Colors.white,
-      borderRadius: BorderRadius.circular(12),
+      color: Colors.transparent,
       child: InkWell(
         onTap: onTap,
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: AppTheme.borderRadius,
         child: Container(
-          // FIX: Removed explicit height constraint to prevent overflow
-          // FIX: Added constraints to prevent "RenderBox not laid out" error on Desktop
-          constraints: const BoxConstraints(minHeight: 100),
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: const Color(0xFFE2E8F0)),
-          ),
+          padding: const EdgeInsets.all(20),
+          decoration: AppTheme.cardDecoration, // Removed glow
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             mainAxisAlignment: MainAxisAlignment.center,
-            mainAxisSize: MainAxisSize.min,
+            mainAxisSize: MainAxisSize.min, // Use min size
             children: [
               Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   Container(
-                    padding: const EdgeInsets.all(8),
+                    padding: const EdgeInsets.all(10),
                     decoration: BoxDecoration(
                       color: color.withOpacity(0.1),
-                      borderRadius: BorderRadius.circular(8),
+                      borderRadius: BorderRadius.circular(12),
                     ),
-                    child: Icon(icon, color: color, size: 18),
+                    child: Icon(icon, color: color, size: 24),
                   ),
-                  const Spacer(),
-                  const Icon(
-                    Icons.arrow_forward,
-                    size: 14,
-                    color: Colors.black26,
-                  ),
+                  Icon(Icons.chevron_right, color: AppTheme.textSecondary.withOpacity(0.5)),
                 ],
               ),
-              const SizedBox(height: 12),
-              Text(
-                value,
-                style: TextStyle(
-                  fontSize: fontSize + 2,
-                  fontWeight: FontWeight.w800,
-                  color: Colors.black87,
+              const SizedBox(height: 24), // Increased spacing
+              Flexible( // Use Flexible to prevent overflow
+                child: Text(
+                  value,
+                  style: AppTheme.heading1.copyWith(fontSize: 28),
+                  overflow: TextOverflow.ellipsis,
                 ),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
               ),
-              const SizedBox(height: 2),
+              const SizedBox(height: 4),
               Text(
                 title,
-                style: TextStyle(
-                  fontSize: fontSize - 4,
-                  fontWeight: FontWeight.w600,
-                  color: Colors.black54,
-                ),
-                maxLines: 1,
+                style: AppTheme.caption.copyWith(fontSize: 14, fontWeight: FontWeight.w600),
                 overflow: TextOverflow.ellipsis,
               ),
             ],

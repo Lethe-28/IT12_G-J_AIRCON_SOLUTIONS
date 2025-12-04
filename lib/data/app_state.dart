@@ -14,16 +14,15 @@ class AppState {
   static bool get jobOrdersSeeded => _jobOrdersSeeded;
   static void setJobOrdersSeeded(bool value) => _jobOrdersSeeded = value;
 
+  static bool hasShownWelcome = false;
+
   static String headerWelcomeText() {
     final label = currentRole == UserRole.serviceManager ? 'Service Manager' : 'Admin';
-    return 'Welcome, $label ($currentUserName)!';
+    return 'Welcome, $label ($currentUserName)';
   }
 
   static String headerSubtitle() {
-    if (currentRole == UserRole.serviceManager) {
-      return "Quick overview of today's jobs, schedules, and expenses.";
-    }
-    return "Here's what happening with your business today.";
+    return "";
   }
 
   static IconData roleAvatarIcon() {
