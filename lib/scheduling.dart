@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'ui_app_shell.dart';
+import 'theme/app_theme.dart';
 import 'shared/widgets.dart'
     show
         AnimatedCard,
@@ -334,15 +335,24 @@ class _SchedulingScreenState extends State<SchedulingScreen> {
                               _showActionItems = !_showActionItems;
                             });
                           },
-                          child: Container(
+                          child: AnimatedContainer(
+                            duration: AppTheme.animationDuration,
                             width: double.infinity,
                             padding: const EdgeInsets.symmetric(
-                              vertical: 12,
+                              vertical: 16,
                               horizontal: 24,
                             ),
-                            color: _showActionItems
-                                ? Colors.grey[200]
-                                : Colors.orange[50], // Highlight if pending
+                            decoration: BoxDecoration(
+                              color: _showActionItems
+                                  ? AppTheme.surface
+                                  : AppTheme.warning.withOpacity(0.1),
+                              boxShadow: _showActionItems ? [] : AppTheme.glow(AppTheme.warning),
+                              border: Border(
+                                bottom: BorderSide(
+                                  color: _showActionItems ? AppTheme.borderColor : AppTheme.warning.withOpacity(0.3),
+                                ),
+                              ),
+                            ),
                             child: Row(
                               children: [
                                 Icon(
@@ -350,20 +360,21 @@ class _SchedulingScreenState extends State<SchedulingScreen> {
                                       ? Icons.arrow_back
                                       : Icons.warning_amber_rounded,
                                   color: _showActionItems
-                                      ? Colors.black
-                                      : Colors.orange[800],
+                                      ? AppTheme.textPrimary
+                                      : AppTheme.warning,
                                 ),
                                 const SizedBox(width: 12),
                                 Expanded(
                                   child: Text(
                                     _showActionItems
                                         ? "Back to Calendar"
-                                        : "⚠️ ${actionableJobs.length} Jobs need billing or payment",
+                                        : "${actionableJobs.length} Jobs need billing or payment",
                                     style: TextStyle(
                                       fontWeight: FontWeight.bold,
                                       color: _showActionItems
-                                          ? Colors.black
-                                          : Colors.orange[900],
+                                          ? AppTheme.textPrimary
+                                          : AppTheme.warning,
+                                      fontSize: 15,
                                     ),
                                   ),
                                 ),
@@ -372,7 +383,7 @@ class _SchedulingScreenState extends State<SchedulingScreen> {
                                     "View All",
                                     style: TextStyle(
                                       fontWeight: FontWeight.bold,
-                                      color: Colors.blue,
+                                      color: AppTheme.primary,
                                       decoration: TextDecoration.underline,
                                     ),
                                   ),
@@ -518,18 +529,20 @@ class _SchedulingScreenState extends State<SchedulingScreen> {
 
             return GestureDetector(
               onTap: () => setState(() => _selectedDate = currentDay),
-              child: Container(
-                margin: const EdgeInsets.all(4),
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 200),
+                margin: const EdgeInsets.all(6),
                 decoration: BoxDecoration(
                   color: isSelected
-                      ? const Color(0xFF2563EB)
+                      ? AppTheme.primary
                       : (isToday
-                            ? const Color(0xFFEFF6FF)
+                            ? AppTheme.primary.withOpacity(0.1)
                             : Colors.transparent),
-                  borderRadius: BorderRadius.circular(8),
+                  borderRadius: BorderRadius.circular(12),
                   border: isToday && !isSelected
-                      ? Border.all(color: const Color(0xFF2563EB))
+                      ? Border.all(color: AppTheme.primary)
                       : null,
+                  boxShadow: isSelected ? AppTheme.glow(AppTheme.primary) : [],
                 ),
                 child: Column(
                   mainAxisAlignment: MainAxisAlignment.center,
@@ -538,7 +551,7 @@ class _SchedulingScreenState extends State<SchedulingScreen> {
                       "$dayInt",
                       style: TextStyle(
                         fontWeight: FontWeight.bold,
-                        color: isSelected ? Colors.white : Colors.black87,
+                        color: isSelected ? Colors.white : AppTheme.textPrimary,
                       ),
                     ),
                     const SizedBox(height: 4),
@@ -548,7 +561,7 @@ class _SchedulingScreenState extends State<SchedulingScreen> {
                         height: 6,
                         decoration: BoxDecoration(
                           shape: BoxShape.circle,
-                          color: isSelected ? Colors.white : Colors.orange,
+                          color: isSelected ? Colors.white : AppTheme.warning,
                         ),
                       )
                     else
@@ -3161,32 +3174,31 @@ class _JobCard extends StatelessWidget {
 
     // 2. Define Visuals based on Client Type
     final bool isCorp = order.isCorporate;
-    final Color typeColor = isCorp ? Colors.indigo : Colors.teal;
+    final Color typeColor = isCorp ? AppTheme.primary : Colors.teal;
     final IconData typeIcon = isCorp ? Icons.business : Icons.person;
+    
+    // Check if active/needs attention for glow
+    final bool needsAttention = order.isUnbilled || order.isUnpaid;
 
     return Container(
       decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.02),
-            blurRadius: 4,
-            offset: const Offset(0, 2),
-          ),
-        ],
+        color: AppTheme.surface,
+        borderRadius: AppTheme.borderRadius,
+        boxShadow: needsAttention 
+            ? AppTheme.glow(AppTheme.warning) 
+            : AppTheme.shadow,
+        border: needsAttention 
+            ? Border.all(color: AppTheme.warning.withOpacity(0.5)) 
+            : Border.all(color: AppTheme.borderColor),
       ),
       child: ClipRRect(
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: AppTheme.borderRadius,
         child: Container(
           width: double.infinity,
           padding: const EdgeInsets.all(16),
           decoration: BoxDecoration(
-            color: Colors.white,
+            color: AppTheme.surface,
             border: Border(
-              top: const BorderSide(color: Color(0xFFE2E8F0)),
-              right: const BorderSide(color: Color(0xFFE2E8F0)),
-              bottom: const BorderSide(color: Color(0xFFE2E8F0)),
               left: BorderSide(color: typeColor, width: 4),
             ),
           ),
@@ -3199,10 +3211,7 @@ class _JobCard extends StatelessWidget {
                 children: [
                   Text(
                     order.jobType,
-                    style: const TextStyle(
-                      fontWeight: FontWeight.bold,
-                      color: Colors.blue,
-                    ),
+                    style: AppTheme.heading3.copyWith(color: AppTheme.info, fontSize: 14),
                   ),
                   Container(
                     padding: const EdgeInsets.symmetric(
@@ -3210,7 +3219,7 @@ class _JobCard extends StatelessWidget {
                       vertical: 4,
                     ),
                     decoration: BoxDecoration(
-                      color: Colors.orange.withOpacity(0.1),
+                      color: AppTheme.warning.withOpacity(0.1),
                       borderRadius: BorderRadius.circular(8),
                     ),
                     child: Text(
@@ -3240,10 +3249,10 @@ class _JobCard extends StatelessWidget {
                             vertical: 2,
                           ),
                           decoration: BoxDecoration(
-                            color: Colors.red.withOpacity(0.1),
+                            color: AppTheme.error.withOpacity(0.1),
                             borderRadius: BorderRadius.circular(4),
                             border: Border.all(
-                              color: Colors.red.withOpacity(0.3),
+                              color: AppTheme.error.withOpacity(0.3),
                             ),
                           ),
                           child: const Row(
@@ -3251,14 +3260,14 @@ class _JobCard extends StatelessWidget {
                               Icon(
                                 Icons.receipt_long,
                                 size: 12,
-                                color: Colors.red,
+                                color: AppTheme.error,
                               ),
                               SizedBox(width: 4),
                               Text(
                                 "Unbilled",
                                 style: TextStyle(
                                   fontSize: 10,
-                                  color: Colors.red,
+                                  color: AppTheme.error,
                                   fontWeight: FontWeight.bold,
                                 ),
                               ),
@@ -3274,10 +3283,10 @@ class _JobCard extends StatelessWidget {
                             vertical: 2,
                           ),
                           decoration: BoxDecoration(
-                            color: Colors.orange.withOpacity(0.1),
+                            color: AppTheme.warning.withOpacity(0.1),
                             borderRadius: BorderRadius.circular(4),
                             border: Border.all(
-                              color: Colors.orange.withOpacity(0.3),
+                              color: AppTheme.warning.withOpacity(0.3),
                             ),
                           ),
                           child: const Row(
@@ -3285,14 +3294,14 @@ class _JobCard extends StatelessWidget {
                               Icon(
                                 Icons.payment,
                                 size: 12,
-                                color: Colors.orange,
+                                color: AppTheme.warning,
                               ),
                               SizedBox(width: 4),
                               Text(
                                 "Unpaid",
                                 style: TextStyle(
                                   fontSize: 10,
-                                  color: Colors.orange,
+                                  color: AppTheme.warning,
                                   fontWeight: FontWeight.bold,
                                 ),
                               ),
@@ -3313,10 +3322,7 @@ class _JobCard extends StatelessWidget {
                   Expanded(
                     child: Text(
                       order.clientName,
-                      style: const TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                      ),
+                      style: AppTheme.heading3,
                       overflow: TextOverflow.ellipsis,
                     ),
                   ),
@@ -3328,7 +3334,7 @@ class _JobCard extends StatelessWidget {
                 padding: const EdgeInsets.only(left: 26, top: 2),
                 child: Text(
                   order.location,
-                  style: const TextStyle(color: Colors.grey, fontSize: 13),
+                  style: AppTheme.caption,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                 ),
@@ -3342,12 +3348,12 @@ class _JobCard extends StatelessWidget {
                   const Icon(
                     Icons.calendar_today,
                     size: 14,
-                    color: Colors.grey,
+                    color: AppTheme.textSecondary,
                   ),
                   const SizedBox(width: 6),
                   Text(
                     dateText,
-                    style: const TextStyle(fontSize: 13, color: Colors.grey),
+                    style: AppTheme.caption,
                   ),
                 ],
               ),

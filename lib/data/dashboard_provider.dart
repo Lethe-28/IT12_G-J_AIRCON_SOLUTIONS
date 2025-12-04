@@ -11,6 +11,7 @@ class DashboardProvider extends ChangeNotifier {
   int _pendingJobsCount = 0;
   int _pendingDocsCount = 0;
   double _totalRevenue = 0.0;
+  double _totalExpenses = 0.0;
   List<TodayJobItem> _todayJobs = [];
   List<AttentionItem> _attentionItems = [];
   DateTime? _lastFetch;
@@ -19,6 +20,7 @@ class DashboardProvider extends ChangeNotifier {
   int get pendingJobsCount => _pendingJobsCount;
   int get pendingDocsCount => _pendingDocsCount;
   double get totalRevenue => _totalRevenue;
+  double get totalExpenses => _totalExpenses;
   List<TodayJobItem> get todayJobs => _todayJobs;
   List<AttentionItem> get attentionItems => _attentionItems;
 
@@ -29,6 +31,7 @@ class DashboardProvider extends ChangeNotifier {
         _fetchPendingJobs(),
         _fetchTodayJobs(dateRange),
         _fetchTotalRevenue(dateRange),
+        _fetchTotalExpenses(dateRange),
         _fetchAttentionItems(),
       ]);
       _lastFetch = DateTime.now();
@@ -165,6 +168,47 @@ class DashboardProvider extends ChangeNotifier {
     } catch (e) {
       debugPrint('Error fetching total revenue: $e');
       _totalRevenue = 0.0;
+    }
+  }
+
+  Future<void> _fetchTotalExpenses(String dateRange) async {
+    try {
+      final supabase = Supabase.instance.client;
+      final now = DateTime.now();
+      DateTime? startDate;
+
+      switch (dateRange) {
+        case 'Weekly':
+          startDate = now.subtract(Duration(days: now.weekday - 1));
+          startDate = DateTime(startDate.year, startDate.month, startDate.day);
+          break;
+        case 'Monthly':
+          startDate = DateTime(now.year, now.month, 1);
+          break;
+        case 'Yearly':
+          startDate = DateTime(now.year, 1, 1);
+          break;
+        case 'Today':
+          startDate = DateTime(now.year, now.month, now.day);
+          break;
+        default:
+          startDate = null; // All time
+      }
+
+      var query = supabase
+          .from('expenses')
+          .select('amount');
+
+      if (startDate != null) {
+        query = query.gte('date', startDate.toIso8601String());
+      }
+
+      final response = await query;
+
+      _totalExpenses = response.fold<double>(0, (sum, row) => sum + (row['amount'] ?? 0.0));
+    } catch (e) {
+      debugPrint('Error fetching total expenses: $e');
+      _totalExpenses = 0.0;
     }
   }
 

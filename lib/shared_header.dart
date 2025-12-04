@@ -49,22 +49,24 @@ class SharedHeader extends StatelessWidget {
           final titleSection = Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(
-                welcomeText,
-                style: TextStyle(
-                  fontSize: titleFontSize,
-                  fontWeight: FontWeight.w700,
-                  color: Colors.black87,
+              if (welcomeText.isNotEmpty)
+                Text(
+                  welcomeText,
+                  style: TextStyle(
+                    fontSize: titleFontSize,
+                    fontWeight: FontWeight.w700,
+                    color: Colors.black87,
+                  ),
                 ),
-              ),
-              const SizedBox(height: 4),
-              Text(
-                subtitleText,
-                style: TextStyle(
-                  fontSize: subtitleFontSize,
-                  color: Colors.black54,
+              if (welcomeText.isNotEmpty) const SizedBox(height: 4),
+              if (subtitleText.isNotEmpty)
+                Text(
+                  subtitleText,
+                  style: TextStyle(
+                    fontSize: subtitleFontSize,
+                    color: Colors.black54,
+                  ),
                 ),
-              ),
             ],
           );
 
