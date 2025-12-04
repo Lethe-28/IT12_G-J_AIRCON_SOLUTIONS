@@ -3370,12 +3370,11 @@ class _JobCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // 1. Format Date and Time
+    // 1. Format Date
     String dateText = "${order.startDateTime.month}/${order.startDateTime.day}";
     String timeText = TimeOfDay.fromDateTime(
       order.startDateTime,
     ).format(context);
-
     if (order.scheduledEndDate != null) {
       dateText +=
           " - ${order.scheduledEndDate!.month}/${order.scheduledEndDate!.day}";
@@ -3383,29 +3382,20 @@ class _JobCard extends StatelessWidget {
       dateText += " at $timeText";
     }
 
-    // 2. Define Visuals based on Client Type
+    // 2. Visuals
     final bool isCorp = order.isCorporate;
     final Color typeColor = isCorp ? AppTheme.primary : Colors.teal;
-    final IconData typeIcon = isCorp ? Icons.business : Icons.person;
-
-    // Check if active/needs attention for glow
-    final bool needsAttention = order.isUnbilled || order.isUnpaid;
 
     return Container(
       decoration: BoxDecoration(
         color: AppTheme.surface,
         borderRadius: AppTheme.borderRadius,
-        boxShadow: needsAttention
-            ? AppTheme.glow(AppTheme.warning)
-            : AppTheme.shadow,
-        border: needsAttention
-            ? Border.all(color: AppTheme.warning.withOpacity(0.5))
-            : Border.all(color: AppTheme.borderColor),
+        boxShadow: AppTheme.shadow,
+        border: Border.all(color: AppTheme.borderColor),
       ),
       child: ClipRRect(
         borderRadius: AppTheme.borderRadius,
         child: Container(
-          width: double.infinity,
           padding: const EdgeInsets.all(16),
           decoration: BoxDecoration(
             color: AppTheme.surface,
@@ -3414,15 +3404,19 @@ class _JobCard extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Row 1: Job Type & Status Badge
+              // ROW 1: Client Name & Status
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  Text(
-                    order.jobType,
-                    style: AppTheme.heading3.copyWith(
-                      color: AppTheme.info,
-                      fontSize: 14,
+                  Expanded(
+                    child: Text(
+                      order.clientName, // FIX: Client Name is now the Title
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.black87,
+                      ),
+                      overflow: TextOverflow.ellipsis,
                     ),
                   ),
                   Container(
@@ -3446,13 +3440,24 @@ class _JobCard extends StatelessWidget {
                 ],
               ),
 
-              // NEW: ACTION REQUIRED TAGS (Visual Indicators)
+              const SizedBox(height: 4),
+
+              // ROW 2: Job Type (Subtitle)
+              Text(
+                order.jobType, // FIX: Job Type is now subtitle
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                  color: typeColor,
+                ),
+              ),
+
+              // ROW 3: Action Tags (Unbilled/Unpaid)
               if (order.isUnbilled || order.isUnpaid)
                 Padding(
                   padding: const EdgeInsets.only(top: 8),
                   child: Row(
                     children: [
-                      // Red Tag for "Unbilled" (No items added yet)
                       if (order.isUnbilled)
                         Container(
                           margin: const EdgeInsets.only(right: 8),
@@ -3461,33 +3466,21 @@ class _JobCard extends StatelessWidget {
                             vertical: 2,
                           ),
                           decoration: BoxDecoration(
-                            color: AppTheme.error.withOpacity(0.1),
+                            color: Colors.red.withOpacity(0.1),
                             borderRadius: BorderRadius.circular(4),
                             border: Border.all(
-                              color: AppTheme.error.withOpacity(0.3),
+                              color: Colors.red.withOpacity(0.3),
                             ),
                           ),
-                          child: const Row(
-                            children: [
-                              Icon(
-                                Icons.receipt_long,
-                                size: 12,
-                                color: AppTheme.error,
-                              ),
-                              SizedBox(width: 4),
-                              Text(
-                                "Unbilled",
-                                style: TextStyle(
-                                  fontSize: 10,
-                                  color: AppTheme.error,
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
-                            ],
+                          child: const Text(
+                            "Unbilled",
+                            style: TextStyle(
+                              fontSize: 10,
+                              color: Colors.red,
+                              fontWeight: FontWeight.bold,
+                            ),
                           ),
                         ),
-
-                      // Orange Tag for "Unpaid" (Items exist, but balance > 0)
                       if (order.isUnpaid)
                         Container(
                           padding: const EdgeInsets.symmetric(
@@ -3495,74 +3488,53 @@ class _JobCard extends StatelessWidget {
                             vertical: 2,
                           ),
                           decoration: BoxDecoration(
-                            color: AppTheme.warning.withOpacity(0.1),
+                            color: Colors.orange.withOpacity(0.1),
                             borderRadius: BorderRadius.circular(4),
                             border: Border.all(
-                              color: AppTheme.warning.withOpacity(0.3),
+                              color: Colors.orange.withOpacity(0.3),
                             ),
                           ),
-                          child: const Row(
-                            children: [
-                              Icon(
-                                Icons.payment,
-                                size: 12,
-                                color: AppTheme.warning,
-                              ),
-                              SizedBox(width: 4),
-                              Text(
-                                "Unpaid",
-                                style: TextStyle(
-                                  fontSize: 10,
-                                  color: AppTheme.warning,
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
-                            ],
+                          child: const Text(
+                            "Unpaid",
+                            style: TextStyle(
+                              fontSize: 10,
+                              color: Colors.orange,
+                              fontWeight: FontWeight.bold,
+                            ),
                           ),
                         ),
                     ],
                   ),
                 ),
 
-              const SizedBox(height: 10),
+              const SizedBox(height: 8),
+              const Divider(height: 1),
+              const SizedBox(height: 8),
 
-              // Row 2: Client Name with Type Icon
+              // ROW 4: Location & Date
               Row(
                 children: [
-                  Icon(typeIcon, size: 18, color: typeColor),
-                  const SizedBox(width: 8),
+                  const Icon(Icons.location_on, size: 14, color: Colors.grey),
+                  const SizedBox(width: 4),
                   Expanded(
                     child: Text(
-                      order.clientName,
-                      style: AppTheme.heading3,
+                      order.location,
+                      style: AppTheme.caption,
+                      maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                     ),
                   ),
                 ],
               ),
-
-              // Row 3: Location
-              Padding(
-                padding: const EdgeInsets.only(left: 26, top: 2),
-                child: Text(
-                  order.location,
-                  style: AppTheme.caption,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ),
-
-              const SizedBox(height: 10),
-
-              // Row 4: Schedule
+              const SizedBox(height: 4),
               Row(
                 children: [
                   const Icon(
                     Icons.calendar_today,
                     size: 14,
-                    color: AppTheme.textSecondary,
+                    color: Colors.grey,
                   ),
-                  const SizedBox(width: 6),
+                  const SizedBox(width: 4),
                   Text(dateText, style: AppTheme.caption),
                 ],
               ),

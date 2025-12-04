@@ -232,81 +232,56 @@ class DashboardProvider extends ChangeNotifier {
     try {
       final supabase = Supabase.instance.client;
 
-      // 1. Pending payment verifications
-      final pendingPayments = await supabase
-          .from('payments')
-          .select('reference_number, job_order_id')
-          .eq('status', 'Pending')
-          .limit(5);
-
-      for (var payment in pendingPayments) {
-        _attentionItems.add(
-          AttentionItem(
-            title: 'Payment verification needed',
-            reference:
-                payment['reference_number'] ?? 'REF-${payment['job_order_id']}',
-            priority: 'High',
-            color: Colors.orange,
-            type: AttentionType.payment,
-            relatedId: payment['job_order_id'],
-          ),
-        );
-      }
-
-      // 2. Pending expense approvals
-      final pendingExpenses = await supabase
-          .from('expenses')
-          .select('reference_number, job_order_id')
-          .eq('status', 'Pending')
-          .limit(5);
-
-      for (var expense in pendingExpenses) {
-        _attentionItems.add(
-          AttentionItem(
-            title: 'Expense approval required',
-            reference:
-                expense['reference_number'] ?? 'EXP-${expense['job_order_id']}',
-            priority: 'Medium',
-            color: Colors.purple,
-            type: AttentionType.expense,
-            relatedId: expense['job_order_id'],
-          ),
-        );
-      }
-
-      // 3. Overdue job orders
-      final now = DateTime.now();
-      final overdueJobs = await supabase
+      // Fetch active jobs with their billing/payment counts
+      final response = await supabase
           .from('job_orders')
-          .select('client_jo_number, id')
-          .lt('date_scheduled', now.toIso8601String())
+          .select(
+            'id, client_jo_number, date_scheduled, job_order_line_items(count), payments(count)',
+          )
           .neq('status', 'Completed')
-          .limit(5);
+          .neq('status', 'Cancelled')
+          .order('date_scheduled', ascending: true);
 
-      for (var job in overdueJobs) {
-        _attentionItems.add(
-          AttentionItem(
-            title: 'Job order overdue',
-            reference: job['client_jo_number'] ?? 'JO-${job['id']}',
-            priority: 'High',
-            color: Colors.red,
-            type: AttentionType.scheduling,
-            relatedId: job['id'],
-          ),
-        );
+      for (var row in response) {
+        final joNum = row['client_jo_number'] ?? 'JO-${row['id']}';
+        final date = DateTime.parse(row['date_scheduled']).toLocal();
+
+        // Counts
+        final int itemsCount = row['job_order_line_items'][0]['count'] as int;
+        final int payCount = row['payments'][0]['count'] as int;
+
+        // 1. Check Unbilled (No items) - Wait 24 hours after creation before flagging to avoid noise
+        // (Simple check: if line items is 0)
+        if (itemsCount == 0) {
+          _attentionItems.add(
+            AttentionItem(
+              title: 'Job needs billing details',
+              reference: joNum,
+              priority: 'High',
+              color: Colors.red,
+              type: AttentionType.scheduling, // Redirect to scheduling
+              relatedId: row['id'],
+            ),
+          );
+        }
+        // 2. Check Unpaid (Has items, but 0 payments)
+        else if (itemsCount > 0 && payCount == 0) {
+          _attentionItems.add(
+            AttentionItem(
+              title: 'Payment collection pending',
+              reference: joNum,
+              priority: 'Medium',
+              color: Colors.orange,
+              type: AttentionType.scheduling,
+              relatedId: row['id'],
+            ),
+          );
+        }
       }
 
-      // Sort by priority
-      _attentionItems.sort((a, b) {
-        const priorityOrder = {'High': 0, 'Medium': 1, 'Low': 2};
-        return (priorityOrder[a.priority] ?? 3).compareTo(
-          priorityOrder[b.priority] ?? 3,
-        );
-      });
-
-      // Limit to top 10
-      if (_attentionItems.length > 10) {
-        _attentionItems = _attentionItems.sublist(0, 10);
+      // Limit to top 5 to prevent clutter
+      if (_attentionItems.length > 5) {
+        _attentionItems = _attentionItems.sublist(0, 5);
       }
     } catch (e) {
       debugPrint('Error fetching attention items: $e');

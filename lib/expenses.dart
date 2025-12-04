@@ -562,7 +562,7 @@ class _TransactionCard extends StatelessWidget {
     final color = isIncome ? Colors.green : Colors.red;
 
     return Container(
-      padding: const EdgeInsets.all(12), // Reduced padding for mobile
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(12),
@@ -576,6 +576,7 @@ class _TransactionCard extends StatelessWidget {
         ],
       ),
       child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
         children: [
           // Icon
           Container(
@@ -594,10 +595,11 @@ class _TransactionCard extends StatelessWidget {
           ),
           const SizedBox(width: 12),
 
-          // Description (Expanded takes remaining space)
+          // Middle Text (Expanded)
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisAlignment: MainAxisAlignment.center,
               children: [
                 Text(
                   txn.description,
@@ -606,37 +608,14 @@ class _TransactionCard extends StatelessWidget {
                     fontSize: 14,
                   ),
                   maxLines: 1,
-                  overflow: TextOverflow.ellipsis, // Prevents overflow
+                  overflow: TextOverflow.ellipsis,
                 ),
-                const SizedBox(height: 4),
-                // Tags Row
-                Wrap(
-                  spacing: 4,
-                  children: [
-                    if (txn.relatedJob != null)
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 4,
-                          vertical: 2,
-                        ),
-                        decoration: BoxDecoration(
-                          color: Colors.blue.withOpacity(0.1),
-                          borderRadius: BorderRadius.circular(4),
-                        ),
-                        child: Text(
-                          txn.relatedJob!,
-                          style: const TextStyle(
-                            fontSize: 10,
-                            color: Colors.blue,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      ),
-                    Text(
-                      "${txn.category} • ${txn.date.month}/${txn.date.day}",
-                      style: const TextStyle(fontSize: 11, color: Colors.grey),
-                    ),
-                  ],
+                const SizedBox(height: 2),
+                Text(
+                  "${txn.category} • ${txn.date.month}/${txn.date.day}",
+                  style: const TextStyle(fontSize: 11, color: Colors.grey),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                 ),
               ],
             ),
@@ -644,13 +623,20 @@ class _TransactionCard extends StatelessWidget {
 
           const SizedBox(width: 8),
 
-          // Amount (Flexible allows it to shrink slightly if needed)
-          Text(
-            "${isIncome ? '+' : '-'}₱${txn.amount.toStringAsFixed(0)}", // Removed decimals for space if preferred, or keep .2f
-            style: TextStyle(
-              color: color,
-              fontWeight: FontWeight.bold,
-              fontSize: 15,
+          // Amount (Constrained so it doesn't push off screen)
+          // FittedBox will shrink text if it's too massive
+          Flexible(
+            flex: 0, // Don't expand, just take what's needed
+            child: FittedBox(
+              fit: BoxFit.scaleDown,
+              child: Text(
+                "${isIncome ? '+' : '-'}₱${txn.amount.toStringAsFixed(2)}",
+                style: TextStyle(
+                  color: color,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 15,
+                ),
+              ),
             ),
           ),
         ],
