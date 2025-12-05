@@ -757,16 +757,12 @@ class _TransactionCard extends StatelessWidget {
     final color = isIncome ? Colors.green : Colors.red;
 
     return Container(
-      padding: const EdgeInsets.all(14),
+      // 1. Remove padding from here (moved inside) so the colored strip touches the edge
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(12),
-        border: Border(
-          left: BorderSide(color: color, width: 4),
-          top: BorderSide(color: Colors.grey.shade200, width: 1),
-          right: BorderSide(color: Colors.grey.shade200, width: 1),
-          bottom: BorderSide(color: Colors.grey.shade200, width: 1),
-        ),
+        // 2. FIX: Use a uniform border here (all sides same color/width) to support borderRadius
+        border: Border.all(color: Colors.grey.shade200, width: 1),
         boxShadow: [
           BoxShadow(
             color: Colors.black.withOpacity(0.04),
@@ -775,86 +771,111 @@ class _TransactionCard extends StatelessWidget {
           ),
         ],
       ),
-      child: Row(
-        children: [
-          // Icon
-          Container(
-            padding: const EdgeInsets.all(8),
-            decoration: BoxDecoration(
-              color: color.withOpacity(0.1),
-              shape: BoxShape.circle,
-            ),
-            child: Icon(
-              txn.category == 'Personal'
-                  ? Icons.home
-                  : (isIncome ? Icons.attach_money : Icons.shopping_bag),
-              color: color,
-              size: 18,
-            ),
-          ),
-          const SizedBox(width: 12),
+      // 3. Clip children so the colored strip respects the rounded corners
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(12),
+        child: IntrinsicHeight(
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              // 4. The Colored Strip (Simulates the left border)
+              Container(width: 4, color: color),
 
-          // Description (Expanded takes remaining space)
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  txn.description,
-                  style: const TextStyle(
-                    fontWeight: FontWeight.bold,
-                    fontSize: 14,
-                    color: Colors.black87,
-                  ),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis, // Prevents overflow
-                ),
-                const SizedBox(height: 4),
-                // Tags Row
-                Wrap(
-                  spacing: 4,
-                  children: [
-                    if (txn.relatedJob != null)
+              // 5. The Content
+              Expanded(
+                child: Padding(
+                  padding: const EdgeInsets.all(14), // Padding is now here
+                  child: Row(
+                    children: [
+                      // Icon
                       Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 4,
-                          vertical: 2,
-                        ),
+                        padding: const EdgeInsets.all(8),
                         decoration: BoxDecoration(
-                          color: Colors.blue.withOpacity(0.1),
-                          borderRadius: BorderRadius.circular(4),
+                          color: color.withOpacity(0.1),
+                          shape: BoxShape.circle,
                         ),
-                        child: Text(
-                          txn.relatedJob!,
-                          style: const TextStyle(
-                            fontSize: 10,
-                            color: Colors.blue,
-                            fontWeight: FontWeight.bold,
-                          ),
+                        child: Icon(
+                          txn.category == 'Personal'
+                              ? Icons.home
+                              : (isIncome
+                                    ? Icons.attach_money
+                                    : Icons.shopping_bag),
+                          color: color,
+                          size: 18,
                         ),
                       ),
-                    Text(
-                      "${txn.category} • ${txn.date.month}/${txn.date.day}",
-                      style: const TextStyle(fontSize: 11, color: Colors.grey),
-                    ),
-                  ],
+                      const SizedBox(width: 12),
+
+                      // Description
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              txn.description,
+                              style: const TextStyle(
+                                fontWeight: FontWeight.bold,
+                                fontSize: 14,
+                                color: Colors.black87,
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                            const SizedBox(height: 4),
+                            // Tags
+                            Wrap(
+                              spacing: 4,
+                              children: [
+                                if (txn.relatedJob != null)
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 4,
+                                      vertical: 2,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: Colors.blue.withOpacity(0.1),
+                                      borderRadius: BorderRadius.circular(4),
+                                    ),
+                                    child: Text(
+                                      txn.relatedJob!,
+                                      style: const TextStyle(
+                                        fontSize: 10,
+                                        color: Colors.blue,
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                  ),
+                                Text(
+                                  "${txn.category} • ${txn.date.month}/${txn.date.day}",
+                                  style: const TextStyle(
+                                    fontSize: 11,
+                                    color: Colors.grey,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
+
+                      const SizedBox(width: 8),
+
+                      // Amount
+                      Text(
+                        "${isIncome ? '+' : '-'}₱${txn.amount.toStringAsFixed(0)}",
+                        style: TextStyle(
+                          color: color,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 15,
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
-              ],
-            ),
+              ),
+            ],
           ),
-
-          const SizedBox(width: 8),
-
-          // Amount (Flexible allows it to shrink slightly if needed)
-          Text(
-            "${isIncome ? '+' : '-'}₱${txn.amount.toStringAsFixed(0)}", // Removed decimals for space if preferred, or keep .2f
-            style: TextStyle(
-              color: color,
-              fontWeight: FontWeight.bold,
-              fontSize: 15,
-            ),
-          ),
-        ],
+        ),
       ),
     );
   }
