@@ -41,12 +41,16 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
   final _searchController = TextEditingController();
 
   // FILTER STATE
-  String _selectedFilter = 'All'; // All, Operational, Personal, Revenue
+  String _selectedFilter = 'All'; // All, Operational, Personal, Revenue/In
 
   double _totalIn = 0;
   double _totalOut = 0;
 
   DateTime _selectedMonth = DateTime.now();
+
+  // PAGINATION STATE
+  int _itemsPerPage = 10;
+  int _currentPage = 1;
 
   @override
   void initState() {
@@ -76,13 +80,19 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
 
         // 2. Category Filter
         if (_selectedFilter == 'All') return true;
-        if (_selectedFilter == 'Revenue') return txn.type == 'IN';
+        if (_selectedFilter == 'Revenue / In') return txn.type == 'IN';
         if (_selectedFilter == 'Operational')
           return txn.category == 'Operational';
         if (_selectedFilter == 'Personal') return txn.category == 'Personal';
 
         return true;
       }).toList();
+
+      // Reset to page 1 when filter changes
+      _currentPage = 1;
+      debugPrint(
+        "Filtered transactions: ${_filteredTransactions.length} (from ${_allTransactions.length})",
+      );
     });
   }
 
@@ -112,6 +122,8 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
           .gte('payment_date', startStr)
           .lt('payment_date', endStr);
 
+      debugPrint("Payments fetched: ${paymentsRes.length}");
+
       // 2. FETCH EXPENSES (Can be IN or OUT based on is_income)
       final expensesRes = await _supabase
           .from('expenses')
@@ -120,6 +132,8 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
           )
           .gte('date', startStr)
           .lt('date', endStr);
+
+      debugPrint("Expenses fetched: ${expensesRes.length}");
 
       final List<Transaction> loaded = [];
       double inSum = 0;
@@ -208,10 +222,19 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
           _totalIn = inSum;
           _totalOut = outSum;
         });
+        debugPrint("Fetched ${loaded.length} transactions");
         _onFilterChanged(); // Apply filters immediately
       }
     } catch (e) {
       debugPrint("Error fetching cash flow: $e");
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text("Error loading data: $e"),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
@@ -225,6 +248,25 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
       );
     });
     _fetchCashFlow();
+  }
+
+  // Pagination Helpers
+  List<Transaction> _getPaginatedItems() {
+    if (_filteredTransactions.isEmpty) return [];
+    final startIndex = (_currentPage - 1) * _itemsPerPage;
+    final endIndex = startIndex + _itemsPerPage;
+    if (startIndex >= _filteredTransactions.length) return [];
+    return _filteredTransactions.sublist(
+      startIndex,
+      endIndex > _filteredTransactions.length
+          ? _filteredTransactions.length
+          : endIndex,
+    );
+  }
+
+  int _getTotalPages() {
+    if (_filteredTransactions.isEmpty) return 1;
+    return (_filteredTransactions.length / _itemsPerPage).ceil();
   }
 
   @override
@@ -247,24 +289,42 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      Row(
-                        children: [
-                          IconButton(
-                            icon: const Icon(Icons.chevron_left),
-                            onPressed: () => _changeMonth(-1),
-                          ),
-                          Text(
-                            _formatMonthYear(_selectedMonth),
-                            style: const TextStyle(
-                              fontSize: 18,
-                              fontWeight: FontWeight.bold,
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 4,
+                        ),
+                        decoration: BoxDecoration(
+                          color: Colors.grey.shade100,
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: Colors.grey.shade300),
+                        ),
+                        child: Row(
+                          children: [
+                            IconButton(
+                              icon: const Icon(Icons.chevron_left, size: 20),
+                              onPressed: () => _changeMonth(-1),
+                              padding: EdgeInsets.zero,
+                              constraints: const BoxConstraints(),
                             ),
-                          ),
-                          IconButton(
-                            icon: const Icon(Icons.chevron_right),
-                            onPressed: () => _changeMonth(1),
-                          ),
-                        ],
+                            const SizedBox(width: 8),
+                            Text(
+                              _formatMonthYear(_selectedMonth),
+                              style: const TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.bold,
+                                color: Colors.black87,
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            IconButton(
+                              icon: const Icon(Icons.chevron_right, size: 20),
+                              onPressed: () => _changeMonth(1),
+                              padding: EdgeInsets.zero,
+                              constraints: const BoxConstraints(),
+                            ),
+                          ],
+                        ),
                       ),
                       ElevatedButton.icon(
                         onPressed: () async {
@@ -277,9 +337,20 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
                         style: ElevatedButton.styleFrom(
                           backgroundColor: Colors.blueAccent,
                           foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 20,
+                            vertical: 12,
+                          ),
+                          elevation: 0,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
                         ),
-                        icon: const Icon(Icons.add),
-                        label: const Text("Add Record"),
+                        icon: const Icon(Icons.add, size: 20),
+                        label: const Text(
+                          "Add Record",
+                          style: TextStyle(fontWeight: FontWeight.w600),
+                        ),
                       ),
                     ],
                   ),
@@ -291,142 +362,293 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
                     child: Row(
                       children: [
                         SizedBox(
-                          width: 110, // Fixed width ensures consistency
+                          width: 115,
                           child: _SummaryCard(
                             label: "Cash In",
                             amount: _totalIn,
-                            color: Colors.green,
+                            color: Colors.green.shade600,
                             icon: Icons.arrow_downward,
                           ),
                         ),
-                        const SizedBox(width: 8),
+                        const SizedBox(width: 10),
                         SizedBox(
-                          width: 110,
+                          width: 115,
                           child: _SummaryCard(
                             label: "Cash Out",
                             amount: _totalOut,
-                            color: Colors.red,
+                            color: Colors.red.shade600,
                             icon: Icons.arrow_upward,
                           ),
                         ),
-                        const SizedBox(width: 8),
+                        const SizedBox(width: 10),
                         SizedBox(
-                          width: 120, // Slightly wider for Net Cash label
+                          width: 125,
                           child: _SummaryCard(
                             label: "Net Cash",
                             amount: netCash,
-                            color: netCash >= 0 ? Colors.blue : Colors.orange,
+                            color: netCash >= 0
+                                ? Colors.blue.shade600
+                                : Colors.orange.shade600,
                             icon: Icons.account_balance_wallet,
                           ),
                         ),
                       ],
                     ),
                   ),
-                  const SizedBox(height: 16),
+                  const SizedBox(height: 20),
 
-                  // 3. Search Bar
-                  TextField(
-                    controller: _searchController,
-                    decoration: InputDecoration(
-                      hintText: "Search...",
-                      prefixIcon: const Icon(Icons.search),
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(12),
-                        borderSide: BorderSide(color: Colors.grey.shade300),
+                  // 3. Search Bar & Filter Dropdown (Combined Row)
+                  Row(
+                    children: [
+                      // Search Bar (Expanded to take available space)
+                      Expanded(
+                        child: TextField(
+                          controller: _searchController,
+                          decoration: InputDecoration(
+                            hintText: "Search transactions...",
+                            hintStyle: TextStyle(color: Colors.grey.shade400),
+                            prefixIcon: Icon(
+                              Icons.search,
+                              color: Colors.grey.shade600,
+                            ),
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12),
+                              borderSide: BorderSide(
+                                color: Colors.grey.shade300,
+                              ),
+                            ),
+                            enabledBorder: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12),
+                              borderSide: BorderSide(
+                                color: Colors.grey.shade300,
+                              ),
+                            ),
+                            focusedBorder: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12),
+                              borderSide: const BorderSide(
+                                color: Colors.blueAccent,
+                                width: 2,
+                              ),
+                            ),
+                            contentPadding: const EdgeInsets.symmetric(
+                              horizontal: 16,
+                              vertical: 14,
+                            ),
+                            filled: true,
+                            fillColor: Colors.white,
+                          ),
+                        ),
                       ),
-                      contentPadding: const EdgeInsets.symmetric(
-                        horizontal: 16,
+                      const SizedBox(width: 12),
+                      // Filter Dropdown
+                      Container(
+                        height: 48,
+                        padding: const EdgeInsets.symmetric(horizontal: 14),
+                        decoration: BoxDecoration(
+                          border: Border.all(color: Colors.grey.shade300),
+                          borderRadius: BorderRadius.circular(12),
+                          color: Colors.white,
+                        ),
+                        child: DropdownButton<String>(
+                          value: _selectedFilter,
+                          underline: const SizedBox.shrink(),
+                          icon: Icon(
+                            Icons.arrow_drop_down,
+                            color: Colors.grey.shade700,
+                          ),
+                          style: const TextStyle(
+                            color: Colors.black87,
+                            fontSize: 14,
+                            fontWeight: FontWeight.w500,
+                          ),
+                          items:
+                              ['All', 'Revenue / In', 'Operational', 'Personal']
+                                  .map(
+                                    (filter) => DropdownMenuItem(
+                                      value: filter,
+                                      child: Text(filter),
+                                    ),
+                                  )
+                                  .toList(),
+                          onChanged: (value) {
+                            if (value != null) {
+                              setState(() {
+                                _selectedFilter = value;
+                                _onFilterChanged();
+                              });
+                            }
+                          },
+                        ),
                       ),
-                      filled: true,
-                      fillColor: Colors.grey.shade50,
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-
-                  // 4. Filter Chips (Scrollable)
-                  SingleChildScrollView(
-                    scrollDirection: Axis.horizontal,
-                    child: Row(
-                      children: [
-                        _FilterChip(
-                          label: "All",
-                          isSelected: _selectedFilter == 'All',
-                          onTap: () => setState(() {
-                            _selectedFilter = 'All';
-                            _onFilterChanged();
-                          }),
-                        ),
-                        const SizedBox(width: 8),
-                        _FilterChip(
-                          label: "Revenue / In",
-                          isSelected: _selectedFilter == 'Revenue',
-                          onTap: () => setState(() {
-                            _selectedFilter = 'Revenue';
-                            _onFilterChanged();
-                          }),
-                        ),
-                        const SizedBox(width: 8),
-                        _FilterChip(
-                          label: "Operational",
-                          isSelected: _selectedFilter == 'Operational',
-                          onTap: () => setState(() {
-                            _selectedFilter = 'Operational';
-                            _onFilterChanged();
-                          }),
-                        ),
-                        const SizedBox(width: 8),
-                        _FilterChip(
-                          label: "Personal",
-                          isSelected: _selectedFilter == 'Personal',
-                          onTap: () => setState(() {
-                            _selectedFilter = 'Personal';
-                            _onFilterChanged();
-                          }),
-                        ),
-                      ],
-                    ),
+                    ],
                   ),
                 ],
               ),
             ),
             const Divider(height: 1),
 
-            // --- TRANSACTION LIST ---
+            // --- TRANSACTION LIST WITH PAGINATION ---
             Expanded(
-              child: _filteredTransactions.isEmpty
-                  ? LayoutBuilder(
-                      builder: (context, constraints) {
-                        // FIX: Scrollable Empty State to prevent overflow on small screens
-                        return SingleChildScrollView(
-                          physics: const AlwaysScrollableScrollPhysics(),
-                          child: ConstrainedBox(
-                            constraints: BoxConstraints(
-                              minHeight: constraints.maxHeight,
-                            ),
-                            child: const Center(
-                              child: Padding(
-                                padding: EdgeInsets.all(20.0),
-                                child: EmptyState(
-                                  icon: Icons.receipt_long,
-                                  title: "No Transactions",
-                                  message:
-                                      "No records found matching your criteria.",
+              child: Container(
+                color: Colors.grey.shade50,
+                child: _filteredTransactions.isEmpty
+                    ? LayoutBuilder(
+                        builder: (context, constraints) {
+                          // FIX: Scrollable Empty State to prevent overflow on small screens
+                          return SingleChildScrollView(
+                            physics: const AlwaysScrollableScrollPhysics(),
+                            child: ConstrainedBox(
+                              constraints: BoxConstraints(
+                                minHeight: constraints.maxHeight,
+                              ),
+                              child: const Center(
+                                child: Padding(
+                                  padding: EdgeInsets.all(20.0),
+                                  child: EmptyState(
+                                    icon: Icons.receipt_long,
+                                    title: "No Transactions",
+                                    message:
+                                        "No records found matching your criteria.",
+                                  ),
                                 ),
                               ),
                             ),
+                          );
+                        },
+                      )
+                    : Column(
+                        children: [
+                          // List with Pagination
+                          Expanded(
+                            child: _getPaginatedItems().isEmpty
+                                ? const Center(
+                                    child: Padding(
+                                      padding: EdgeInsets.all(20.0),
+                                      child: Text(
+                                        "No transactions on this page",
+                                        style: TextStyle(
+                                          color: Colors.grey,
+                                          fontSize: 14,
+                                        ),
+                                      ),
+                                    ),
+                                  )
+                                : ListView.separated(
+                                    padding: const EdgeInsets.all(16),
+                                    itemCount: _getPaginatedItems().length,
+                                    separatorBuilder: (ctx, i) =>
+                                        const SizedBox(height: 12),
+                                    itemBuilder: (ctx, i) {
+                                      final txn = _getPaginatedItems()[i];
+                                      return _TransactionCard(txn: txn);
+                                    },
+                                  ),
                           ),
-                        );
-                      },
-                    )
-                  : ListView.separated(
-                      padding: const EdgeInsets.all(16),
-                      itemCount: _filteredTransactions.length,
-                      separatorBuilder: (ctx, i) => const SizedBox(height: 12),
-                      itemBuilder: (ctx, i) {
-                        final txn = _filteredTransactions[i];
-                        return _TransactionCard(txn: txn);
-                      },
-                    ),
+                          // Pagination Controls
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 16,
+                              vertical: 12,
+                            ),
+                            decoration: BoxDecoration(
+                              border: Border(
+                                top: BorderSide(color: Colors.grey.shade300),
+                              ),
+                              color: Colors.white,
+                            ),
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                // Previous Button
+                                ElevatedButton.icon(
+                                  onPressed: _currentPage > 1
+                                      ? () => setState(() => _currentPage--)
+                                      : null,
+                                  icon: const Icon(
+                                    Icons.chevron_left,
+                                    size: 18,
+                                  ),
+                                  label: const Text(
+                                    "Previous",
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: Colors.blueAccent,
+                                    foregroundColor: Colors.white,
+                                    disabledBackgroundColor:
+                                        Colors.grey.shade300,
+                                    disabledForegroundColor:
+                                        Colors.grey.shade500,
+                                    elevation: 0,
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 16,
+                                      vertical: 10,
+                                    ),
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(8),
+                                    ),
+                                  ),
+                                ),
+                                // Page Info
+                                Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 16,
+                                    vertical: 8,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: Colors.grey.shade100,
+                                    borderRadius: BorderRadius.circular(8),
+                                  ),
+                                  child: Text(
+                                    "Page $_currentPage of ${_getTotalPages()}",
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 13,
+                                      color: Colors.black87,
+                                    ),
+                                  ),
+                                ),
+                                // Next Button
+                                ElevatedButton.icon(
+                                  onPressed: _currentPage < _getTotalPages()
+                                      ? () => setState(() => _currentPage++)
+                                      : null,
+                                  iconAlignment: IconAlignment.end,
+                                  icon: const Icon(
+                                    Icons.chevron_right,
+                                    size: 18,
+                                  ),
+                                  label: const Text(
+                                    "Next",
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: Colors.blueAccent,
+                                    foregroundColor: Colors.white,
+                                    disabledBackgroundColor:
+                                        Colors.grey.shade300,
+                                    disabledForegroundColor:
+                                        Colors.grey.shade500,
+                                    elevation: 0,
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 16,
+                                      vertical: 10,
+                                    ),
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(8),
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+              ),
             ),
           ],
         ),
@@ -455,40 +677,6 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
 
 // --- WIDGETS ---
 
-class _FilterChip extends StatelessWidget {
-  final String label;
-  final bool isSelected;
-  final VoidCallback onTap;
-
-  const _FilterChip({
-    required this.label,
-    required this.isSelected,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-        decoration: BoxDecoration(
-          color: isSelected ? Colors.black87 : Colors.grey[200],
-          borderRadius: BorderRadius.circular(20),
-        ),
-        child: Text(
-          label,
-          style: TextStyle(
-            color: isSelected ? Colors.white : Colors.black87,
-            fontWeight: FontWeight.bold,
-            fontSize: 12,
-          ),
-        ),
-      ),
-    );
-  }
-}
-
 class _SummaryCard extends StatelessWidget {
   final String label;
   final double amount;
@@ -505,11 +693,18 @@ class _SummaryCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.all(12), // Reduced padding slightly
+      padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.1),
+        color: color.withOpacity(0.08),
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: color.withOpacity(0.2)),
+        border: Border.all(color: color.withOpacity(0.3), width: 1.5),
+        boxShadow: [
+          BoxShadow(
+            color: color.withOpacity(0.1),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -562,84 +757,125 @@ class _TransactionCard extends StatelessWidget {
     final color = isIncome ? Colors.green : Colors.red;
 
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+      // 1. Remove padding from here (moved inside) so the colored strip touches the edge
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(12),
-        border: Border(left: BorderSide(color: color, width: 4)),
+        // 2. FIX: Use a uniform border here (all sides same color/width) to support borderRadius
+        border: Border.all(color: Colors.grey.shade200, width: 1),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.02),
-            blurRadius: 4,
+            color: Colors.black.withOpacity(0.04),
+            blurRadius: 6,
             offset: const Offset(0, 2),
           ),
         ],
       ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.center,
-        children: [
-          // Icon
-          Container(
-            padding: const EdgeInsets.all(8),
-            decoration: BoxDecoration(
-              color: color.withOpacity(0.1),
-              shape: BoxShape.circle,
-            ),
-            child: Icon(
-              txn.category == 'Personal'
-                  ? Icons.home
-                  : (isIncome ? Icons.attach_money : Icons.shopping_bag),
-              color: color,
-              size: 18,
-            ),
-          ),
-          const SizedBox(width: 12),
+      // 3. Clip children so the colored strip respects the rounded corners
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(12),
+        child: IntrinsicHeight(
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              // 4. The Colored Strip (Simulates the left border)
+              Container(width: 4, color: color),
 
-          // Middle Text (Expanded)
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Text(
-                  txn.description,
-                  style: const TextStyle(
-                    fontWeight: FontWeight.bold,
-                    fontSize: 14,
+              // 5. The Content
+              Expanded(
+                child: Padding(
+                  padding: const EdgeInsets.all(14), // Padding is now here
+                  child: Row(
+                    children: [
+                      // Icon
+                      Container(
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: color.withOpacity(0.1),
+                          shape: BoxShape.circle,
+                        ),
+                        child: Icon(
+                          txn.category == 'Personal'
+                              ? Icons.home
+                              : (isIncome
+                                    ? Icons.attach_money
+                                    : Icons.shopping_bag),
+                          color: color,
+                          size: 18,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+
+                      // Description
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              txn.description,
+                              style: const TextStyle(
+                                fontWeight: FontWeight.bold,
+                                fontSize: 14,
+                                color: Colors.black87,
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                            const SizedBox(height: 4),
+                            // Tags
+                            Wrap(
+                              spacing: 4,
+                              children: [
+                                if (txn.relatedJob != null)
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 4,
+                                      vertical: 2,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: Colors.blue.withOpacity(0.1),
+                                      borderRadius: BorderRadius.circular(4),
+                                    ),
+                                    child: Text(
+                                      txn.relatedJob!,
+                                      style: const TextStyle(
+                                        fontSize: 10,
+                                        color: Colors.blue,
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                  ),
+                                Text(
+                                  "${txn.category} • ${txn.date.month}/${txn.date.day}",
+                                  style: const TextStyle(
+                                    fontSize: 11,
+                                    color: Colors.grey,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
+
+                      const SizedBox(width: 8),
+
+                      // Amount
+                      Text(
+                        "${isIncome ? '+' : '-'}₱${txn.amount.toStringAsFixed(0)}",
+                        style: TextStyle(
+                          color: color,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 15,
+                        ),
+                      ),
+                    ],
                   ),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  "${txn.category} • ${txn.date.month}/${txn.date.day}",
-                  style: const TextStyle(fontSize: 11, color: Colors.grey),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ],
-            ),
-          ),
-
-          const SizedBox(width: 8),
-
-          // Amount (Constrained so it doesn't push off screen)
-          // FittedBox will shrink text if it's too massive
-          Flexible(
-            flex: 0, // Don't expand, just take what's needed
-            child: FittedBox(
-              fit: BoxFit.scaleDown,
-              child: Text(
-                "${isIncome ? '+' : '-'}₱${txn.amount.toStringAsFixed(2)}",
-                style: TextStyle(
-                  color: color,
-                  fontWeight: FontWeight.bold,
-                  fontSize: 15,
                 ),
               ),
-            ),
+            ],
           ),
-        ],
+        ),
       ),
     );
   }
@@ -666,7 +902,6 @@ class _AddTransactionDialogState extends State<_AddTransactionDialog> {
 
   // Job Data for Search
   List<Map<String, dynamic>> _activeJobs = [];
-  bool _isLoadingJobs = false;
 
   @override
   void initState() {
@@ -675,7 +910,6 @@ class _AddTransactionDialogState extends State<_AddTransactionDialog> {
   }
 
   Future<void> _fetchActiveJobs() async {
-    setState(() => _isLoadingJobs = true);
     final res = await Supabase.instance.client
         .from('job_orders')
         .select(
@@ -688,7 +922,6 @@ class _AddTransactionDialogState extends State<_AddTransactionDialog> {
     if (mounted) {
       setState(() {
         _activeJobs = List<Map<String, dynamic>>.from(res);
-        _isLoadingJobs = false;
       });
     }
   }
