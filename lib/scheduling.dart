@@ -64,7 +64,10 @@ class JobOrder {
 // --- Main Screen ---
 
 class SchedulingScreen extends StatefulWidget {
-  const SchedulingScreen({super.key});
+  // NEW: Accept an optional search query (like a Job ID)
+  final String? initialSearch;
+
+  const SchedulingScreen({super.key, this.initialSearch});
 
   @override
   State<SchedulingScreen> createState() => _SchedulingScreenState();
@@ -73,235 +76,42 @@ class SchedulingScreen extends StatefulWidget {
 class _SchedulingScreenState extends State<SchedulingScreen> {
   List<JobOrder> _orders = [];
   bool _isLoading = true;
-  bool _sortOldestFirst = true;
 
-  Widget _buildHeader(bool isMobile) {
-    // SCENARIO 1: Mobile Search Active (Expanded Search Bar)
-    if (isMobile && _isSearchActive) {
-      return Container(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-        color: Colors.white,
-        child: Row(
-          children: [
-            Expanded(
-              child: TextField(
-                controller: _searchController,
-                autofocus: true,
-                decoration: InputDecoration(
-                  hintText: "Search name, JO#, location...",
-                  prefixIcon: const Icon(Icons.search, color: Colors.grey),
-                  filled: true,
-                  fillColor: Colors.grey[100],
-                  contentPadding: const EdgeInsets.symmetric(
-                    vertical: 0,
-                    horizontal: 16,
-                  ),
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                    borderSide: BorderSide.none,
-                  ),
-                ),
-              ),
-            ),
-            const SizedBox(width: 8),
-            TextButton(
-              onPressed: () {
-                setState(() {
-                  _isSearchActive = false;
-                  _searchController.clear();
-                });
-              },
-              child: const Text("Cancel"),
-            ),
-          ],
-        ),
-      );
-    }
-
-    // SCENARIO 2: Normal Header (Desktop or Mobile Default)
-    return Container(
-      padding: EdgeInsets.symmetric(
-        horizontal: isMobile ? 16 : 32,
-        vertical: 16,
-      ),
-      color: Colors.white,
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          // Left: Month Selector or Title
-          if (_showActionItems)
-            const Text(
-              "Pending Actions",
-              style: TextStyle(
-                fontSize: 20,
-                fontWeight: FontWeight.w800,
-                color: Color(0xFF1E293B),
-              ),
-            )
-          else
-            Row(
-              children: [
-                IconButton(
-                  icon: const Icon(Icons.chevron_left),
-                  onPressed: () => _changeMonth(-1),
-                  padding: EdgeInsets.zero,
-                  constraints: const BoxConstraints(),
-                ),
-                const SizedBox(width: 8),
-                Text(
-                  "${_monthName(_focusedDate.month)} ${_focusedDate.year}",
-                  style: TextStyle(
-                    fontSize: isMobile ? 18 : 20,
-                    fontWeight: FontWeight.w800,
-                    color: const Color(0xFF1E293B),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                IconButton(
-                  icon: const Icon(Icons.chevron_right),
-                  onPressed: () => _changeMonth(1),
-                  padding: EdgeInsets.zero,
-                  constraints: const BoxConstraints(),
-                ),
-              ],
-            ),
-
-          // Right: Search & Add
-          // RIGHT SIDE: Buttons (Search & Add)
-          if (!_showActionItems)
-            // ... (Your existing Search & Add code for Calendar View) ...
-            Row(
-              children: [
-                // Search Widget
-                if (!isMobile)
-                  Container(
-                    width: 220,
-                    height: 40,
-                    margin: const EdgeInsets.only(right: 12),
-                    child: TextField(
-                      controller: _searchController,
-                      decoration: InputDecoration(
-                        hintText: "Search...",
-                        prefixIcon: const Icon(
-                          Icons.search,
-                          size: 20,
-                          color: Colors.grey,
-                        ),
-                        filled: true,
-                        fillColor: Colors.grey[100],
-                        contentPadding: const EdgeInsets.symmetric(vertical: 0),
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(12),
-                          borderSide: BorderSide.none,
-                        ),
-                      ),
-                    ),
-                  )
-                else
-                  IconButton(
-                    icon: const Icon(Icons.search),
-                    onPressed: () => setState(() => _isSearchActive = true),
-                  ),
-
-                const SizedBox(width: 8),
-
-                // Add Button
-                ElevatedButton.icon(
-                  onPressed: () => _onAddOrEdit(),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF2563EB),
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 16,
-                      vertical: 12,
-                    ),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                  ),
-                  icon: const Icon(Icons.add, size: 18),
-                  label: Text(
-                    isMobile ? 'Add' : 'Add Job',
-                    style: const TextStyle(fontWeight: FontWeight.w700),
-                  ),
-                ),
-              ],
-            )
-          else
-            // NEW: COUNTER & SORT (For Pending Actions View)
-            Row(
-              children: [
-                // 1. The Counter (Subtle text)
-                Text(
-                  "${_getActionableJobs().length} Items",
-                  style: const TextStyle(
-                    color: Colors.grey,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-                const SizedBox(width: 12),
-
-                // 2. The Sort Button
-                OutlinedButton.icon(
-                  onPressed: () {
-                    setState(() {
-                      _sortOldestFirst = !_sortOldestFirst;
-                    });
-                  },
-                  style: OutlinedButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 12,
-                      vertical: 8,
-                    ),
-                    side: BorderSide(color: Colors.grey.shade300),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                  ),
-                  // Dynamic Icon & Label
-                  icon: Icon(
-                    _sortOldestFirst
-                        ? Icons
-                              .arrow_upward // Oldest (Top)
-                        : Icons.arrow_downward, // Newest (Top)
-                    size: 16,
-                    color: Colors.black87,
-                  ),
-                  label: Text(
-                    _sortOldestFirst ? "Oldest" : "Newest",
-                    style: const TextStyle(color: Colors.black87, fontSize: 13),
-                  ),
-                ),
-              ],
-            ),
-        ],
-      ),
-    );
-  }
-
-  // --- ADD THESE NEW VARIABLES ---
-  final TextEditingController _searchController = TextEditingController();
+  // Search State
+  late TextEditingController _searchController; // Changed to late
   String _searchQuery = '';
   bool _isSearchActive = false; // For mobile toggle
-  // ------------------------------
 
   // Calendar State
   DateTime _focusedDate = DateTime.now();
   DateTime _selectedDate = DateTime.now();
 
-  // NEW: Filter State for "Action Needed" view
+  // Sort State
+  bool _sortOldestFirst = true;
+
+  // Filter State for "Action Needed" view
   bool _showActionItems = false;
 
   @override
   void initState() {
     super.initState();
-    _fetchJobOrders();
-    // Add Listener for Search
+
+    // NEW: Initialize search with the passed value (if any)
+    String initialText = widget.initialSearch ?? '';
+    _searchController = TextEditingController(text: initialText);
+
+    if (initialText.isNotEmpty) {
+      _searchQuery = initialText.toLowerCase();
+      _isSearchActive = true; // Auto-expand search on mobile
+    }
+
     _searchController.addListener(() {
       setState(() {
         _searchQuery = _searchController.text.toLowerCase();
       });
     });
+
+    _fetchJobOrders();
   }
 
   @override
@@ -367,7 +177,7 @@ class _SchedulingScreenState extends State<SchedulingScreen> {
         final int payCount = row['payments'][0]['count'] as int;
         final bool unpaid = itemsCount > 0 && payCount == 0;
 
-        // NEW: Check for Missing Ops Info
+        // Check for Missing Ops Info
         final int techCount = row['job_order_technicians'][0]['count'] as int;
         final int unitCount = row['job_order_aircons'][0]['count'] as int;
 
@@ -456,9 +266,8 @@ class _SchedulingScreenState extends State<SchedulingScreen> {
     }).toList();
   }
 
-  // NEW: Get all jobs that need attention, regardless of date
+  // Get all jobs that need attention
   List<JobOrder> _getActionableJobs() {
-    // UPDATED FILTER: Include jobs with missing techs or missing units
     final list = _orders
         .where(
           (o) => o.isUnbilled || o.isUnpaid || o.hasNoTechs || o.hasNoUnits,
@@ -487,7 +296,6 @@ class _SchedulingScreenState extends State<SchedulingScreen> {
     final isMobileView = MediaQuery.of(context).size.width < 600;
 
     // 1. CALCULATE ACTIONABLE JOBS FIRST
-    // This ensures the count and the list are always in sync
     final actionableJobs = _getActionableJobs();
     final actionableJobsCount = actionableJobs.length;
 
@@ -500,7 +308,9 @@ class _SchedulingScreenState extends State<SchedulingScreen> {
         return job.clientName.toLowerCase().contains(_searchQuery) ||
             job.displayId.toLowerCase().contains(_searchQuery) ||
             job.location.toLowerCase().contains(_searchQuery) ||
-            job.status.toLowerCase().contains(_searchQuery);
+            job.status.toLowerCase().contains(_searchQuery) ||
+            // NEW: Allow searching by Database ID (hidden ID)
+            job.dbId.toString().contains(_searchQuery);
       }).toList();
     } else {
       // Standard View: Calendar OR Action Items
@@ -572,7 +382,6 @@ class _SchedulingScreenState extends State<SchedulingScreen> {
                                     child: Text(
                                       _showActionItems
                                           ? "Back to Calendar"
-                                          // UPDATED TEXT: Uses correct count & generic label
                                           : "$actionableJobsCount Jobs require attention",
                                       style: TextStyle(
                                         fontWeight: FontWeight.bold,
@@ -679,6 +488,206 @@ class _SchedulingScreenState extends State<SchedulingScreen> {
             ],
           ),
         ),
+      ),
+    );
+  }
+
+  Widget _buildHeader(bool isMobile) {
+    // SCENARIO 1: Mobile Search Active (Expanded Search Bar)
+    if (isMobile && _isSearchActive) {
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        color: Colors.white,
+        child: Row(
+          children: [
+            Expanded(
+              child: TextField(
+                controller: _searchController,
+                autofocus: true,
+                decoration: InputDecoration(
+                  hintText: "Search name, JO#, location...",
+                  prefixIcon: const Icon(Icons.search, color: Colors.grey),
+                  filled: true,
+                  fillColor: Colors.grey[100],
+                  contentPadding: const EdgeInsets.symmetric(
+                    vertical: 0,
+                    horizontal: 16,
+                  ),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: BorderSide.none,
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(width: 8),
+            TextButton(
+              onPressed: () {
+                setState(() {
+                  _isSearchActive = false;
+                  _searchController.clear();
+                });
+              },
+              child: const Text("Cancel"),
+            ),
+          ],
+        ),
+      );
+    }
+
+    // SCENARIO 2: Normal Header (Desktop or Mobile Default)
+    return Container(
+      padding: EdgeInsets.symmetric(
+        horizontal: isMobile ? 16 : 32,
+        vertical: 16,
+      ),
+      color: Colors.white,
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          // Left: Month Selector or Title
+          if (_showActionItems)
+            const Text(
+              "Pending Actions",
+              style: TextStyle(
+                fontSize: 20,
+                fontWeight: FontWeight.w800,
+                color: Color(0xFF1E293B),
+              ),
+            )
+          else
+            Row(
+              children: [
+                IconButton(
+                  icon: const Icon(Icons.chevron_left),
+                  onPressed: () => _changeMonth(-1),
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(),
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  "${_monthName(_focusedDate.month)} ${_focusedDate.year}",
+                  style: TextStyle(
+                    fontSize: isMobile ? 18 : 20,
+                    fontWeight: FontWeight.w800,
+                    color: const Color(0xFF1E293B),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                IconButton(
+                  icon: const Icon(Icons.chevron_right),
+                  onPressed: () => _changeMonth(1),
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(),
+                ),
+              ],
+            ),
+
+          // Right: Search & Add
+          if (!_showActionItems)
+            Row(
+              children: [
+                // Search Widget
+                if (!isMobile)
+                  Container(
+                    width: 220,
+                    height: 40,
+                    margin: const EdgeInsets.only(right: 12),
+                    child: TextField(
+                      controller: _searchController,
+                      decoration: InputDecoration(
+                        hintText: "Search...",
+                        prefixIcon: const Icon(
+                          Icons.search,
+                          size: 20,
+                          color: Colors.grey,
+                        ),
+                        filled: true,
+                        fillColor: Colors.grey[100],
+                        contentPadding: const EdgeInsets.symmetric(vertical: 0),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: BorderSide.none,
+                        ),
+                      ),
+                    ),
+                  )
+                else
+                  IconButton(
+                    icon: const Icon(Icons.search),
+                    onPressed: () => setState(() => _isSearchActive = true),
+                  ),
+
+                const SizedBox(width: 8),
+
+                // Add Button
+                ElevatedButton.icon(
+                  onPressed: () => _onAddOrEdit(),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF2563EB),
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 12,
+                    ),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                  icon: const Icon(Icons.add, size: 18),
+                  label: Text(
+                    isMobile ? 'Add' : 'Add Job',
+                    style: const TextStyle(fontWeight: FontWeight.w700),
+                  ),
+                ),
+              ],
+            )
+          else
+            // NEW: COUNTER & SORT (For Pending Actions View)
+            Row(
+              children: [
+                // 1. The Counter
+                Text(
+                  "${_getActionableJobs().length} Items",
+                  style: const TextStyle(
+                    color: Colors.grey,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(width: 12),
+
+                // 2. The Sort Button
+                OutlinedButton.icon(
+                  onPressed: () {
+                    setState(() {
+                      _sortOldestFirst = !_sortOldestFirst;
+                    });
+                  },
+                  style: OutlinedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 8,
+                    ),
+                    side: BorderSide(color: Colors.grey.shade300),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                  ),
+                  icon: Icon(
+                    _sortOldestFirst
+                        ? Icons.arrow_upward
+                        : Icons.arrow_downward,
+                    size: 16,
+                    color: Colors.black87,
+                  ),
+                  label: Text(
+                    _sortOldestFirst ? "Oldest" : "Newest",
+                    style: const TextStyle(color: Colors.black87, fontSize: 13),
+                  ),
+                ),
+              ],
+            ),
+        ],
       ),
     );
   }

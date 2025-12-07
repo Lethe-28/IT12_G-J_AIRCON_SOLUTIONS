@@ -5,6 +5,7 @@ import 'ui_app_shell.dart';
 import 'theme/app_theme.dart';
 import 'shared_header.dart';
 import 'shared/widgets.dart' show AnimatedCard, isMobile;
+import 'scheduling.dart';
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
@@ -181,7 +182,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
       color: Colors.transparent,
       child: InkWell(
         onTap: () {
-          Navigator.pop(context);
+          Navigator.pop(context); // Close the notification panel
+
           switch (item.type) {
             case AttentionType.payment:
               Navigator.of(context).pushReplacementNamed('/payments');
@@ -190,7 +192,19 @@ class _DashboardScreenState extends State<DashboardScreen> {
               Navigator.of(context).pushReplacementNamed('/expenses');
               break;
             case AttentionType.scheduling:
-              Navigator.of(context).pushReplacementNamed('/scheduling');
+              final searchText =
+                  item.searchContext ?? item.relatedId.toString();
+              // NEW LOGIC: Pass the Job ID to the Scheduling Screen
+              if (item.relatedId != null) {
+                Navigator.of(context).pushReplacement(
+                  MaterialPageRoute(
+                    builder: (context) =>
+                        SchedulingScreen(initialSearch: searchText),
+                  ),
+                );
+              } else {
+                Navigator.of(context).pushReplacementNamed('/scheduling');
+              }
               break;
             case AttentionType.document:
               Navigator.of(context).pushReplacementNamed('/documents');

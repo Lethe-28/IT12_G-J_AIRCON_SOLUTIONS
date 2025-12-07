@@ -263,17 +263,24 @@ class DashboardProvider extends ChangeNotifier {
         .toIso8601String();
 
     try {
-      // --- 1. HIGH PRIORITY ISSUES ---
+      // --- 1. PRIORITY WARNINGS ---
 
-      // A. Pending Payment Verifications
+      // A. Pending Payments (Requires Join to get JO#)
       try {
         final pendingPayments = await supabase
             .from('payments')
-            .select('reference_number, job_order_id')
+            // FIX: Added job_orders(client_jo_number) to select
+            .select(
+              'reference_number, job_order_id, job_orders(client_jo_number)',
+            )
             .eq('status', 'Pending')
             .limit(5);
 
         for (var payment in pendingPayments) {
+          final joNum =
+              payment['job_orders']?['client_jo_number'] ??
+              'JO-${payment['job_order_id']}';
+
           _attentionItems.add(
             AttentionItem(
               title: 'Payment verification needed',
@@ -284,14 +291,15 @@ class DashboardProvider extends ChangeNotifier {
               color: Colors.orange,
               type: AttentionType.payment,
               relatedId: payment['job_order_id'],
+              searchContext: joNum, // <--- PASS JO# HERE
             ),
           );
         }
       } catch (e) {
-        debugPrint("Error fetching pending payments: $e");
+        debugPrint("Error payments: $e");
       }
 
-      // B. Overdue Job Orders (Past Date)
+      // B. Overdue Jobs
       try {
         final overdueJobs = await supabase
             .from('job_orders')
@@ -310,16 +318,15 @@ class DashboardProvider extends ChangeNotifier {
               color: Colors.red,
               type: AttentionType.scheduling,
               relatedId: job['id'],
+              searchContext: job['client_jo_number'], // <--- PASS JO# HERE
             ),
           );
         }
       } catch (e) {
-        debugPrint("Error fetching overdue jobs: $e");
+        debugPrint("Error overdue: $e");
       }
 
-      // --- 2. MEDIUM PRIORITY (Pre-emptive Warnings) ---
-
-      // C. Upcoming Jobs Missing Info (Next 3 Days)
+      // C. Upcoming Incomplete Jobs
       try {
         final upcomingJobs = await supabase
             .from('job_orders')
@@ -328,8 +335,8 @@ class DashboardProvider extends ChangeNotifier {
             )
             .neq('status', 'Completed')
             .neq('status', 'Cancelled')
-            .gt('date_scheduled', now.toUtc().toIso8601String()) // Future
-            .lt('date_scheduled', threeDaysFromNow) // But soon
+            .gt('date_scheduled', now.toUtc().toIso8601String())
+            .lt('date_scheduled', threeDaysFromNow)
             .order('date_scheduled', ascending: true);
 
         for (var job in upcomingJobs) {
@@ -357,6 +364,7 @@ class DashboardProvider extends ChangeNotifier {
                 color: Colors.amber.shade700,
                 type: AttentionType.scheduling,
                 relatedId: job['id'],
+                searchContext: job['client_jo_number'],
               ),
             );
           }
@@ -394,6 +402,7 @@ class DashboardProvider extends ChangeNotifier {
               color: Colors.blue,
               type: AttentionType.scheduling,
               relatedId: job['id'],
+              searchContext: job['client_jo_number'],
             ),
           );
         }
@@ -506,6 +515,7 @@ class AttentionItem {
   final Color color;
   final AttentionType type;
   final int? relatedId;
+  final String? searchContext;
 
   AttentionItem({
     required this.title,
@@ -514,5 +524,6 @@ class AttentionItem {
     required this.color,
     required this.type,
     this.relatedId,
+    this.searchContext,
   });
 }
