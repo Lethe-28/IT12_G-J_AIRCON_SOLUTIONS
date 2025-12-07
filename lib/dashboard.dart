@@ -25,7 +25,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   void initState() {
     super.initState();
     _loadData();
-    
+
     // Mark welcome as shown after the first build
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!AppState.hasShownWelcome) {
@@ -33,7 +33,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
         // We don't need to setState here because the next rebuild (e.g. from navigation) will pick it up,
         // or if we want it to change immediately we could, but usually "pop up" implies initial state.
         // If the user wants it to disappear *while* looking at it, we'd need a timer or interaction.
-        // For now, "everytime the user login" implies session start. 
+        // For now, "everytime the user login" implies session start.
         // So next time they come to dashboard in this session, it will say "Dashboard".
       }
     });
@@ -54,9 +54,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
     if (_searchQuery.isEmpty) return _dashboardProvider.todayJobs;
     return _dashboardProvider.todayJobs.where((job) {
       return job.client.toLowerCase().contains(_searchQuery) ||
-             job.type.toLowerCase().contains(_searchQuery) ||
-             job.status.toLowerCase().contains(_searchQuery) ||
-             job.id.toLowerCase().contains(_searchQuery);
+          job.type.toLowerCase().contains(_searchQuery) ||
+          job.status.toLowerCase().contains(_searchQuery) ||
+          job.id.toLowerCase().contains(_searchQuery);
     }).toList();
   }
 
@@ -64,7 +64,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     if (_searchQuery.isEmpty) return _dashboardProvider.attentionItems;
     return _dashboardProvider.attentionItems.where((item) {
       return item.title.toLowerCase().contains(_searchQuery) ||
-             item.reference.toLowerCase().contains(_searchQuery);
+          item.reference.toLowerCase().contains(_searchQuery);
     }).toList();
   }
 
@@ -95,11 +95,17 @@ class _DashboardScreenState extends State<DashboardScreen> {
                     const SizedBox(width: 12),
                     const Text(
                       'Notifications',
-                      style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700),
+                      style: TextStyle(
+                        fontSize: 20,
+                        fontWeight: FontWeight.w700,
+                      ),
                     ),
                     const Spacer(),
                     Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 4,
+                      ),
                       decoration: BoxDecoration(
                         color: const Color(0xFFEFF6FF),
                         borderRadius: BorderRadius.circular(12),
@@ -129,16 +135,26 @@ class _DashboardScreenState extends State<DashboardScreen> {
                         child: Column(
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
-                            Icon(Icons.notifications_off_outlined, size: 64, color: Colors.black26),
+                            Icon(
+                              Icons.notifications_off_outlined,
+                              size: 64,
+                              color: Colors.black26,
+                            ),
                             SizedBox(height: 16),
                             Text(
                               'No notifications',
-                              style: TextStyle(fontSize: 16, color: Colors.black54),
+                              style: TextStyle(
+                                fontSize: 16,
+                                color: Colors.black54,
+                              ),
                             ),
                             SizedBox(height: 8),
                             Text(
                               'You\'re all caught up!',
-                              style: TextStyle(fontSize: 14, color: Colors.black38),
+                              style: TextStyle(
+                                fontSize: 14,
+                                color: Colors.black38,
+                              ),
                             ),
                           ],
                         ),
@@ -148,7 +164,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
                         padding: const EdgeInsets.all(20),
                         itemCount: _dashboardProvider.attentionItems.length,
                         separatorBuilder: (_, __) => const SizedBox(height: 12),
-                        itemBuilder: (ctx, i) => _notificationItem(_dashboardProvider.attentionItems[i]),
+                        itemBuilder: (ctx, i) => _notificationItem(
+                          _dashboardProvider.attentionItems[i],
+                        ),
                       ),
               ),
             ],
@@ -195,7 +213,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   color: item.color.withOpacity(0.1),
                   borderRadius: BorderRadius.circular(10),
                 ),
-                child: Icon(Icons.warning_amber_rounded, color: item.color, size: 24),
+                child: Icon(
+                  Icons.warning_amber_rounded,
+                  color: item.color,
+                  size: 24,
+                ),
               ),
               const SizedBox(width: 16),
               Expanded(
@@ -253,8 +275,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
       body: Column(
         children: [
           SharedHeader(
-            welcomeText: AppState.hasShownWelcome 
-                ? '' 
+            welcomeText: AppState.hasShownWelcome
+                ? ''
                 : AppState.headerWelcomeText(),
             subtitleText: AppState.headerSubtitle(),
             notificationCount: _dashboardProvider.attentionItems.length,
@@ -265,176 +287,180 @@ class _DashboardScreenState extends State<DashboardScreen> {
           ),
           Expanded(
             child: _isLoading
-                ? const Center(
-                    child: CircularProgressIndicator(),
-                  )
+                ? const Center(child: CircularProgressIndicator())
                 : SingleChildScrollView(
-              // FIX: Add bottom padding so content isn't cut off
-              padding: EdgeInsets.fromLTRB(
-                _isServiceManager ? 24 : 20,
-                20,
-                _isServiceManager ? 24 : 20,
-                40,
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  // Title Row
-                  Row(
-                    children: [
-                      Text(
-                        'Overview',
-                        style: TextStyle(
-                          fontSize: titleFontSize,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                      const Spacer(),
-                      PopupMenuButton<String>(
-                        initialValue: _dateRange,
-                        onSelected: (value) {
-                          setState(() => _dateRange = value);
-                          _loadData();
-                        },
-                        offset: const Offset(0, 40),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                        itemBuilder: (context) => [
-                          const PopupMenuItem(
-                            value: 'Today',
-                            child: Row(
-                              children: [
-                                Icon(Icons.today, size: 18),
-                                SizedBox(width: 12),
-                                Text('Today'),
-                              ],
-                            ),
-                          ),
-                          const PopupMenuItem(
-                            value: 'Weekly',
-                            child: Row(
-                              children: [
-                                Icon(Icons.date_range, size: 18),
-                                SizedBox(width: 12),
-                                Text('This Week'),
-                              ],
-                            ),
-                          ),
-                          const PopupMenuItem(
-                            value: 'Monthly',
-                            child: Row(
-                              children: [
-                                Icon(Icons.calendar_month, size: 18),
-                                SizedBox(width: 12),
-                                Text('This Month'),
-                              ],
-                            ),
-                          ),
-                          const PopupMenuItem(
-                            value: 'Yearly',
-                            child: Row(
-                              children: [
-                                Icon(Icons.calendar_today, size: 18),
-                                SizedBox(width: 12),
-                                Text('This Year'),
-                              ],
-                            ),
-                          ),
-                        ],
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 12,
-                            vertical: 6,
-                          ),
-                          decoration: BoxDecoration(
-                            color: Colors.white,
-                            borderRadius: BorderRadius.circular(8),
-                            border: Border.all(color: const Color(0xFFE2E8F0)),
-                          ),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              const Icon(
-                                Icons.calendar_today,
-                                size: 14,
-                                color: Colors.black54,
+                    // FIX: Add bottom padding so content isn't cut off
+                    padding: EdgeInsets.fromLTRB(
+                      _isServiceManager ? 24 : 20,
+                      20,
+                      _isServiceManager ? 24 : 20,
+                      40,
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        // Title Row
+                        Row(
+                          children: [
+                            Text(
+                              'Overview',
+                              style: TextStyle(
+                                fontSize: titleFontSize,
+                                fontWeight: FontWeight.w700,
                               ),
-                              const SizedBox(width: 8),
-                              Text(
-                                _dateRange,
-                                style: TextStyle(
-                                  fontSize: _isServiceManager ? 14.0 : 12.0,
-                                  fontWeight: FontWeight.w600,
-                                  color: Colors.black54,
+                            ),
+                            const Spacer(),
+                            PopupMenuButton<String>(
+                              initialValue: _dateRange,
+                              onSelected: (value) {
+                                setState(() => _dateRange = value);
+                                _loadData();
+                              },
+                              offset: const Offset(0, 40),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              itemBuilder: (context) => [
+                                const PopupMenuItem(
+                                  value: 'Today',
+                                  child: Row(
+                                    children: [
+                                      Icon(Icons.today, size: 18),
+                                      SizedBox(width: 12),
+                                      Text('Today'),
+                                    ],
+                                  ),
+                                ),
+                                const PopupMenuItem(
+                                  value: 'Weekly',
+                                  child: Row(
+                                    children: [
+                                      Icon(Icons.date_range, size: 18),
+                                      SizedBox(width: 12),
+                                      Text('This Week'),
+                                    ],
+                                  ),
+                                ),
+                                const PopupMenuItem(
+                                  value: 'Monthly',
+                                  child: Row(
+                                    children: [
+                                      Icon(Icons.calendar_month, size: 18),
+                                      SizedBox(width: 12),
+                                      Text('This Month'),
+                                    ],
+                                  ),
+                                ),
+                                const PopupMenuItem(
+                                  value: 'Yearly',
+                                  child: Row(
+                                    children: [
+                                      Icon(Icons.calendar_today, size: 18),
+                                      SizedBox(width: 12),
+                                      Text('This Year'),
+                                    ],
+                                  ),
+                                ),
+                              ],
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 12,
+                                  vertical: 6,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: Colors.white,
+                                  borderRadius: BorderRadius.circular(8),
+                                  border: Border.all(
+                                    color: const Color(0xFFE2E8F0),
+                                  ),
+                                ),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    const Icon(
+                                      Icons.calendar_today,
+                                      size: 14,
+                                      color: Colors.black54,
+                                    ),
+                                    const SizedBox(width: 8),
+                                    Text(
+                                      _dateRange,
+                                      style: TextStyle(
+                                        fontSize: _isServiceManager
+                                            ? 14.0
+                                            : 12.0,
+                                        fontWeight: FontWeight.w600,
+                                        color: Colors.black54,
+                                      ),
+                                    ),
+                                    const SizedBox(width: 4),
+                                    const Icon(
+                                      Icons.arrow_drop_down,
+                                      size: 18,
+                                      color: Colors.black54,
+                                    ),
+                                  ],
                                 ),
                               ),
-                              const SizedBox(width: 4),
-                              const Icon(
-                                Icons.arrow_drop_down,
-                                size: 18,
-                                color: Colors.black54,
-                              ),
-                            ],
-                          ),
+                            ),
+                          ],
                         ),
-                      ),
-                    ],
+
+                        const SizedBox(height: 16),
+
+                        // 1. ACTIONABLE STATS (Robust Layout)
+                        _overviewCardsSection(),
+
+                        const SizedBox(height: 24),
+
+                        // 2. MAIN WORKSPACE
+                        LayoutBuilder(
+                          builder: (context, constraints) {
+                            final isWideScreen = constraints.maxWidth >= 1024;
+
+                            if (isWideScreen) {
+                              // Desktop: Side-by-Side
+                              return Row(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Expanded(
+                                    flex: 2,
+                                    child: AnimatedCard(
+                                      delay: const Duration(milliseconds: 350),
+                                      child: _todaysJobOrdersCard(),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 24),
+                                  Expanded(
+                                    flex: 1,
+                                    child: AnimatedCard(
+                                      delay: const Duration(milliseconds: 400),
+                                      child: _attentionCard(),
+                                    ),
+                                  ),
+                                ],
+                              );
+                            } else {
+                              // Mobile: Stacked
+                              return Column(
+                                children: [
+                                  AnimatedCard(
+                                    delay: const Duration(milliseconds: 350),
+                                    child: _todaysJobOrdersCard(),
+                                  ),
+                                  const SizedBox(height: 20),
+                                  AnimatedCard(
+                                    delay: const Duration(milliseconds: 400),
+                                    child: _attentionCard(),
+                                  ),
+                                ],
+                              );
+                            }
+                          },
+                        ),
+                      ],
+                    ),
                   ),
-
-                  const SizedBox(height: 16),
-
-                  // 1. ACTIONABLE STATS (Robust Layout)
-                  _overviewCardsSection(),
-
-                  const SizedBox(height: 24),
-
-                  // 2. MAIN WORKSPACE
-                  LayoutBuilder(
-                    builder: (context, constraints) {
-                      final isWideScreen = constraints.maxWidth >= 1024;
-
-                      if (isWideScreen) {
-                        // Desktop: Side-by-Side
-                        return Row(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Expanded(
-                              flex: 2,
-                              child: AnimatedCard(
-                                delay: const Duration(milliseconds: 350),
-                                child: _todaysJobOrdersCard(),
-                              ),
-                            ),
-                            const SizedBox(width: 24),
-                            Expanded(
-                              flex: 1,
-                              child: AnimatedCard(
-                                delay: const Duration(milliseconds: 400),
-                                child: _attentionCard(),
-                              ),
-                            ),
-                          ],
-                        );
-                      } else {
-                        // Mobile: Stacked
-                        return Column(
-                          children: [
-                            AnimatedCard(
-                              delay: const Duration(milliseconds: 350),
-                              child: _todaysJobOrdersCard(),
-                            ),
-                            const SizedBox(height: 20),
-                            AnimatedCard(
-                              delay: const Duration(milliseconds: 400),
-                              child: _attentionCard(),
-                            ),
-                          ],
-                        );
-                      }
-                    },
-                  ),
-                ],
-              ),
-            ),
           ),
         ],
       ),
@@ -591,7 +617,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
               physics: const NeverScrollableScrollPhysics(),
               itemCount: _filteredAttentionItems.length,
               separatorBuilder: (_, __) => const SizedBox(height: 12),
-              itemBuilder: (ctx, i) => _attentionItemRow(_filteredAttentionItems[i]),
+              itemBuilder: (ctx, i) =>
+                  _attentionItemRow(_filteredAttentionItems[i]),
             ),
         ],
       ),
@@ -670,7 +697,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
           Row(
             children: [
               const Text(
-                "Today's Schedule",
+                "Schedule",
                 style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
               ),
               const Spacer(),
@@ -700,7 +727,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
               padding: const EdgeInsets.all(24),
               child: Center(
                 child: Text(
-                  _searchQuery.isNotEmpty ? 'No jobs match your search' : 'No jobs scheduled for today',
+                  _searchQuery.isNotEmpty
+                      ? 'No jobs match your search'
+                      : 'No jobs scheduled for today',
                   style: const TextStyle(color: Colors.black54),
                 ),
               ),
@@ -735,16 +764,33 @@ class _DashboardScreenState extends State<DashboardScreen> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         SizedBox(
-          width: 65,
-          child: Text(
-            job.time,
-            style: const TextStyle(
-              fontWeight: FontWeight.w600,
-              fontSize: 13,
-              color: Colors.black87,
-            ),
+          width: 70, // Increased width to fit the date
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // 1. The Date (e.g., "Oct 24")
+              Text(
+                job.date,
+                style: const TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.grey,
+                ),
+              ),
+              const SizedBox(height: 2),
+              // 2. The Time (e.g., "9:00 AM")
+              Text(
+                job.time,
+                style: const TextStyle(
+                  fontWeight: FontWeight.w600,
+                  fontSize: 13,
+                  color: Colors.black87,
+                ),
+              ),
+            ],
           ),
         ),
+        const SizedBox(width: 8), // Spacing between time/date and details
         Expanded(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -830,11 +876,15 @@ class _OverviewCard extends StatelessWidget {
                     ),
                     child: Icon(icon, color: color, size: 24),
                   ),
-                  Icon(Icons.chevron_right, color: AppTheme.textSecondary.withOpacity(0.5)),
+                  Icon(
+                    Icons.chevron_right,
+                    color: AppTheme.textSecondary.withOpacity(0.5),
+                  ),
                 ],
               ),
               const SizedBox(height: 24), // Increased spacing
-              Flexible( // Use Flexible to prevent overflow
+              Flexible(
+                // Use Flexible to prevent overflow
                 child: Text(
                   value,
                   style: AppTheme.heading1.copyWith(fontSize: fontSize),
@@ -844,7 +894,10 @@ class _OverviewCard extends StatelessWidget {
               const SizedBox(height: 4),
               Text(
                 title,
-                style: AppTheme.caption.copyWith(fontSize: 14, fontWeight: FontWeight.w600),
+                style: AppTheme.caption.copyWith(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                ),
                 overflow: TextOverflow.ellipsis,
               ),
             ],
@@ -854,5 +907,3 @@ class _OverviewCard extends StatelessWidget {
     );
   }
 }
-
-

@@ -118,6 +118,24 @@ class DashboardProvider extends ChangeNotifier {
         // FIX: Convert to Local Time before formatting
         DateTime scheduled = DateTime.parse(row['date_scheduled']).toLocal();
 
+        // --- ADD THIS DATE FORMATTING LOGIC ---
+        const months = [
+          "Jan",
+          "Feb",
+          "Mar",
+          "Apr",
+          "May",
+          "Jun",
+          "Jul",
+          "Aug",
+          "Sep",
+          "Oct",
+          "Nov",
+          "Dec",
+        ];
+        String dateStr = "${months[scheduled.month - 1]} ${scheduled.day}";
+        // --------------------------------------
+
         String time =
             '${scheduled.hour == 0 ? 12 : (scheduled.hour > 12 ? scheduled.hour - 12 : scheduled.hour)}:${scheduled.minute.toString().padLeft(2, '0')}';
         if (scheduled.hour < 12) {
@@ -130,6 +148,7 @@ class DashboardProvider extends ChangeNotifier {
           id: row['client_jo_number'] ?? 'JO-${row['id']}',
           client: clientName,
           time: time,
+          date: dateStr,
           type: row['job_types']?['job_type_name'] ?? 'Service',
           status: row['status'] ?? 'Pending',
         );
@@ -340,6 +359,7 @@ class TodayJobItem {
   final String id;
   final String client;
   final String time;
+  final String date;
   final String type;
   final String status;
 
@@ -347,6 +367,7 @@ class TodayJobItem {
     required this.id,
     required this.client,
     required this.time,
+    required this.date,
     required this.type,
     required this.status,
   });
