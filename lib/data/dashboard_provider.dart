@@ -4,6 +4,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 /// Centralized data provider for dashboard statistics and real-time data
 class DashboardProvider extends ChangeNotifier {
   static final DashboardProvider _instance = DashboardProvider._internal();
+  String _currentDateRange = 'Today';
   factory DashboardProvider() => _instance;
   DashboardProvider._internal();
 
@@ -23,12 +24,26 @@ class DashboardProvider extends ChangeNotifier {
   double get totalExpenses => _totalExpenses;
   List<TodayJobItem> get todayJobs => _todayJobs;
   List<AttentionItem> get attentionItems => _attentionItems;
+  String get scheduleTitle {
+    switch (_currentDateRange) {
+      case 'Weekly':
+        return "This Week's Schedule";
+      case 'Monthly':
+        return "This Month's Schedule";
+      case 'Yearly':
+        return "This Year's Schedule";
+      case 'All':
+        return "All Scheduled Jobs";
+      default:
+        return "Today's Schedule";
+    }
+  }
 
-  /// Fetch all dashboard data
   Future<void> fetchDashboardData({String dateRange = 'Today'}) async {
+    _currentDateRange = dateRange; // Save the state!
     try {
       await Future.wait([
-        _fetchPendingJobs(),
+        _fetchPendingJobs(dateRange), // Pass the dateRange here
         _fetchTodayJobs(dateRange),
         _fetchTotalRevenue(dateRange),
         _fetchTotalExpenses(dateRange),
@@ -49,14 +64,55 @@ class DashboardProvider extends ChangeNotifier {
     }
   }
 
-  Future<void> _fetchPendingJobs() async {
+  Future<void> _fetchPendingJobs(String dateRange) async {
     try {
       final supabase = Supabase.instance.client;
-      final response = await supabase.from('job_orders').select('id').inFilter(
-        'status',
-        ['Pending', 'Scheduled', 'In Progress'],
-      );
+      final now = DateTime.now();
+      DateTime? startDate;
+      DateTime? endDate;
 
+      // Calculate dates based on the selected filter
+      switch (dateRange) {
+        case 'Weekly':
+          final start = now.subtract(Duration(days: now.weekday - 1));
+          startDate = DateTime(start.year, start.month, start.day);
+          endDate = DateTime(now.year, now.month, now.day, 23, 59, 59);
+          break;
+        case 'Monthly':
+          startDate = DateTime(now.year, now.month, 1);
+          endDate = DateTime(now.year, now.month + 1, 0, 23, 59, 59);
+          break;
+        case 'Yearly':
+          startDate = DateTime(now.year, 1, 1);
+          endDate = DateTime(now.year, 12, 31, 23, 59, 59);
+          break;
+        case 'Today':
+          startDate = DateTime(now.year, now.month, now.day);
+          endDate = DateTime(now.year, now.month, now.day, 23, 59, 59);
+          break;
+        case 'All':
+          startDate = null;
+          break;
+        default:
+          startDate = DateTime(now.year, now.month, now.day);
+          endDate = DateTime(now.year, now.month, now.day, 23, 59, 59);
+      }
+
+      // Start building the query
+      var query = supabase.from('job_orders').select('id').inFilter('status', [
+        'Pending',
+        'Scheduled',
+        'In Progress',
+      ]);
+
+      // Apply date filter ONLY if we are not viewing 'All'
+      if (startDate != null && endDate != null) {
+        query = query
+            .gte('date_scheduled', startDate.toUtc().toIso8601String())
+            .lte('date_scheduled', endDate.toUtc().toIso8601String());
+      }
+
+      final response = await query;
       _pendingJobsCount = response.length;
     } catch (e) {
       debugPrint('Error fetching pending jobs: $e');

@@ -26,7 +26,11 @@ class Transaction {
 }
 
 class ExpensesScreen extends StatefulWidget {
-  const ExpensesScreen({super.key});
+  // 1. Add this variable
+  final String initialFilter;
+
+  // 2. Update constructor to accept it (default to 'All')
+  const ExpensesScreen({super.key, this.initialFilter = 'All'});
 
   @override
   State<ExpensesScreen> createState() => _ExpensesScreenState();
@@ -41,7 +45,7 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
   final _searchController = TextEditingController();
 
   // FILTER STATE
-  String _selectedFilter = 'All'; // All, Operational, Personal, Revenue/In
+  late String _selectedFilter;
 
   double _totalIn = 0;
   double _totalOut = 0;
@@ -54,6 +58,7 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
 
   @override
   void initState() {
+    _selectedFilter = widget.initialFilter;
     super.initState();
     _fetchCashFlow();
     _searchController.addListener(_onFilterChanged);

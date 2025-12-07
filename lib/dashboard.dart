@@ -1,10 +1,13 @@
 import 'package:flutter/material.dart';
+import 'package:it12_project/expenses.dart';
 import 'data/app_state.dart';
-import 'data/dashboard_provider.dart';
+import 'data/dashboard_provider.dart'; // This imports your data class (Line 4)
 import 'ui_app_shell.dart';
 import 'theme/app_theme.dart';
 import 'shared_header.dart';
 import 'shared/widgets.dart' show AnimatedCard, isMobile;
+// FIX 1: Import the generic provider package, NOT your local file
+import 'package:provider/provider.dart';
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
@@ -25,16 +28,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
   void initState() {
     super.initState();
     _loadData();
-    
+
     // Mark welcome as shown after the first build
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!AppState.hasShownWelcome) {
         AppState.hasShownWelcome = true;
-        // We don't need to setState here because the next rebuild (e.g. from navigation) will pick it up,
-        // or if we want it to change immediately we could, but usually "pop up" implies initial state.
-        // If the user wants it to disappear *while* looking at it, we'd need a timer or interaction.
-        // For now, "everytime the user login" implies session start. 
-        // So next time they come to dashboard in this session, it will say "Dashboard".
       }
     });
   }
@@ -54,9 +52,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
     if (_searchQuery.isEmpty) return _dashboardProvider.todayJobs;
     return _dashboardProvider.todayJobs.where((job) {
       return job.client.toLowerCase().contains(_searchQuery) ||
-             job.type.toLowerCase().contains(_searchQuery) ||
-             job.status.toLowerCase().contains(_searchQuery) ||
-             job.id.toLowerCase().contains(_searchQuery);
+          job.type.toLowerCase().contains(_searchQuery) ||
+          job.status.toLowerCase().contains(_searchQuery) ||
+          job.id.toLowerCase().contains(_searchQuery);
     }).toList();
   }
 
@@ -64,7 +62,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     if (_searchQuery.isEmpty) return _dashboardProvider.attentionItems;
     return _dashboardProvider.attentionItems.where((item) {
       return item.title.toLowerCase().contains(_searchQuery) ||
-             item.reference.toLowerCase().contains(_searchQuery);
+          item.reference.toLowerCase().contains(_searchQuery);
     }).toList();
   }
 
@@ -95,11 +93,17 @@ class _DashboardScreenState extends State<DashboardScreen> {
                     const SizedBox(width: 12),
                     const Text(
                       'Notifications',
-                      style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700),
+                      style: TextStyle(
+                        fontSize: 20,
+                        fontWeight: FontWeight.w700,
+                      ),
                     ),
                     const Spacer(),
                     Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 4,
+                      ),
                       decoration: BoxDecoration(
                         color: const Color(0xFFEFF6FF),
                         borderRadius: BorderRadius.circular(12),
@@ -129,16 +133,26 @@ class _DashboardScreenState extends State<DashboardScreen> {
                         child: Column(
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
-                            Icon(Icons.notifications_off_outlined, size: 64, color: Colors.black26),
+                            Icon(
+                              Icons.notifications_off_outlined,
+                              size: 64,
+                              color: Colors.black26,
+                            ),
                             SizedBox(height: 16),
                             Text(
                               'No notifications',
-                              style: TextStyle(fontSize: 16, color: Colors.black54),
+                              style: TextStyle(
+                                fontSize: 16,
+                                color: Colors.black54,
+                              ),
                             ),
                             SizedBox(height: 8),
                             Text(
                               'You\'re all caught up!',
-                              style: TextStyle(fontSize: 14, color: Colors.black38),
+                              style: TextStyle(
+                                fontSize: 14,
+                                color: Colors.black38,
+                              ),
                             ),
                           ],
                         ),
@@ -148,7 +162,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
                         padding: const EdgeInsets.all(20),
                         itemCount: _dashboardProvider.attentionItems.length,
                         separatorBuilder: (_, __) => const SizedBox(height: 12),
-                        itemBuilder: (ctx, i) => _notificationItem(_dashboardProvider.attentionItems[i]),
+                        itemBuilder: (ctx, i) => _notificationItem(
+                          _dashboardProvider.attentionItems[i],
+                        ),
                       ),
               ),
             ],
@@ -195,7 +211,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   color: item.color.withOpacity(0.1),
                   borderRadius: BorderRadius.circular(10),
                 ),
-                child: Icon(Icons.warning_amber_rounded, color: item.color, size: 24),
+                child: Icon(
+                  Icons.warning_amber_rounded,
+                  color: item.color,
+                  size: 24,
+                ),
               ),
               const SizedBox(width: 16),
               Expanded(
@@ -236,7 +256,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 ),
               ),
               const SizedBox(width: 8),
-              Icon(Icons.chevron_right, size: 20, color: Colors.black26),
+              const Icon(Icons.chevron_right, size: 20, color: Colors.black26),
             ],
           ),
         ),
@@ -253,8 +273,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
       body: Column(
         children: [
           SharedHeader(
-            welcomeText: AppState.hasShownWelcome 
-                ? '' 
+            welcomeText: AppState.hasShownWelcome
+                ? ''
                 : AppState.headerWelcomeText(),
             subtitleText: AppState.headerSubtitle(),
             notificationCount: _dashboardProvider.attentionItems.length,
@@ -265,183 +285,185 @@ class _DashboardScreenState extends State<DashboardScreen> {
           ),
           Expanded(
             child: _isLoading
-                ? const Center(
-                    child: CircularProgressIndicator(),
-                  )
+                ? const Center(child: CircularProgressIndicator())
                 : SingleChildScrollView(
-              // FIX: Add bottom padding so content isn't cut off
-              padding: EdgeInsets.fromLTRB(
-                _isServiceManager ? 24 : 20,
-                20,
-                _isServiceManager ? 24 : 20,
-                40,
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  // Title Row
-                  Row(
-                    children: [
-                      Text(
-                        'Overview',
-                        style: TextStyle(
-                          fontSize: titleFontSize,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                      const Spacer(),
-                      PopupMenuButton<String>(
-                        initialValue: _dateRange,
-                        onSelected: (value) {
-                          setState(() => _dateRange = value);
-                          _loadData();
-                        },
-                        offset: const Offset(0, 40),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                        itemBuilder: (context) => [
-                          const PopupMenuItem(
-                            value: 'Today',
-                            child: Row(
-                              children: [
-                                Icon(Icons.today, size: 18),
-                                SizedBox(width: 12),
-                                Text('Today'),
-                              ],
-                            ),
-                          ),
-                          const PopupMenuItem(
-                            value: 'Weekly',
-                            child: Row(
-                              children: [
-                                Icon(Icons.date_range, size: 18),
-                                SizedBox(width: 12),
-                                Text('This Week'),
-                              ],
-                            ),
-                          ),
-                          const PopupMenuItem(
-                            value: 'Monthly',
-                            child: Row(
-                              children: [
-                                Icon(Icons.calendar_month, size: 18),
-                                SizedBox(width: 12),
-                                Text('This Month'),
-                              ],
-                            ),
-                          ),
-                          const PopupMenuItem(
-                            value: 'Yearly',
-                            child: Row(
-                              children: [
-                                Icon(Icons.calendar_today, size: 18),
-                                SizedBox(width: 12),
-                                Text('This Year'),
-                              ],
-                            ),
-                          ),
-                        ],
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 12,
-                            vertical: 6,
-                          ),
-                          decoration: BoxDecoration(
-                            color: Colors.white,
-                            borderRadius: BorderRadius.circular(8),
-                            border: Border.all(color: const Color(0xFFE2E8F0)),
-                          ),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              const Icon(
-                                Icons.calendar_today,
-                                size: 14,
-                                color: Colors.black54,
+                    padding: EdgeInsets.fromLTRB(
+                      _isServiceManager ? 24 : 20,
+                      20,
+                      _isServiceManager ? 24 : 20,
+                      40,
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        // Title Row
+                        Row(
+                          children: [
+                            Text(
+                              'Overview',
+                              style: TextStyle(
+                                fontSize: titleFontSize,
+                                fontWeight: FontWeight.w700,
                               ),
-                              const SizedBox(width: 8),
-                              Text(
-                                _dateRange,
-                                style: TextStyle(
-                                  fontSize: _isServiceManager ? 14.0 : 12.0,
-                                  fontWeight: FontWeight.w600,
-                                  color: Colors.black54,
+                            ),
+                            const Spacer(),
+                            PopupMenuButton<String>(
+                              initialValue: _dateRange,
+                              onSelected: (value) {
+                                setState(() => _dateRange = value);
+                                _loadData();
+                              },
+                              offset: const Offset(0, 40),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              itemBuilder: (context) => [
+                                const PopupMenuItem(
+                                  value: 'Today',
+                                  child: Row(
+                                    children: [
+                                      Icon(Icons.today, size: 18),
+                                      SizedBox(width: 12),
+                                      Text('Today'),
+                                    ],
+                                  ),
+                                ),
+                                const PopupMenuItem(
+                                  value: 'Weekly',
+                                  child: Row(
+                                    children: [
+                                      Icon(Icons.date_range, size: 18),
+                                      SizedBox(width: 12),
+                                      Text('This Week'),
+                                    ],
+                                  ),
+                                ),
+                                const PopupMenuItem(
+                                  value: 'Monthly',
+                                  child: Row(
+                                    children: [
+                                      Icon(Icons.calendar_month, size: 18),
+                                      SizedBox(width: 12),
+                                      Text('This Month'),
+                                    ],
+                                  ),
+                                ),
+                                const PopupMenuItem(
+                                  value: 'Yearly',
+                                  child: Row(
+                                    children: [
+                                      Icon(Icons.calendar_today, size: 18),
+                                      SizedBox(width: 12),
+                                      Text('This Year'),
+                                    ],
+                                  ),
+                                ),
+                              ],
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 12,
+                                  vertical: 6,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: Colors.white,
+                                  borderRadius: BorderRadius.circular(8),
+                                  border: Border.all(
+                                    color: const Color(0xFFE2E8F0),
+                                  ),
+                                ),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    const Icon(
+                                      Icons.calendar_today,
+                                      size: 14,
+                                      color: Colors.black54,
+                                    ),
+                                    const SizedBox(width: 8),
+                                    Text(
+                                      _dateRange,
+                                      style: TextStyle(
+                                        fontSize: _isServiceManager
+                                            ? 14.0
+                                            : 12.0,
+                                        fontWeight: FontWeight.w600,
+                                        color: Colors.black54,
+                                      ),
+                                    ),
+                                    const SizedBox(width: 4),
+                                    const Icon(
+                                      Icons.arrow_drop_down,
+                                      size: 18,
+                                      color: Colors.black54,
+                                    ),
+                                  ],
                                 ),
                               ),
-                              const SizedBox(width: 4),
-                              const Icon(
-                                Icons.arrow_drop_down,
-                                size: 18,
-                                color: Colors.black54,
-                              ),
-                            ],
-                          ),
+                            ),
+                          ],
                         ),
-                      ),
-                    ],
+
+                        const SizedBox(height: 16),
+
+                        // 1. ACTIONABLE STATS
+                        _overviewCardsSection(),
+
+                        const SizedBox(height: 24),
+
+                        // 2. MAIN WORKSPACE
+                        LayoutBuilder(
+                          builder: (context, constraints) {
+                            final isWideScreen = constraints.maxWidth >= 1024;
+
+                            if (isWideScreen) {
+                              // Desktop: Side-by-Side
+                              return Row(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Expanded(
+                                    flex: 2,
+                                    child: AnimatedCard(
+                                      delay: const Duration(milliseconds: 350),
+                                      child: _todaysJobOrdersCard(),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 24),
+                                  Expanded(
+                                    flex: 1,
+                                    child: AnimatedCard(
+                                      delay: const Duration(milliseconds: 400),
+                                      child: _attentionCard(),
+                                    ),
+                                  ),
+                                ],
+                              );
+                            } else {
+                              // Mobile: Stacked
+                              return Column(
+                                children: [
+                                  AnimatedCard(
+                                    delay: const Duration(milliseconds: 350),
+                                    child: _todaysJobOrdersCard(),
+                                  ),
+                                  const SizedBox(height: 20),
+                                  AnimatedCard(
+                                    delay: const Duration(milliseconds: 400),
+                                    child: _attentionCard(),
+                                  ),
+                                ],
+                              );
+                            }
+                          },
+                        ),
+                      ],
+                    ),
                   ),
-
-                  const SizedBox(height: 16),
-
-                  // 1. ACTIONABLE STATS (Robust Layout)
-                  _overviewCardsSection(),
-
-                  const SizedBox(height: 24),
-
-                  // 2. MAIN WORKSPACE
-                  LayoutBuilder(
-                    builder: (context, constraints) {
-                      final isWideScreen = constraints.maxWidth >= 1024;
-
-                      if (isWideScreen) {
-                        // Desktop: Side-by-Side
-                        return Row(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Expanded(
-                              flex: 2,
-                              child: AnimatedCard(
-                                delay: const Duration(milliseconds: 350),
-                                child: _todaysJobOrdersCard(),
-                              ),
-                            ),
-                            const SizedBox(width: 24),
-                            Expanded(
-                              flex: 1,
-                              child: AnimatedCard(
-                                delay: const Duration(milliseconds: 400),
-                                child: _attentionCard(),
-                              ),
-                            ),
-                          ],
-                        );
-                      } else {
-                        // Mobile: Stacked
-                        return Column(
-                          children: [
-                            AnimatedCard(
-                              delay: const Duration(milliseconds: 350),
-                              child: _todaysJobOrdersCard(),
-                            ),
-                            const SizedBox(height: 20),
-                            AnimatedCard(
-                              delay: const Duration(milliseconds: 400),
-                              child: _attentionCard(),
-                            ),
-                          ],
-                        );
-                      }
-                    },
-                  ),
-                ],
-              ),
-            ),
           ),
         ],
       ),
     );
   }
 
-  // FIX: New robust layout engine for stats
   Widget _overviewCardsSection() {
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -465,7 +487,14 @@ class _DashboardScreenState extends State<DashboardScreen> {
           icon: Icons.payments,
           color: Colors.green,
           fontSize: fontSize,
-          onTap: () => Navigator.of(context).pushReplacementNamed('/payments'),
+          // FIX: Updated navigation to expenses with filter
+          onTap: () => Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) =>
+                  const ExpensesScreen(initialFilter: 'Revenue / In'),
+            ),
+          ),
         );
 
         final expensesCard = _OverviewCard(
@@ -477,16 +506,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
           onTap: () => Navigator.of(context).pushReplacementNamed('/expenses'),
         );
 
-        // MOBILE: Horizontal Scroll (Carousel)
-        // This prevents overflow by giving cards infinite horizontal space
         if (isMobileView) {
           return SizedBox(
-            height: 170, // Increased height to prevent overflow
-            // We use a negative margin on the parent to allow cards to touch the screen edge
-            // while keeping the main padding for the rest of the content.
+            height: 170,
             child: ListView(
               scrollDirection: Axis.horizontal,
-              // Add padding inside the list view so the first card aligns with text
               padding: const EdgeInsets.only(bottom: 4),
               children: [
                 SizedBox(
@@ -517,7 +541,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
           );
         }
 
-        // DESKTOP: Standard Row
         return Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -591,7 +614,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
               physics: const NeverScrollableScrollPhysics(),
               itemCount: _filteredAttentionItems.length,
               separatorBuilder: (_, __) => const SizedBox(height: 12),
-              itemBuilder: (ctx, i) => _attentionItemRow(_filteredAttentionItems[i]),
+              itemBuilder: (ctx, i) =>
+                  _attentionItemRow(_filteredAttentionItems[i]),
             ),
         ],
       ),
@@ -603,7 +627,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
       color: Colors.transparent,
       child: InkWell(
         onTap: () {
-          // Navigate to relevant screen based on type
           switch (item.type) {
             case AttentionType.payment:
               Navigator.of(context).pushReplacementNamed('/payments');
@@ -667,11 +690,15 @@ class _DashboardScreenState extends State<DashboardScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          // FIX 2: Corrected 'const' usage here. The Row is NOT const.
           Row(
             children: [
-              const Text(
-                "Today's Schedule",
-                style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
+              Text(
+                context.watch<DashboardProvider>().scheduleTitle,
+                style: const TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w700,
+                ),
               ),
               const Spacer(),
               Container(
@@ -700,7 +727,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
               padding: const EdgeInsets.all(24),
               child: Center(
                 child: Text(
-                  _searchQuery.isNotEmpty ? 'No jobs match your search' : 'No jobs scheduled for today',
+                  _searchQuery.isNotEmpty
+                      ? 'No jobs match your search'
+                      : 'No jobs scheduled for today',
                   style: const TextStyle(color: Colors.black54),
                 ),
               ),
@@ -785,8 +814,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 }
 
-// --- Refactored Reusable Components ---
-
 class _OverviewCard extends StatelessWidget {
   final String title;
   final String value;
@@ -813,11 +840,11 @@ class _OverviewCard extends StatelessWidget {
         borderRadius: AppTheme.borderRadius,
         child: Container(
           padding: const EdgeInsets.all(20),
-          decoration: AppTheme.cardDecoration, // Removed glow
+          decoration: AppTheme.cardDecoration,
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             mainAxisAlignment: MainAxisAlignment.center,
-            mainAxisSize: MainAxisSize.min, // Use min size
+            mainAxisSize: MainAxisSize.min,
             children: [
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -830,11 +857,14 @@ class _OverviewCard extends StatelessWidget {
                     ),
                     child: Icon(icon, color: color, size: 24),
                   ),
-                  Icon(Icons.chevron_right, color: AppTheme.textSecondary.withOpacity(0.5)),
+                  Icon(
+                    Icons.chevron_right,
+                    color: AppTheme.textSecondary.withOpacity(0.5),
+                  ),
                 ],
               ),
-              const SizedBox(height: 24), // Increased spacing
-              Flexible( // Use Flexible to prevent overflow
+              const SizedBox(height: 24),
+              Flexible(
                 child: Text(
                   value,
                   style: AppTheme.heading1.copyWith(fontSize: 28),
@@ -844,7 +874,10 @@ class _OverviewCard extends StatelessWidget {
               const SizedBox(height: 4),
               Text(
                 title,
-                style: AppTheme.caption.copyWith(fontSize: 14, fontWeight: FontWeight.w600),
+                style: AppTheme.caption.copyWith(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                ),
                 overflow: TextOverflow.ellipsis,
               ),
             ],
@@ -854,5 +887,3 @@ class _OverviewCard extends StatelessWidget {
     );
   }
 }
-
-
