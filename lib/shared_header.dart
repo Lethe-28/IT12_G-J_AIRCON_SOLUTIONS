@@ -46,6 +46,52 @@ class SharedHeader extends StatelessWidget {
       child: LayoutBuilder(
         builder: (context, constraints) {
           final isCompact = constraints.maxWidth < 900;
+          
+          final notificationButton = showNotifications ? InkWell(
+            onTap: onNotificationTap,
+            borderRadius: BorderRadius.circular(10),
+            child: Container(
+              width: 52,
+              height: 52,
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: const Color(0xFFE2E8F0)),
+              ),
+              child: Stack(
+                children: [
+                  const Center(
+                    child: Icon(
+                      Icons.notifications_none,
+                      color: Colors.black54,
+                      size: 24,
+                    ),
+                  ),
+                  if (notificationCount > 0)
+                    Positioned(
+                      right: 8,
+                      top: 8,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: notificationColor,
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: Text(
+                          notificationCount > 99 ? '99+' : notificationCount.toString(),
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 10,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          ) : const SizedBox.shrink();
+
           final titleSection = Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -70,104 +116,83 @@ class SharedHeader extends StatelessWidget {
             ],
           );
 
-          final searchSection = (showSearch || showNotifications)
-              ? Row(
-                    children: [
-                      if (showSearch)
-                        Expanded(
-                          child: Container(
-                            decoration: BoxDecoration(
-                              color: Colors.white,
-                              borderRadius: BorderRadius.circular(10),
-                              border: Border.all(color: const Color(0xFFE2E8F0)),
-                            ),
-                            child: TextField(
-                              onChanged: onSearchChanged,
-                              style: TextStyle(fontSize: searchFontSize),
-                              decoration: InputDecoration(
-                                hintText: 'Search anything...',
-                                hintStyle: TextStyle(fontSize: searchFontSize),
-                                prefixIcon: const Icon(Icons.search, color: Colors.black54),
-                                border: InputBorder.none,
-                                contentPadding: EdgeInsets.symmetric(
-                                  horizontal: 16,
-                                  vertical: isServiceManager ? 16 : 12,
-                                ),
+          if (isCompact) {
+             // Mobile: Title on top, Search + Notification on bottom
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                titleSection,
+                const SizedBox(height: 16),
+                Row(
+                  children: [
+                    if (showSearch)
+                      Expanded(
+                        child: Container(
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(10),
+                            border: Border.all(color: const Color(0xFFE2E8F0)),
+                          ),
+                          child: TextField(
+                            onChanged: onSearchChanged,
+                            style: TextStyle(fontSize: searchFontSize),
+                            decoration: InputDecoration(
+                              hintText: 'Search anything...',
+                              hintStyle: TextStyle(fontSize: searchFontSize),
+                              prefixIcon: const Icon(Icons.search, color: Colors.black54),
+                              border: InputBorder.none,
+                              contentPadding: EdgeInsets.symmetric(
+                                horizontal: 16,
+                                vertical: isServiceManager ? 16 : 12,
                               ),
                             ),
                           ),
                         ),
-                      if (showNotifications) ...[
-                        const SizedBox(width: 12),
-                        InkWell(
-                          onTap: onNotificationTap,
-                          borderRadius: BorderRadius.circular(10),
-                          child: Container(
-                            width: 52,
-                            height: 52,
-                            decoration: BoxDecoration(
-                              color: Colors.white,
-                              borderRadius: BorderRadius.circular(10),
-                              border: Border.all(color: const Color(0xFFE2E8F0)),
-                            ),
-                            child: Stack(
-                              children: [
-                                const Center(
-                                  child: Icon(
-                                    Icons.notifications_none,
-                                    color: Colors.black54,
-                                    size: 24,
-                                  ),
-                                ),
-                                if (notificationCount > 0)
-                                  Positioned(
-                                    right: 8,
-                                    top: 8,
-                                    child: Container(
-                                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                                      decoration: BoxDecoration(
-                                        color: notificationColor,
-                                        borderRadius: BorderRadius.circular(10),
-                                      ),
-                                      child: Text(
-                                        notificationCount > 99 ? '99+' : notificationCount.toString(),
-                                        style: const TextStyle(
-                                          color: Colors.white,
-                                          fontSize: 10,
-                                          fontWeight: FontWeight.w600,
-                                        ),
-                                      ),
-                                    ),
-                                  ),
-                              ],
-                            ),
-                          ),
-                        ),
-                      ],
+                      ),
+                    if (showNotifications) ...[
+                      SizedBox(width: showSearch ? 12 : 0),
+                      notificationButton,
                     ],
-                  )
-              : const SizedBox.shrink();
-
-          if (isCompact) {
-            return Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                titleSection,
-                if (showSearch || showNotifications) ...[
-                  const SizedBox(height: 16),
-                  searchSection,
-                ],
+                  ],
+                ),
               ],
             );
           }
           
+          // Desktop: Title | Search | Notification
           return Row(
             crossAxisAlignment: CrossAxisAlignment.center,
             children: [
-              Expanded(child: titleSection),
-              if (showSearch || showNotifications) ...[
+              Expanded(flex: 2, child: titleSection),
+              const SizedBox(width: 24),
+              if (showSearch)
+                Expanded(
+                  flex: 3,
+                  child: Container(
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: const Color(0xFFE2E8F0)),
+                    ),
+                    child: TextField(
+                      onChanged: onSearchChanged,
+                      style: TextStyle(fontSize: searchFontSize),
+                      decoration: InputDecoration(
+                        hintText: 'Search anything...',
+                        hintStyle: TextStyle(fontSize: searchFontSize),
+                        prefixIcon: const Icon(Icons.search, color: Colors.black54),
+                        border: InputBorder.none,
+                        contentPadding: EdgeInsets.symmetric(
+                          horizontal: 16,
+                          vertical: isServiceManager ? 16 : 12,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              if (showNotifications) ...[
                 const SizedBox(width: 16),
-                Expanded(child: searchSection),
+                notificationButton,
               ],
             ],
           );

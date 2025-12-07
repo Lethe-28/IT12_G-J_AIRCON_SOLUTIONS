@@ -460,7 +460,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
         );
 
         final paymentsCard = _OverviewCard(
-          title: 'Total Revenue',
+          title: 'Revenue',
           value: '₱${_dashboardProvider.totalRevenue.toStringAsFixed(0)}',
           icon: Icons.payments,
           color: Colors.green,
@@ -469,7 +469,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
         );
 
         final expensesCard = _OverviewCard(
-          title: 'Total Expenses',
+          title: 'Expenses',
           value: '₱${_dashboardProvider.totalExpenses.toStringAsFixed(0)}',
           icon: Icons.money_off,
           color: Colors.red,
@@ -837,7 +837,7 @@ class _OverviewCard extends StatelessWidget {
               Flexible( // Use Flexible to prevent overflow
                 child: Text(
                   value,
-                  style: AppTheme.heading1.copyWith(fontSize: 28),
+                  style: AppTheme.heading1.copyWith(fontSize: fontSize),
                   overflow: TextOverflow.ellipsis,
                 ),
               ),
