@@ -199,299 +199,308 @@ class PDFGeneratorService {
     return pdf.save();
   }
 
-  static Future<Uint8List> generateDefermentForm(DefermentFormData data) async {
+  static Future<Uint8List> generateDefermentFormV5(DefermentFormData data) async {
     final pdf = pw.Document();
 
-    final logoData = await rootBundle.load('lib/image/logo.png');
+    final logoData = await rootBundle.load('lib/image/FMIDC Logo.png');
     final logoImage = pw.MemoryImage(logoData.buffer.asUint8List());
 
     pdf.addPage(
       pw.Page(
         pageFormat: PdfPageFormat.a4,
-        margin: const pw.EdgeInsets.symmetric(horizontal: 30, vertical: 30),
+        margin: const pw.EdgeInsets.all(40),
         build: (pw.Context context) {
           return pw.Column(
-            crossAxisAlignment: pw.CrossAxisAlignment.start,
+            crossAxisAlignment: pw.CrossAxisAlignment.stretch,
             children: [
-              // Header
+              // Logo centered at top
+              pw.Center(
+                child: pw.Container(
+                  width: 150,
+                  child: pw.Image(logoImage, fit: pw.BoxFit.contain),
+                ),
+              ),
+              pw.SizedBox(height: 15),
+              
+              // Header addresses
               pw.Row(
                 crossAxisAlignment: pw.CrossAxisAlignment.start,
                 mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
                 children: [
-                  // Left Address
-                  pw.SizedBox(
-                    width: 170,
-                    child: pw.Column(
-                      crossAxisAlignment: pw.CrossAxisAlignment.start,
-                      children: [
-                        pw.SizedBox(height: 15), // Offset to align with logo roughly
-                        pw.Text('FMIDC Building, 837 Ma. Clara St', style: pw.TextStyle(fontSize: 7, fontWeight: pw.FontWeight.bold)),
-                        pw.Text('Brgy. Plainview, Mandaluyong City', style: pw.TextStyle(fontSize: 7, fontWeight: pw.FontWeight.bold)),
-                        pw.Text('Trunk line: 635-5041 / Fax no. 635-5027', style: pw.TextStyle(fontSize: 7, fontWeight: pw.FontWeight.bold)),
-                        pw.Text('Email: mail@fmidc.com-www.fmidc.com', style: pw.TextStyle(fontSize: 7, fontWeight: pw.FontWeight.bold)),
-                      ],
-                    ),
+                  // Left address
+                  pw.Column(
+                    crossAxisAlignment: pw.CrossAxisAlignment.start,
+                    children: [
+                      pw.Text('FMIDC Building, 837 Ma. Clara St', style: pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold)),
+                      pw.Text('Brgy. Plainview, Mandaluyong City', style: pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold)),
+                      pw.Text('Trunk line: 635-5041 / Fax no. 635-5027', style: pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold)),
+                      pw.Text('Email: mail@fmidc.com-www.fmidc.com', style: pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold)),
+                    ],
                   ),
-                  
-                  // Center Logo
-                  pw.Container(
-                    height: 50,
-                    child: pw.Image(logoImage, fit: pw.BoxFit.contain),
+                  // Right address
+                  pw.Column(
+                    crossAxisAlignment: pw.CrossAxisAlignment.start,
+                    children: [
+                      pw.Text('Sucat office:', style: pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold)),
+                      pw.Text('Km.18 East Service Rd.', style: pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold)),
+                      pw.Text('South Super Hi-way, Taguig, Metro Manila', style: pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold)),
+                      pw.Text('Tel No. 519-8851', style: pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold)),
+                    ],
                   ),
-
-                  // Right Address
-                   pw.SizedBox(
-                    width: 170,
-                     child: pw.Column(
-                       crossAxisAlignment: pw.CrossAxisAlignment.start,
-                       children: [
-                         pw.SizedBox(height: 15),
-                         pw.Text('Sucat office:', style: pw.TextStyle(fontSize: 7, fontWeight: pw.FontWeight.bold)),
-                         pw.Text('Km.18 East Service Rd.', style: pw.TextStyle(fontSize: 7, fontWeight: pw.FontWeight.bold)),
-                         pw.Text('South Super Hi-way, Taguig, Metro Manila', style: pw.TextStyle(fontSize: 7, fontWeight: pw.FontWeight.bold)),
-                         pw.Text('Tel No. 519-8851', style: pw.TextStyle(fontSize: 7, fontWeight: pw.FontWeight.bold)),
-                       ],
-                     ),
-                   ),
                 ],
               ),
+              pw.SizedBox(height: 20),
               
-              pw.SizedBox(height: 30),
+              // Title
               pw.Center(
                 child: pw.Text(
                   'DEFERMENT FORM',
-                  style: pw.TextStyle(fontSize: 14, fontWeight: pw.FontWeight.bold, decoration: pw.TextDecoration.underline),
+                  style: pw.TextStyle(fontSize: 16, fontWeight: pw.FontWeight.bold, decoration: pw.TextDecoration.underline),
                 ),
               ),
               pw.SizedBox(height: 25),
               
-              // Fields
-              // Customer Line
+              // Customer and Date Fill out row
               pw.Row(
                 crossAxisAlignment: pw.CrossAxisAlignment.end,
                 children: [
-                  pw.Text('Customer: ', style: const pw.TextStyle(fontSize: 9)),
+                  pw.Text('Customer: ', style: const pw.TextStyle(fontSize: 10)),
                   pw.Expanded(
+                    flex: 2,
                     child: pw.Container(
                       decoration: const pw.BoxDecoration(border: pw.Border(bottom: pw.BorderSide(width: 0.5))),
-                      child: pw.Text(data.customer, style: const pw.TextStyle(fontSize: 9)),
+                      padding: const pw.EdgeInsets.only(bottom: 2),
+                      child: pw.Text(data.customer, style: const pw.TextStyle(fontSize: 10)),
                     ),
                   ),
-                  pw.SizedBox(width: 10),
-                  pw.Text('Date Fill out: ', style: const pw.TextStyle(fontSize: 9)),
-                  pw.Container(
-                    width: 150,
-                    decoration: const pw.BoxDecoration(border: pw.Border(bottom: pw.BorderSide(width: 0.5))),
-                    child: pw.Text(dateFormat.format(data.dateFillOut), style: const pw.TextStyle(fontSize: 9)),
-                  ),
-                ],
-              ),
-              pw.SizedBox(height: 10),
-              
-              // Branch Name Line
-              pw.Row(
-                crossAxisAlignment: pw.CrossAxisAlignment.end,
-                children: [
-                  pw.Text('Branch Name: ', style: const pw.TextStyle(fontSize: 9)),
+                  pw.SizedBox(width: 20),
+                  pw.Text('Date Fill out: ', style: const pw.TextStyle(fontSize: 10)),
                   pw.Expanded(
                     child: pw.Container(
                       decoration: const pw.BoxDecoration(border: pw.Border(bottom: pw.BorderSide(width: 0.5))),
-                      child: pw.Text(data.branchName, style: const pw.TextStyle(fontSize: 9)),
-                    ),
-                  ),
-                ],
-              ),
-               pw.SizedBox(height: 10),
-
-              // Branch Address Line
-              pw.Row(
-                crossAxisAlignment: pw.CrossAxisAlignment.end,
-                children: [
-                  pw.Text('Branch Address: ', style: const pw.TextStyle(fontSize: 9)),
-                  pw.Expanded(
-                    child: pw.Container(
-                      decoration: const pw.BoxDecoration(border: pw.Border(bottom: pw.BorderSide(width: 0.5))),
-                      child: pw.Text(data.branchAddress, style: const pw.TextStyle(fontSize: 9)),
+                      padding: const pw.EdgeInsets.only(bottom: 2),
+                      child: pw.Text(dateFormat.format(data.dateFillOut), style: const pw.TextStyle(fontSize: 10)),
                     ),
                   ),
                 ],
               ),
               pw.SizedBox(height: 10),
               
-              // Branch Code Line
+              // Branch Name
               pw.Row(
                 crossAxisAlignment: pw.CrossAxisAlignment.end,
                 children: [
-                  pw.Text('Branch Code: ', style: const pw.TextStyle(fontSize: 9)),
+                  pw.Text('Branch Name: ', style: const pw.TextStyle(fontSize: 10)),
                   pw.Expanded(
                     child: pw.Container(
                       decoration: const pw.BoxDecoration(border: pw.Border(bottom: pw.BorderSide(width: 0.5))),
-                      child: pw.Text(data.branchCode, style: const pw.TextStyle(fontSize: 9)),
+                      padding: const pw.EdgeInsets.only(bottom: 2),
+                      child: pw.Text(data.branchName, style: const pw.TextStyle(fontSize: 10)),
                     ),
                   ),
                 ],
               ),
               pw.SizedBox(height: 10),
-
-              // MSR Line
+              
+              // Branch Address
               pw.Row(
                 crossAxisAlignment: pw.CrossAxisAlignment.end,
                 children: [
-                  pw.Text('MSR No.: ', style: const pw.TextStyle(fontSize: 9)),
+                  pw.Text('Branch Address: ', style: const pw.TextStyle(fontSize: 10)),
                   pw.Expanded(
                     child: pw.Container(
                       decoration: const pw.BoxDecoration(border: pw.Border(bottom: pw.BorderSide(width: 0.5))),
-                      child: pw.Text(data.msrNo, style: const pw.TextStyle(fontSize: 9)),
+                      padding: const pw.EdgeInsets.only(bottom: 2),
+                      child: pw.Text(data.branchAddress, style: const pw.TextStyle(fontSize: 10)),
                     ),
-                  ),
-                  pw.SizedBox(width: 10),
-                  pw.Text('Date/Time: ', style: const pw.TextStyle(fontSize: 9)),
-                   pw.Container(
-                    width: 150,
-                    decoration: const pw.BoxDecoration(border: pw.Border(bottom: pw.BorderSide(width: 0.5))),
-                    child: pw.Text(dateTimeFormat.format(data.msrDateTime), style: const pw.TextStyle(fontSize: 9)),
                   ),
                 ],
               ),
-              
-              pw.SizedBox(height: 20),
-              
-              // Category
-              pw.Center(child: pw.Text('CATEGORY', style: pw.TextStyle(fontSize: 12, fontWeight: pw.FontWeight.bold, decoration: pw.TextDecoration.underline))),
               pw.SizedBox(height: 10),
+              
+              // Branch Code
               pw.Row(
-                mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                crossAxisAlignment: pw.CrossAxisAlignment.end,
                 children: [
-                  pw.Padding(
-                    padding: const pw.EdgeInsets.only(left: 60),
-                    child: _buildCheckbox('Response Time', data.isResponseTime),
-                  ),
-                  pw.Padding(
-                    padding: const pw.EdgeInsets.only(right: 60),
-                    child: _buildCheckbox('Resolution Time', data.isResolutionTime),
+                  pw.Text('Branch Code: ', style: const pw.TextStyle(fontSize: 10)),
+                  pw.Expanded(
+                    child: pw.Container(
+                      decoration: const pw.BoxDecoration(border: pw.Border(bottom: pw.BorderSide(width: 0.5))),
+                      padding: const pw.EdgeInsets.only(bottom: 2),
+                      child: pw.Text(data.branchCode, style: const pw.TextStyle(fontSize: 10)),
+                    ),
                   ),
                 ],
               ),
-              
-              pw.SizedBox(height: 20),
-              
-              // Trade
-              pw.Center(child: pw.Text('TRADE', style: pw.TextStyle(fontSize: 12, fontWeight: pw.FontWeight.bold, decoration: pw.TextDecoration.underline))),
               pw.SizedBox(height: 10),
-              pw.Row(
-                mainAxisAlignment: pw.MainAxisAlignment.center,
-                children: [
-                  _buildCheckbox('Genset', data.isGenset),
-                  pw.SizedBox(width: 15),
-                  _buildCheckbox('Electrical', data.isElectrical),
-                  pw.SizedBox(width: 15),
-                  _buildCheckbox('UPS', data.isUps),
-                   pw.SizedBox(width: 15),
-                  _buildCheckbox('ACU', data.isAcu),
-                   pw.SizedBox(width: 15),
-                  _buildCheckbox('Voice and Data', data.isVoiceData),
-                ],
-              ),
               
-              pw.SizedBox(height: 20),
-              
-              // Duration
-              pw.Text('Deferment Duration', style: pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold)),
-              pw.SizedBox(height: 5),
+              // MSR No and Date/Time
               pw.Row(
                 crossAxisAlignment: pw.CrossAxisAlignment.end,
                 children: [
-                  pw.Text('From (Date/Time): ', style: const pw.TextStyle(fontSize: 9)),
+                  pw.Text('MSR No.: ', style: const pw.TextStyle(fontSize: 10)),
+                  pw.Expanded(
+                    flex: 2,
+                    child: pw.Container(
+                      decoration: const pw.BoxDecoration(border: pw.Border(bottom: pw.BorderSide(width: 0.5))),
+                      padding: const pw.EdgeInsets.only(bottom: 2),
+                      child: pw.Text(data.msrNo, style: const pw.TextStyle(fontSize: 10)),
+                    ),
+                  ),
+                  pw.SizedBox(width: 20),
+                  pw.Text('Date/Time: ', style: const pw.TextStyle(fontSize: 10)),
                   pw.Expanded(
                     child: pw.Container(
                       decoration: const pw.BoxDecoration(border: pw.Border(bottom: pw.BorderSide(width: 0.5))),
-                      child: pw.Text(dateTimeFormat.format(data.durationFrom), style: const pw.TextStyle(fontSize: 9)),
+                      padding: const pw.EdgeInsets.only(bottom: 2),
+                      child: pw.Text(dateTimeFormat.format(data.msrDateTime), style: const pw.TextStyle(fontSize: 10)),
                     ),
                   ),
                 ],
               ),
-              pw.SizedBox(height: 5),
-              pw.Row(
-                crossAxisAlignment: pw.CrossAxisAlignment.end,
-                children: [
-                  pw.Text('To (Date/Time): ', style: const pw.TextStyle(fontSize: 9)),
-                  pw.Expanded(
-                    child: pw.Container(
-                      decoration: const pw.BoxDecoration(border: pw.Border(bottom: pw.BorderSide(width: 0.5))),
-                      child: pw.Text(dateTimeFormat.format(data.durationTo), style: const pw.TextStyle(fontSize: 9)),
-                    ),
-                  ),
-                ],
-              ),
+              pw.SizedBox(height: 25),
               
+              // CATEGORY
+              pw.Center(
+                child: pw.Text(
+                  'CATEGORY',
+                  style: pw.TextStyle(fontSize: 14, fontWeight: pw.FontWeight.bold, decoration: pw.TextDecoration.underline),
+                ),
+              ),
               pw.SizedBox(height: 15),
+              pw.Row(
+                mainAxisAlignment: pw.MainAxisAlignment.spaceAround,
+                children: [
+                  _buildCheckbox('Response Time', data.isResponseTime, fontSize: 11),
+                  _buildCheckbox('Resolution Time', data.isResolutionTime, fontSize: 11),
+                ],
+              ),
+              pw.SizedBox(height: 25),
+              
+              // TRADE
+              pw.Center(
+                child: pw.Text(
+                  'TRADE',
+                  style: pw.TextStyle(fontSize: 14, fontWeight: pw.FontWeight.bold, decoration: pw.TextDecoration.underline),
+                ),
+              ),
+              pw.SizedBox(height: 15),
+              pw.Row(
+                mainAxisAlignment: pw.MainAxisAlignment.spaceAround,
+                children: [
+                  _buildCheckbox('Genset', data.isGenset, fontSize: 10),
+                  _buildCheckbox('Electrical', data.isElectrical, fontSize: 10),
+                  _buildCheckbox('UPS', data.isUps, fontSize: 10),
+                  _buildCheckbox('ACU', data.isAcu, fontSize: 10),
+                  _buildCheckbox('Voice and Data', data.isVoiceData, fontSize: 10),
+                ],
+              ),
+              pw.SizedBox(height: 25),
+              
+              // Deferment Duration
+              pw.Text('Deferment Duration', style: pw.TextStyle(fontSize: 11, fontWeight: pw.FontWeight.bold)),
+              pw.SizedBox(height: 10),
+              pw.Row(
+                crossAxisAlignment: pw.CrossAxisAlignment.end,
+                children: [
+                  pw.Text('From (Date/Time): ', style: const pw.TextStyle(fontSize: 10)),
+                  pw.Expanded(
+                    child: pw.Container(
+                      decoration: const pw.BoxDecoration(border: pw.Border(bottom: pw.BorderSide(width: 0.5))),
+                      padding: const pw.EdgeInsets.only(bottom: 2),
+                      child: pw.Text(dateTimeFormat.format(data.durationFrom), style: const pw.TextStyle(fontSize: 10)),
+                    ),
+                  ),
+                ],
+              ),
+              pw.SizedBox(height: 10),
+              pw.Row(
+                crossAxisAlignment: pw.CrossAxisAlignment.end,
+                children: [
+                  pw.Text('To (Date/Time): ', style: const pw.TextStyle(fontSize: 10)),
+                  pw.Expanded(
+                    child: pw.Container(
+                      decoration: const pw.BoxDecoration(border: pw.Border(bottom: pw.BorderSide(width: 0.5))),
+                      padding: const pw.EdgeInsets.only(bottom: 2),
+                      child: pw.Text(dateTimeFormat.format(data.durationTo), style: const pw.TextStyle(fontSize: 10)),
+                    ),
+                  ),
+                ],
+              ),
+              pw.SizedBox(height: 20),
               
               // Remarks
-              pw.Text('Reason/s for Deferment / Remarks:', style: pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold)),
+              pw.Text('Reason/s for Deferment / Remarks:', style: pw.TextStyle(fontSize: 11, fontWeight: pw.FontWeight.bold)),
+              pw.SizedBox(height: 5),
               pw.Container(
-                height: 80,
-                width: double.infinity,
+                height: 90,
                 child: pw.Stack(
                   children: [
+                    // Lines
                     pw.Positioned.fill(
                       child: pw.CustomPaint(
                         painter: (canvas, size) {
-                          for (double y = 14; y < 80; y += 14) {
-                             canvas.drawLine(
+                          const double topOffset = 10.0;
+                          const double spacing = 16.0;
+                          for (int i = 0; i < 5; i++) {
+                            canvas.drawLine(
                               0,
-                              size.y - y,
+                              topOffset + (i * spacing),
                               size.x,
-                              size.y - y,
+                              topOffset + (i * spacing),
                             );
                           }
                         },
                       ),
                     ),
+                    // Text
+                    pw.Padding(
+                      padding: const pw.EdgeInsets.only(top: 0),
+                      child: pw.Text(data.remarks, style: const pw.TextStyle(fontSize: 10)),
+                    ),
+                    // Text
                     pw.Padding(
                       padding: const pw.EdgeInsets.only(top: 2),
-                      child: pw.Text(data.remarks, style: const pw.TextStyle(fontSize: 9, lineSpacing: 5)),
+                      child: pw.Text(data.remarks, style: const pw.TextStyle(fontSize: 10)),
                     ),
                   ],
                 ),
               ),
+              pw.SizedBox(height: 50), // Increased spacing after remarks
               
-              pw.SizedBox(height: 40),
+              // Authorized Representative
+              pw.Container(
+                width: 200, // Shorter line, about 40% width
+                child: pw.Column(
+                  crossAxisAlignment: pw.CrossAxisAlignment.start,
+                  children: [
+                    pw.Container(
+                      decoration: const pw.BoxDecoration(border: pw.Border(bottom: pw.BorderSide(width: 1.0))),
+                      height: 1,
+                    ),
+                    pw.SizedBox(height: 2),
+                    pw.Text('Authorized Representative (Position) / Branch Manager', style: const pw.TextStyle(fontSize: 9)),
+                    pw.SizedBox(height: 1),
+                    pw.Text('Signature over printed name and contact details', style: const pw.TextStyle(fontSize: 9)),
+                  ],
+                ),
+              ),
+              pw.SizedBox(height: 40), // Increased spacing between signature sections
               
-              // Signatures
-              pw.Row(
-                crossAxisAlignment: pw.CrossAxisAlignment.end,
-                children: [
-                   pw.Expanded(
-                     child: pw.Column(
-                       crossAxisAlignment: pw.CrossAxisAlignment.start,
-                       children: [
-                         pw.Container(
-                           decoration: const pw.BoxDecoration(border: pw.Border(bottom: pw.BorderSide(width: 0.5))),
-                           child: pw.Text(data.authorizedRep, style: const pw.TextStyle(fontSize: 9)),
-                           width: double.infinity,
-                         ),
-                         pw.SizedBox(height: 2),
-                         pw.Text('Authorized Representative (Position) / Branch Manager', style: const pw.TextStyle(fontSize: 7)),
-                         pw.Text('Signature over printed name and contact details', style: const pw.TextStyle(fontSize: 7)),
-                       ],
-                     ),
-                   ),
-                   pw.SizedBox(width: 40),
-                   pw.Expanded(
-                     child: pw.Column(
-                       crossAxisAlignment: pw.CrossAxisAlignment.start,
-                       children: [
-                         pw.Container(
-                           decoration: const pw.BoxDecoration(border: pw.Border(bottom: pw.BorderSide(width: 0.5))),
-                           child: pw.Text(data.preparedBy, style: const pw.TextStyle(fontSize: 9)),
-                           width: double.infinity,
-                         ),
-                          pw.SizedBox(height: 2),
-                         pw.Text('Prepared by: Signature over printed name', style: const pw.TextStyle(fontSize: 7)),
-                       ],
-                     ),
-                   ),
-                ],
+              // Prepared by
+              pw.Container(
+                width: 200, // Shorter line, about 40% width
+                child: pw.Column(
+                  crossAxisAlignment: pw.CrossAxisAlignment.start,
+                  children: [
+                    pw.Container(
+                      decoration: const pw.BoxDecoration(border: pw.Border(bottom: pw.BorderSide(width: 1.0))),
+                      height: 1,
+                    ),
+                    pw.SizedBox(height: 2),
+                    pw.Text('Prepared by: Signature over printed name', style: const pw.TextStyle(fontSize: 9)),
+                  ],
+                ),
               ),
             ],
           );
@@ -502,20 +511,20 @@ class PDFGeneratorService {
     return pdf.save();
   }
   
-  static pw.Widget _buildCheckbox(String label, bool value) {
+  static pw.Widget _buildCheckbox(String label, bool value, {double fontSize = 10}) {
      return pw.Row(
        mainAxisSize: pw.MainAxisSize.min,
        children: [
          pw.Container(
-           width: 14,
-           height: 10,
+           width: 20,
+           height: 12,
            decoration: pw.BoxDecoration(
-             border: pw.Border.all(color: PdfColors.black, width: 0.5),
+             border: pw.Border.all(color: PdfColors.black, width: 0.8),
            ),
-           child: value ? pw.Center(child: pw.Text('x', style: const pw.TextStyle(fontSize: 8))) : null,
+           child: value ? pw.Center(child: pw.Text('x', style: pw.TextStyle(fontSize: fontSize))) : null,
          ),
-         pw.SizedBox(width: 4),
-         pw.Text(label, style: const pw.TextStyle(fontSize: 8)),
+         pw.SizedBox(width: 8),
+         pw.Text(label, style: pw.TextStyle(fontSize: fontSize)),
        ],
      );
   }

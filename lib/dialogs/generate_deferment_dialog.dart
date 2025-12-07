@@ -111,7 +111,7 @@ class _GenerateDefermentDialogState extends State<GenerateDefermentDialog> {
         preparedBy: _preparedByController.text.trim(),
       );
 
-      final pdfBytes = await PDFGeneratorService.generateDefermentForm(data);
+      final pdfBytes = await PDFGeneratorService.generateDefermentFormV5(data);
 
       setState(() => _isGenerating = false);
 
