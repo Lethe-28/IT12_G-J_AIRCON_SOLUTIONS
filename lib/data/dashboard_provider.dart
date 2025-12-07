@@ -251,18 +251,21 @@ class DashboardProvider extends ChangeNotifier {
     final supabase = Supabase.instance.client;
     final now = DateTime.now();
 
-    // Get ISO string for today at 00:00:00
+    // Time helpers
     final startOfDay = DateTime(
       now.year,
       now.month,
       now.day,
     ).toUtc().toIso8601String();
+    final threeDaysFromNow = now
+        .add(const Duration(days: 3))
+        .toUtc()
+        .toIso8601String();
 
     try {
-      // --- 1. ACTION ITEMS (High Priority) ---
+      // --- 1. HIGH PRIORITY ISSUES ---
 
       // A. Pending Payment Verifications
-      // Schema Check: 'payments' table has 'status' column. OK.
       try {
         final pendingPayments = await supabase
             .from('payments')
@@ -288,10 +291,7 @@ class DashboardProvider extends ChangeNotifier {
         debugPrint("Error fetching pending payments: $e");
       }
 
-      // [REMOVED] Pending Expenses check (Table has no 'status' column)
-
-      // B. Overdue Job Orders
-      // Schema Check: 'job_orders' table has 'date_scheduled' and 'status'. OK.
+      // B. Overdue Job Orders (Past Date)
       try {
         final overdueJobs = await supabase
             .from('job_orders')
@@ -317,20 +317,64 @@ class DashboardProvider extends ChangeNotifier {
         debugPrint("Error fetching overdue jobs: $e");
       }
 
-      // --- 2. ACTIVITY LOG (Info Level - Today's Updates) ---
+      // --- 2. MEDIUM PRIORITY (Pre-emptive Warnings) ---
 
-      // C. Jobs Created Today
-      // Schema Check: 'job_orders' table has 'date_created'. OK.
+      // C. Upcoming Jobs Missing Info (Next 3 Days)
+      try {
+        final upcomingJobs = await supabase
+            .from('job_orders')
+            .select(
+              'id, client_jo_number, date_scheduled, job_order_technicians(count), job_order_aircons(count)',
+            )
+            .neq('status', 'Completed')
+            .neq('status', 'Cancelled')
+            .gt('date_scheduled', now.toUtc().toIso8601String()) // Future
+            .lt('date_scheduled', threeDaysFromNow) // But soon
+            .order('date_scheduled', ascending: true);
+
+        for (var job in upcomingJobs) {
+          final techCount = job['job_order_technicians'][0]['count'] as int;
+          final unitCount = job['job_order_aircons'][0]['count'] as int;
+
+          if (techCount == 0 || unitCount == 0) {
+            final date = DateTime.parse(job['date_scheduled']).toLocal();
+            final dateStr =
+                "${date.month}/${date.day} ${date.hour}:${date.minute.toString().padLeft(2, '0')}";
+
+            String issue = "";
+            if (techCount == 0 && unitCount == 0)
+              issue = "No Tech or Unit assigned";
+            else if (techCount == 0)
+              issue = "No Tech assigned";
+            else
+              issue = "No Unit identified";
+
+            _attentionItems.add(
+              AttentionItem(
+                title: 'Upcoming Job Incomplete',
+                reference: '${job['client_jo_number']} ($dateStr) - $issue',
+                priority: 'Medium', // Warning level
+                color: Colors.amber.shade700,
+                type: AttentionType.scheduling,
+                relatedId: job['id'],
+              ),
+            );
+          }
+        }
+      } catch (e) {
+        debugPrint("Error fetching upcoming warnings: $e");
+      }
+
+      // --- 3. ACTIVITY LOG (Info Level) ---
+
+      // D. Jobs Created Today
       try {
         final newJobs = await supabase
             .from('job_orders')
             .select(
               'id, client_jo_number, customers(first_name, last_name, company_name)',
             )
-            .gte(
-              'date_created',
-              startOfDay,
-            ) // Using correct column from your schema
+            .gte('date_created', startOfDay)
             .order('date_created', ascending: false);
 
         for (var job in newJobs) {
@@ -357,16 +401,12 @@ class DashboardProvider extends ChangeNotifier {
         debugPrint("Error fetching new jobs: $e");
       }
 
-      // D. Payments Received Today
-      // Schema Check: 'payments' table has 'payment_date'. OK.
+      // E. Payments Received Today
       try {
         final newPayments = await supabase
             .from('payments')
             .select('amount, payment_method, job_order_id')
-            .gte(
-              'payment_date',
-              startOfDay,
-            ) // Using correct column from your schema
+            .gte('payment_date', startOfDay)
             .eq('status', 'Verified')
             .order('payment_date', ascending: false);
 
@@ -388,14 +428,14 @@ class DashboardProvider extends ChangeNotifier {
         debugPrint("Error fetching new payments: $e");
       }
 
-      // --- 3. SORTING ---
+      // --- 4. SORTING ---
       _attentionItems.sort((a, b) {
         int getScore(String p) {
           switch (p) {
             case 'High':
               return 0;
             case 'Medium':
-              return 1;
+              return 1; // Warnings sit here
             case 'Low':
               return 2;
             case 'Info':
@@ -408,26 +448,24 @@ class DashboardProvider extends ChangeNotifier {
         return getScore(a.priority).compareTo(getScore(b.priority));
       });
 
-      // Limit list size
       if (_attentionItems.length > 20) {
         _attentionItems = _attentionItems.sublist(0, 20);
       }
 
-      // Notify user only for HIGH priority items
-      final highPriorityCount = _attentionItems
-          .where((item) => item.priority == 'High')
+      // Notify for High OR Medium items
+      final importantCount = _attentionItems
+          .where((item) => item.priority == 'High' || item.priority == 'Medium')
           .length;
 
-      if (highPriorityCount > 0) {
+      if (importantCount > 0) {
         NotificationService().showNotification(
           id: 1,
           title: 'Action Required',
-          body:
-              'You have $highPriorityCount high priority items pending attention.',
+          body: 'You have $importantCount items pending attention.',
         );
       }
 
-      notifyListeners(); // Ensure UI updates
+      notifyListeners();
     } catch (e) {
       debugPrint('Critical error in notifications: $e');
     }
