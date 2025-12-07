@@ -3574,6 +3574,7 @@ class _JobCard extends StatelessWidget {
     String timeText = TimeOfDay.fromDateTime(
       order.startDateTime,
     ).format(context);
+
     if (order.scheduledEndDate != null) {
       dateText +=
           " - ${order.scheduledEndDate!.month}/${order.scheduledEndDate!.day}";
@@ -3603,21 +3604,41 @@ class _JobCard extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // ROW 1: Client Name & Status
+              // ROW 1: Client Name, JO#, and Status
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   Expanded(
-                    child: Text(
-                      order.clientName, // FIX: Client Name is now the Title
-                      style: const TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.black87,
-                      ),
-                      overflow: TextOverflow.ellipsis,
+                    child: Row(
+                      children: [
+                        // 1. Client Name (Flexible to handle long names)
+                        Flexible(
+                          child: Text(
+                            order.clientName,
+                            style: const TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.black87,
+                            ),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                        // 2. The ID (Subtitle Style)
+                        const SizedBox(width: 8),
+                        Text(
+                          order.displayId, // e.g., "JO-1024"
+                          style: TextStyle(
+                            fontSize: 13,
+                            color: Colors.grey[600],
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      ],
                     ),
                   ),
+                  const SizedBox(width: 8),
+
+                  // 3. Status Badge
                   Container(
                     padding: const EdgeInsets.symmetric(
                       horizontal: 8,
@@ -3643,7 +3664,7 @@ class _JobCard extends StatelessWidget {
 
               // ROW 2: Job Type (Subtitle)
               Text(
-                order.jobType, // FIX: Job Type is now subtitle
+                order.jobType,
                 style: TextStyle(
                   fontSize: 13,
                   fontWeight: FontWeight.w600,
@@ -3651,8 +3672,7 @@ class _JobCard extends StatelessWidget {
                 ),
               ),
 
-              // ROW 3: Action Tags (Unbilled/Unpaid)
-              // Update condition to check all flags
+              // ROW 3: Action Tags (Unbilled/Unpaid/Ops Issues)
               if (order.isUnbilled ||
                   order.isUnpaid ||
                   order.hasNoTechs ||
@@ -3660,21 +3680,26 @@ class _JobCard extends StatelessWidget {
                 Padding(
                   padding: const EdgeInsets.only(top: 8),
                   child: Wrap(
-                    // Changed to Wrap to handle multiple tags
                     spacing: 8,
                     runSpacing: 4,
                     children: [
                       if (order.isUnbilled)
-                        _StatusTag(label: "Unbilled", color: Colors.red),
+                        const _StatusTag(label: "Unbilled", color: Colors.red),
 
                       if (order.isUnpaid)
-                        _StatusTag(label: "Unpaid", color: Colors.orange),
+                        const _StatusTag(label: "Unpaid", color: Colors.orange),
 
                       if (order.hasNoTechs)
-                        _StatusTag(label: "No Tech", color: Colors.purple),
+                        const _StatusTag(
+                          label: "No Tech",
+                          color: Colors.purple,
+                        ),
 
                       if (order.hasNoUnits)
-                        _StatusTag(label: "No Unit", color: Colors.blueGrey),
+                        const _StatusTag(
+                          label: "No Unit",
+                          color: Colors.blueGrey,
+                        ),
                     ],
                   ),
                 ),
