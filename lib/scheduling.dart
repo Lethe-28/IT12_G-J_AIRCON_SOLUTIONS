@@ -36,6 +36,10 @@ class JobOrder {
   final bool isUnbilled;
   final bool isUnpaid;
 
+  // NEW: Operational Flags
+  final bool hasNoTechs; // <--- ADD THIS
+  final bool hasNoUnits; // <--- ADD THIS
+
   JobOrder({
     required this.dbId,
     required this.displayId,
@@ -52,6 +56,8 @@ class JobOrder {
     // Initialize new flags
     required this.isUnbilled,
     required this.isUnpaid,
+    required this.hasNoTechs, // <--- ADD THIS
+    required this.hasNoUnits, // <--- ADD THIS
   });
 }
 
@@ -312,7 +318,7 @@ class _SchedulingScreenState extends State<SchedulingScreen> {
       final response = await supabase
           .from('job_orders')
           .select(
-            '*, customers(id, first_name, last_name, company_name, city, barangay, customer_type_id), job_types(job_type_name), job_order_line_items(count), payments(count)',
+            '*, customers(id, first_name, last_name, company_name, city, barangay, customer_type_id), job_types(job_type_name), job_order_line_items(count), payments(count), job_order_technicians(count), job_order_aircons(count)',
           )
           .order('date_scheduled', ascending: false);
 
@@ -361,6 +367,10 @@ class _SchedulingScreenState extends State<SchedulingScreen> {
         final int payCount = row['payments'][0]['count'] as int;
         final bool unpaid = itemsCount > 0 && payCount == 0;
 
+        // NEW: Check for Missing Ops Info
+        final int techCount = row['job_order_technicians'][0]['count'] as int;
+        final int unitCount = row['job_order_aircons'][0]['count'] as int;
+
         loaded.add(
           JobOrder(
             dbId: row['id'],
@@ -377,6 +387,8 @@ class _SchedulingScreenState extends State<SchedulingScreen> {
             isCorporate: isCorp,
             isUnbilled: unbilled,
             isUnpaid: unpaid,
+            hasNoTechs: techCount == 0,
+            hasNoUnits: unitCount == 0,
           ),
         );
       }
@@ -446,12 +458,16 @@ class _SchedulingScreenState extends State<SchedulingScreen> {
 
   // NEW: Get all jobs that need attention, regardless of date
   List<JobOrder> _getActionableJobs() {
-    final list = _orders.where((o) => o.isUnbilled || o.isUnpaid).toList();
+    // UPDATED FILTER: Include jobs with missing techs or missing units
+    final list = _orders
+        .where(
+          (o) => o.isUnbilled || o.isUnpaid || o.hasNoTechs || o.hasNoUnits,
+        )
+        .toList();
 
-    // UPDATED SORT LOGIC
     list.sort((a, b) {
       int comparison = a.startDateTime.compareTo(b.startDateTime);
-      return _sortOldestFirst ? comparison : -comparison; // Reverse if false
+      return _sortOldestFirst ? comparison : -comparison;
     });
 
     return list;
@@ -3626,56 +3642,29 @@ class _JobCard extends StatelessWidget {
               ),
 
               // ROW 3: Action Tags (Unbilled/Unpaid)
-              if (order.isUnbilled || order.isUnpaid)
+              // Update condition to check all flags
+              if (order.isUnbilled ||
+                  order.isUnpaid ||
+                  order.hasNoTechs ||
+                  order.hasNoUnits)
                 Padding(
                   padding: const EdgeInsets.only(top: 8),
-                  child: Row(
+                  child: Wrap(
+                    // Changed to Wrap to handle multiple tags
+                    spacing: 8,
+                    runSpacing: 4,
                     children: [
                       if (order.isUnbilled)
-                        Container(
-                          margin: const EdgeInsets.only(right: 8),
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 8,
-                            vertical: 2,
-                          ),
-                          decoration: BoxDecoration(
-                            color: Colors.red.withOpacity(0.1),
-                            borderRadius: BorderRadius.circular(4),
-                            border: Border.all(
-                              color: Colors.red.withOpacity(0.3),
-                            ),
-                          ),
-                          child: const Text(
-                            "Unbilled",
-                            style: TextStyle(
-                              fontSize: 10,
-                              color: Colors.red,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                        ),
+                        _StatusTag(label: "Unbilled", color: Colors.red),
+
                       if (order.isUnpaid)
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 8,
-                            vertical: 2,
-                          ),
-                          decoration: BoxDecoration(
-                            color: Colors.orange.withOpacity(0.1),
-                            borderRadius: BorderRadius.circular(4),
-                            border: Border.all(
-                              color: Colors.orange.withOpacity(0.3),
-                            ),
-                          ),
-                          child: const Text(
-                            "Unpaid",
-                            style: TextStyle(
-                              fontSize: 10,
-                              color: Colors.orange,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                        ),
+                        _StatusTag(label: "Unpaid", color: Colors.orange),
+
+                      if (order.hasNoTechs)
+                        _StatusTag(label: "No Tech", color: Colors.purple),
+
+                      if (order.hasNoUnits)
+                        _StatusTag(label: "No Unit", color: Colors.blueGrey),
                     ],
                   ),
                 ),
@@ -3713,6 +3702,32 @@ class _JobCard extends StatelessWidget {
               ),
             ],
           ),
+        ),
+      ),
+    );
+  }
+}
+
+class _StatusTag extends StatelessWidget {
+  final String label;
+  final Color color;
+  const _StatusTag({required this.label, required this.color});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(4),
+        border: Border.all(color: color.withOpacity(0.3)),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          fontSize: 10,
+          color: color,
+          fontWeight: FontWeight.bold,
         ),
       ),
     );
