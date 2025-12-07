@@ -248,92 +248,176 @@ class DashboardProvider extends ChangeNotifier {
 
   Future<void> _fetchAttentionItems() async {
     _attentionItems = [];
+    final supabase = Supabase.instance.client;
+    final now = DateTime.now();
+
+    // Get ISO string for today at 00:00:00
+    final startOfDay = DateTime(
+      now.year,
+      now.month,
+      now.day,
+    ).toUtc().toIso8601String();
 
     try {
-      final supabase = Supabase.instance.client;
+      // --- 1. ACTION ITEMS (High Priority) ---
 
-      // 1. Pending payment verifications
-      final pendingPayments = await supabase
-          .from('payments')
-          .select('reference_number, job_order_id')
-          .eq('status', 'Pending')
-          .limit(5);
+      // A. Pending Payment Verifications
+      // Schema Check: 'payments' table has 'status' column. OK.
+      try {
+        final pendingPayments = await supabase
+            .from('payments')
+            .select('reference_number, job_order_id')
+            .eq('status', 'Pending')
+            .limit(5);
 
-      for (var payment in pendingPayments) {
-        _attentionItems.add(
-          AttentionItem(
-            title: 'Payment verification needed',
-            reference:
-                payment['reference_number'] ?? 'REF-${payment['job_order_id']}',
-            priority: 'High',
-            color: Colors.orange,
-            type: AttentionType.payment,
-            relatedId: payment['job_order_id'],
-          ),
-        );
+        for (var payment in pendingPayments) {
+          _attentionItems.add(
+            AttentionItem(
+              title: 'Payment verification needed',
+              reference:
+                  payment['reference_number'] ??
+                  'REF-${payment['job_order_id']}',
+              priority: 'High',
+              color: Colors.orange,
+              type: AttentionType.payment,
+              relatedId: payment['job_order_id'],
+            ),
+          );
+        }
+      } catch (e) {
+        debugPrint("Error fetching pending payments: $e");
       }
 
-      // 2. Pending expense approvals
-      final pendingExpenses = await supabase
-          .from('expenses')
-          .select('job_order_id')
-          .eq('status', 'Pending')
-          .limit(5);
+      // [REMOVED] Pending Expenses check (Table has no 'status' column)
 
-      for (var expense in pendingExpenses) {
-        _attentionItems.add(
-          AttentionItem(
-            title: 'Expense approval required',
-            reference: 'EXP-${expense['job_order_id']}',
-            priority: 'Medium',
-            color: Colors.purple,
-            type: AttentionType.expense,
-            relatedId: expense['job_order_id'],
-          ),
-        );
+      // B. Overdue Job Orders
+      // Schema Check: 'job_orders' table has 'date_scheduled' and 'status'. OK.
+      try {
+        final overdueJobs = await supabase
+            .from('job_orders')
+            .select('id, client_jo_number, date_scheduled')
+            .neq('status', 'Completed')
+            .neq('status', 'Cancelled')
+            .lt('date_scheduled', now.toUtc().toIso8601String())
+            .order('date_scheduled', ascending: true);
+
+        for (var job in overdueJobs) {
+          _attentionItems.add(
+            AttentionItem(
+              title: 'Job order overdue',
+              reference: job['client_jo_number'] ?? 'JO-${job['id']}',
+              priority: 'High',
+              color: Colors.red,
+              type: AttentionType.scheduling,
+              relatedId: job['id'],
+            ),
+          );
+        }
+      } catch (e) {
+        debugPrint("Error fetching overdue jobs: $e");
       }
 
-      // 3. Overdue job orders
-      final now = DateTime.now();
-      final overdueJobs = await supabase
-          .from('job_orders')
-          .select(
-            'id, client_jo_number, date_scheduled, job_order_line_items(count), payments(count)',
-          )
-          .neq('status', 'Completed')
-          .neq('status', 'Cancelled')
-          .order('date_scheduled', ascending: true);
+      // --- 2. ACTIVITY LOG (Info Level - Today's Updates) ---
 
-      for (var job in overdueJobs) {
-        _attentionItems.add(
-          AttentionItem(
-            title: 'Job order overdue',
-            reference: job['client_jo_number'] ?? 'JO-${job['id']}',
-            priority: 'High',
-            color: Colors.red,
-            type: AttentionType.scheduling,
-            relatedId: job['id'],
-          ),
-        );
+      // C. Jobs Created Today
+      // Schema Check: 'job_orders' table has 'date_created'. OK.
+      try {
+        final newJobs = await supabase
+            .from('job_orders')
+            .select(
+              'id, client_jo_number, customers(first_name, last_name, company_name)',
+            )
+            .gte(
+              'date_created',
+              startOfDay,
+            ) // Using correct column from your schema
+            .order('date_created', ascending: false);
+
+        for (var job in newJobs) {
+          final customer = job['customers'];
+          String name = 'Unknown';
+          if (customer != null) {
+            name =
+                customer['company_name'] ??
+                "${customer['first_name']} ${customer['last_name']}";
+          }
+
+          _attentionItems.add(
+            AttentionItem(
+              title: 'New Job Created',
+              reference: '$name (JO-${job['id']})',
+              priority: 'Info',
+              color: Colors.blue,
+              type: AttentionType.scheduling,
+              relatedId: job['id'],
+            ),
+          );
+        }
+      } catch (e) {
+        debugPrint("Error fetching new jobs: $e");
       }
 
-      // Sort by priority
+      // D. Payments Received Today
+      // Schema Check: 'payments' table has 'payment_date'. OK.
+      try {
+        final newPayments = await supabase
+            .from('payments')
+            .select('amount, payment_method, job_order_id')
+            .gte(
+              'payment_date',
+              startOfDay,
+            ) // Using correct column from your schema
+            .eq('status', 'Verified')
+            .order('payment_date', ascending: false);
+
+        for (var p in newPayments) {
+          final amount = (p['amount'] as num).toDouble();
+          _attentionItems.add(
+            AttentionItem(
+              title: 'Payment Received',
+              reference:
+                  '₱${amount.toStringAsFixed(0)} via ${p['payment_method']}',
+              priority: 'Info',
+              color: Colors.teal,
+              type: AttentionType.payment,
+              relatedId: p['job_order_id'],
+            ),
+          );
+        }
+      } catch (e) {
+        debugPrint("Error fetching new payments: $e");
+      }
+
+      // --- 3. SORTING ---
       _attentionItems.sort((a, b) {
-        const priorityOrder = {'High': 0, 'Medium': 1, 'Low': 2};
-        return (priorityOrder[a.priority] ?? 3).compareTo(
-          priorityOrder[b.priority] ?? 3,
-        );
+        int getScore(String p) {
+          switch (p) {
+            case 'High':
+              return 0;
+            case 'Medium':
+              return 1;
+            case 'Low':
+              return 2;
+            case 'Info':
+              return 3;
+            default:
+              return 4;
+          }
+        }
+
+        return getScore(a.priority).compareTo(getScore(b.priority));
       });
 
-      // Limit to top 10
-      if (_attentionItems.length > 10) {
-        _attentionItems = _attentionItems.sublist(0, 10);
+      // Limit list size
+      if (_attentionItems.length > 20) {
+        _attentionItems = _attentionItems.sublist(0, 20);
       }
 
-      // Trigger Notification if critical items exist
+      // Notify user only for HIGH priority items
       final highPriorityCount = _attentionItems
           .where((item) => item.priority == 'High')
           .length;
+
       if (highPriorityCount > 0) {
         NotificationService().showNotification(
           id: 1,
@@ -342,8 +426,10 @@ class DashboardProvider extends ChangeNotifier {
               'You have $highPriorityCount high priority items pending attention.',
         );
       }
+
+      notifyListeners(); // Ensure UI updates
     } catch (e) {
-      debugPrint('Error fetching attention items: $e');
+      debugPrint('Critical error in notifications: $e');
     }
   }
 

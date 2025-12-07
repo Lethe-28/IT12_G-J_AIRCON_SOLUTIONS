@@ -214,7 +214,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   borderRadius: BorderRadius.circular(10),
                 ),
                 child: Icon(
-                  Icons.warning_amber_rounded,
+                  item.priority == 'Info'
+                      ? Icons.info_outline_rounded
+                      : Icons.warning_amber_rounded,
                   color: item.color,
                   size: 24,
                 ),
