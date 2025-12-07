@@ -641,19 +641,16 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   Widget _activityItemRow(AttentionItem item) {
-    // 1. DETERMINE ICON & COLOR
     IconData icon;
     Color iconColor;
     Color bgColor;
 
-    // Logic: Different icons for Payments, Jobs, and Warnings
+    // Icon Logic
     if (item.priority == 'High') {
-      // Keep Warnings Red
       icon = Icons.warning_amber_rounded;
       iconColor = Colors.red;
       bgColor = Colors.red.withOpacity(0.05);
     } else {
-      // Custom Icons for Normal Activity
       switch (item.type) {
         case AttentionType.payment:
           icon = Icons.payments_outlined;
@@ -666,7 +663,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
           bgColor = Colors.orange.withOpacity(0.05);
           break;
         case AttentionType.scheduling:
-          icon = Icons.calendar_today; // or Icons.assignment
+          icon = Icons.calendar_today;
           iconColor = Colors.blue;
           bgColor = Colors.blue.withOpacity(0.05);
           break;
@@ -681,40 +678,38 @@ class _DashboardScreenState extends State<DashboardScreen> {
       color: Colors.transparent,
       child: InkWell(
         onTap: () {
-          // Keep existing navigation logic
+          // --- UPDATED NAVIGATION LOGIC ---
           switch (item.type) {
             case AttentionType.payment:
-              Navigator.of(context).pushReplacementNamed('/payments');
+              // FIX: Cash In now redirects to Expenses instead of mock /payments
+              Navigator.of(context).pushReplacementNamed('/expenses');
               break;
+
             case AttentionType.expense:
               Navigator.of(context).pushReplacementNamed('/expenses');
               break;
+
             case AttentionType.scheduling:
-              // Use the new navigation we added earlier
-              if (item.relatedId != null) {
-                // Assuming you imported scheduling.dart
-                // If not, standard pushReplacementNamed works too
-                Navigator.of(context).pushReplacementNamed('/scheduling');
-              } else {
-                Navigator.of(context).pushReplacementNamed('/scheduling');
-              }
+              Navigator.of(context).pushReplacementNamed('/scheduling');
               break;
+
             case AttentionType.document:
-              Navigator.of(context).pushReplacementNamed('/documents');
+              // FIX: Job updates/deletes (often logged as documents/logs)
+              // now redirect to Scheduling instead of Documents
+              Navigator.of(context).pushReplacementNamed('/scheduling');
               break;
           }
         },
-        borderRadius: BorderRadius.circular(12), // Softer corners
+        borderRadius: BorderRadius.circular(12),
         child: Container(
           padding: const EdgeInsets.all(12),
           decoration: BoxDecoration(
-            color: Colors.white, // Clean white background
+            color: Colors.white,
             borderRadius: BorderRadius.circular(12),
             border: Border.all(color: Colors.grey.shade200),
           ),
           child: Row(
             children: [
-              // ICON BOX
               Container(
                 padding: const EdgeInsets.all(8),
                 decoration: BoxDecoration(
@@ -724,8 +719,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 child: Icon(icon, color: iconColor, size: 20),
               ),
               const SizedBox(width: 12),
-
-              // TEXT CONTENT
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -751,8 +744,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   ],
                 ),
               ),
-
-              // TIME OR ARROW (Optional: Just arrow for now)
               const Icon(Icons.chevron_right, size: 16, color: Colors.black26),
             ],
           ),
