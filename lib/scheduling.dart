@@ -2605,7 +2605,7 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
         type: widget.existingJob != null ? 'Update' : 'Create',
         details: widget.existingJob != null
             ? 'Updated Job $finalJoNumber'
-            : 'Created Job $finalJoNumber for $_customerDisplayController.text',
+            : 'Created Job $finalJoNumber for ${_customerDisplayController.text}',
       );
 
       // SUCCESS!
