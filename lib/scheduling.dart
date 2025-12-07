@@ -160,65 +160,68 @@ class _SchedulingScreenState extends State<SchedulingScreen> {
             ),
 
           // Right: Search & Add
-          Row(
-            children: [
-              // Search Widget
-              if (!isMobile)
-                // DESKTOP: Always visible search box
-                Container(
-                  width: 220,
-                  height: 40,
-                  margin: const EdgeInsets.only(right: 12),
-                  child: TextField(
-                    controller: _searchController,
-                    decoration: InputDecoration(
-                      hintText: "Search...",
-                      prefixIcon: const Icon(
-                        Icons.search,
-                        size: 20,
-                        color: Colors.grey,
-                      ),
-                      filled: true,
-                      fillColor: Colors.grey[100],
-                      contentPadding: const EdgeInsets.symmetric(vertical: 0),
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(12),
-                        borderSide: BorderSide.none,
+          // RIGHT SIDE: Buttons (Search & Add)
+          // HCI RULE: Hide these buttons when in "Pending Actions" mode to reduce noise.
+          if (!_showActionItems)
+            Row(
+              children: [
+                // Search Widget
+                if (!isMobile)
+                  // DESKTOP: Always visible search box
+                  Container(
+                    width: 220,
+                    height: 40,
+                    margin: const EdgeInsets.only(right: 12),
+                    child: TextField(
+                      controller: _searchController,
+                      decoration: InputDecoration(
+                        hintText: "Search...",
+                        prefixIcon: const Icon(
+                          Icons.search,
+                          size: 20,
+                          color: Colors.grey,
+                        ),
+                        filled: true,
+                        fillColor: Colors.grey[100],
+                        contentPadding: const EdgeInsets.symmetric(vertical: 0),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: BorderSide.none,
+                        ),
                       ),
                     ),
+                  )
+                else
+                  // MOBILE: Search Icon Button
+                  IconButton(
+                    icon: const Icon(Icons.search),
+                    onPressed: () => setState(() => _isSearchActive = true),
                   ),
-                )
-              else
-                // MOBILE: Search Icon Button
-                IconButton(
-                  icon: const Icon(Icons.search),
-                  onPressed: () => setState(() => _isSearchActive = true),
-                ),
 
-              const SizedBox(width: 8),
+                const SizedBox(width: 8),
 
-              // Add Button
-              ElevatedButton.icon(
-                onPressed: () => _onAddOrEdit(),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF2563EB),
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 16,
-                    vertical: 12,
+                // Add Button
+                ElevatedButton.icon(
+                  onPressed: () => _onAddOrEdit(),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF2563EB),
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 12,
+                    ),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
                   ),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
+                  icon: const Icon(Icons.add, size: 18),
+                  label: Text(
+                    isMobile ? 'Add' : 'Add Job',
+                    style: const TextStyle(fontWeight: FontWeight.w700),
                   ),
                 ),
-                icon: const Icon(Icons.add, size: 18),
-                label: Text(
-                  isMobile ? 'Add' : 'Add Job',
-                  style: const TextStyle(fontWeight: FontWeight.w700),
-                ),
-              ),
-            ],
-          ),
+              ],
+            ),
         ],
       ),
     );
