@@ -14,6 +14,7 @@ import 'technicians.dart';
 import 'aircons.dart';
 import 'service_items.dart';
 import 'master_data.dart';
+import 'services/notification_service.dart';
 
 Future<void> main() async {
   // 1. Initialize the Flutter engine
@@ -25,6 +26,9 @@ Future<void> main() async {
     url: 'https://tuwiauhnstzocrbcfono.supabase.co',
     anonKey: 'sb_publishable_lRaDnJO0YkZCNwJS-6jBEA_LNXLRQ5S',
   );
+
+  // 3. Initialize Notifications
+  await NotificationService().init();
 
   // 3. Run the app
   runApp(const MyApp());

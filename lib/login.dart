@@ -265,14 +265,7 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
                                 ),
                               ),
                               const SizedBox(height: 16),
-                              Text(
-                                'Efficiency in every degree.',
-                                style: TextStyle(
-                                  color: Colors.white.withOpacity(0.8),
-                                  fontSize: 18,
-                                  letterSpacing: 0.5,
-                                ),
-                              ),
+
                             ],
                           ),
                         ),
