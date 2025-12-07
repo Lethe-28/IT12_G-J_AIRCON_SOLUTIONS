@@ -67,6 +67,7 @@ class SchedulingScreen extends StatefulWidget {
 class _SchedulingScreenState extends State<SchedulingScreen> {
   List<JobOrder> _orders = [];
   bool _isLoading = true;
+  bool _sortOldestFirst = true;
 
   Widget _buildHeader(bool isMobile) {
     // SCENARIO 1: Mobile Search Active (Expanded Search Bar)
@@ -161,13 +162,12 @@ class _SchedulingScreenState extends State<SchedulingScreen> {
 
           // Right: Search & Add
           // RIGHT SIDE: Buttons (Search & Add)
-          // HCI RULE: Hide these buttons when in "Pending Actions" mode to reduce noise.
           if (!_showActionItems)
+            // ... (Your existing Search & Add code for Calendar View) ...
             Row(
               children: [
                 // Search Widget
                 if (!isMobile)
-                  // DESKTOP: Always visible search box
                   Container(
                     width: 220,
                     height: 40,
@@ -192,7 +192,6 @@ class _SchedulingScreenState extends State<SchedulingScreen> {
                     ),
                   )
                 else
-                  // MOBILE: Search Icon Button
                   IconButton(
                     icon: const Icon(Icons.search),
                     onPressed: () => setState(() => _isSearchActive = true),
@@ -218,6 +217,53 @@ class _SchedulingScreenState extends State<SchedulingScreen> {
                   label: Text(
                     isMobile ? 'Add' : 'Add Job',
                     style: const TextStyle(fontWeight: FontWeight.w700),
+                  ),
+                ),
+              ],
+            )
+          else
+            // NEW: COUNTER & SORT (For Pending Actions View)
+            Row(
+              children: [
+                // 1. The Counter (Subtle text)
+                Text(
+                  "${_getActionableJobs().length} Items",
+                  style: const TextStyle(
+                    color: Colors.grey,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(width: 12),
+
+                // 2. The Sort Button
+                OutlinedButton.icon(
+                  onPressed: () {
+                    setState(() {
+                      _sortOldestFirst = !_sortOldestFirst;
+                    });
+                  },
+                  style: OutlinedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 8,
+                    ),
+                    side: BorderSide(color: Colors.grey.shade300),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                  ),
+                  // Dynamic Icon & Label
+                  icon: Icon(
+                    _sortOldestFirst
+                        ? Icons
+                              .arrow_upward // Oldest (Top)
+                        : Icons.arrow_downward, // Newest (Top)
+                    size: 16,
+                    color: Colors.black87,
+                  ),
+                  label: Text(
+                    _sortOldestFirst ? "Oldest" : "Newest",
+                    style: const TextStyle(color: Colors.black87, fontSize: 13),
                   ),
                 ),
               ],
@@ -400,9 +446,15 @@ class _SchedulingScreenState extends State<SchedulingScreen> {
 
   // NEW: Get all jobs that need attention, regardless of date
   List<JobOrder> _getActionableJobs() {
-    return _orders.where((o) => o.isUnbilled || o.isUnpaid).toList()
-      // Sort oldest first so you fix overdue items first
-      ..sort((a, b) => a.startDateTime.compareTo(b.startDateTime));
+    final list = _orders.where((o) => o.isUnbilled || o.isUnpaid).toList();
+
+    // UPDATED SORT LOGIC
+    list.sort((a, b) {
+      int comparison = a.startDateTime.compareTo(b.startDateTime);
+      return _sortOldestFirst ? comparison : -comparison; // Reverse if false
+    });
+
+    return list;
   }
 
   void _changeMonth(int increment) {
