@@ -497,8 +497,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
           icon: Icons.pending_actions,
           color: Colors.orange,
           fontSize: fontSize,
-          onTap: () =>
-              Navigator.of(context).pushReplacementNamed('/scheduling'),
+          onTap: () => Navigator.of(context).pushReplacement(
+            MaterialPageRoute(
+              builder: (context) =>
+                  const SchedulingScreen(showPendingActions: true),
+            ),
+          ),
         );
 
         final paymentsCard = _OverviewCard(
@@ -507,7 +511,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
           icon: Icons.payments,
           color: Colors.green,
           fontSize: fontSize,
-          onTap: () => Navigator.of(context).pushReplacementNamed('/payments'),
+          onTap: () => Navigator.of(context).pushReplacementNamed('/expenses'),
         );
 
         final expensesCard = _OverviewCard(

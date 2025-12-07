@@ -401,6 +401,12 @@ class DashboardProvider extends ChangeNotifier {
             color = Colors.green;
             type = AttentionType.payment;
             break;
+          // --- ADD THIS CASE ---
+          case 'Expense':
+            color = Colors.deepOrange; // Money Out
+            type = AttentionType.expense;
+            break;
+          // ---------------------
         }
 
         _activityItems.add(

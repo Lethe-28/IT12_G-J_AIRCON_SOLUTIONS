@@ -65,10 +65,16 @@ class JobOrder {
 // --- Main Screen ---
 
 class SchedulingScreen extends StatefulWidget {
-  // NEW: Accept an optional search query (like a Job ID)
   final String? initialSearch;
+  final int? autoOpenId;
+  final bool showPendingActions; // <--- NEW PARAMETER
 
-  const SchedulingScreen({super.key, this.initialSearch});
+  const SchedulingScreen({
+    super.key,
+    this.initialSearch,
+    this.autoOpenId,
+    this.showPendingActions = false, // Default is false (Calendar view)
+  });
 
   @override
   State<SchedulingScreen> createState() => _SchedulingScreenState();
@@ -77,33 +83,32 @@ class SchedulingScreen extends StatefulWidget {
 class _SchedulingScreenState extends State<SchedulingScreen> {
   List<JobOrder> _orders = [];
   bool _isLoading = true;
+  bool _hasAutoOpened = false;
 
-  // Search State
-  late TextEditingController _searchController; // Changed to late
+  late TextEditingController _searchController;
   String _searchQuery = '';
-  bool _isSearchActive = false; // For mobile toggle
+  bool _isSearchActive = false;
 
-  // Calendar State
   DateTime _focusedDate = DateTime.now();
   DateTime _selectedDate = DateTime.now();
-
-  // Sort State
   bool _sortOldestFirst = true;
 
-  // Filter State for "Action Needed" view
-  bool _showActionItems = false;
+  // Initialize with the passed value
+  late bool _showActionItems;
 
   @override
   void initState() {
     super.initState();
 
-    // NEW: Initialize search with the passed value (if any)
+    // 1. Set the initial view mode
+    _showActionItems = widget.showPendingActions;
+
     String initialText = widget.initialSearch ?? '';
     _searchController = TextEditingController(text: initialText);
 
     if (initialText.isNotEmpty) {
       _searchQuery = initialText.toLowerCase();
-      _isSearchActive = true; // Auto-expand search on mobile
+      _isSearchActive = true;
     }
 
     _searchController.addListener(() {
