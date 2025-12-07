@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import '../services/notification_service.dart';
 
 /// Centralized data provider for dashboard statistics and real-time data
 class DashboardProvider extends ChangeNotifier {
@@ -239,14 +240,14 @@ class DashboardProvider extends ChangeNotifier {
       // 2. Pending expense approvals
       final pendingExpenses = await supabase
           .from('expenses')
-          .select('reference_number, job_order_id')
+          .select('job_order_id')
           .eq('status', 'Pending')
           .limit(5);
 
       for (var expense in pendingExpenses) {
         _attentionItems.add(AttentionItem(
           title: 'Expense approval required',
-          reference: expense['reference_number'] ?? 'EXP-${expense['job_order_id']}',
+          reference: 'EXP-${expense['job_order_id']}',
           priority: 'Medium',
           color: Colors.purple,
           type: AttentionType.expense,
@@ -283,6 +284,16 @@ class DashboardProvider extends ChangeNotifier {
       // Limit to top 10
       if (_attentionItems.length > 10) {
         _attentionItems = _attentionItems.sublist(0, 10);
+      }
+
+      // Trigger Notification if critical items exist
+      final highPriorityCount = _attentionItems.where((item) => item.priority == 'High').length;
+      if (highPriorityCount > 0) {
+        NotificationService().showNotification(
+          id: 1,
+          title: 'Action Required',
+          body: 'You have $highPriorityCount high priority items pending attention.',
+        );
       }
     } catch (e) {
       debugPrint('Error fetching attention items: $e');

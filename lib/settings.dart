@@ -1,8 +1,22 @@
 import 'package:flutter/material.dart';
 import 'ui_app_shell.dart';
+import 'services/notification_service.dart';
 
-class SettingsScreen extends StatelessWidget {
+class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
+
+  @override
+  State<SettingsScreen> createState() => _SettingsScreenState();
+}
+
+class _SettingsScreenState extends State<SettingsScreen> {
+  bool _notificationsEnabled = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _notificationsEnabled = NotificationService().isEnabled;
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -23,21 +37,15 @@ class SettingsScreen extends StatelessWidget {
                 children: [
                   SwitchListTile(
                     title: const Text('Enable notifications'),
-                    value: true,
-                    onChanged: (_) {},
+                    value: _notificationsEnabled,
+                    onChanged: (value) async {
+                      setState(() {
+                        _notificationsEnabled = value;
+                      });
+                      await NotificationService().toggleNotifications(value);
+                    },
                   ),
-                  const Divider(),
-                  ListTile(
-                    title: const Text('Company Information'),
-                    trailing: const Icon(Icons.chevron_right),
-                    onTap: () {},
-                  ),
-                  const Divider(),
-                  ListTile(
-                    title: const Text('About'),
-                    trailing: const Icon(Icons.info_outline),
-                    onTap: () {},
-                  ),
+                  // Removed Company Information and About tiles as requested
                 ],
               ),
             )

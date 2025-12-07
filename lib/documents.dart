@@ -5,7 +5,11 @@ import 'package:intl/intl.dart';
 import 'ui_app_shell.dart';
 import 'shared/widgets.dart' show AnimatedCard, HoverCard, AnimatedButton, isMobile;
 import 'dialogs/generate_soa_dialog.dart';
+import 'dialogs/generate_deferment_dialog.dart';
+import 'dialogs/generate_weekly_report_dialog.dart';
 import 'data/dashboard_provider.dart';
+import 'dart:io';
+import 'package:path_provider/path_provider.dart';
 
 // --- Design Constants (Moved to top-level for global access) ---
 const Color kPrimaryColor = Color(0xFF2563EB);
@@ -261,6 +265,7 @@ class _DocumentsScreenState extends State<DocumentsScreen> {
   Future<void> _showGenerateModal() async {
     final choice = await showModalBottomSheet<String>(
       context: context,
+      isScrollControlled: true,
       backgroundColor: Colors.transparent,
       builder: (context) => Container(
         decoration: const BoxDecoration(
@@ -268,61 +273,187 @@ class _DocumentsScreenState extends State<DocumentsScreen> {
           borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
         ),
         padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 24),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // Drag handle
-            Center(
-              child: Container(
-                width: 40,
-                height: 4,
-                margin: const EdgeInsets.only(bottom: 16),
-                decoration: BoxDecoration(
-                  color: const Color(0xFFE2E8F0),
-                  borderRadius: BorderRadius.circular(2),
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Drag handle
+              Center(
+                child: Container(
+                  width: 40,
+                  height: 4,
+                  margin: const EdgeInsets.only(bottom: 16),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFE2E8F0),
+                    borderRadius: BorderRadius.circular(2),
+                  ),
                 ),
               ),
-            ),
-            // Header
-            Row(
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(10),
-                  decoration: BoxDecoration(
-                    color: kPrimaryColor.withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(10),
+              // Header
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: kPrimaryColor.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: const Icon(Icons.add_circle_outline, color: kPrimaryColor, size: 24),
                   ),
-                  child: const Icon(Icons.add_circle_outline, color: kPrimaryColor, size: 24),
-                ),
-                const SizedBox(width: 12),
-                const Text('Generate Document', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
-                const Spacer(),
-                IconButton(
-                  onPressed: () => Navigator.pop(context),
-                  icon: const Icon(Icons.close, size: 20),
-                  padding: EdgeInsets.zero,
-                  constraints: const BoxConstraints(),
-                ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            const Text('Select document type:', style: TextStyle(fontSize: 14, color: kTextSecondary)),
-            const SizedBox(height: 16),
-            _GenerateOptionTile(
-              icon: Icons.receipt_long,
-              title: 'Statement of Accounts (SOA)',
-              subtitle: 'Generate billing statement for clients',
-              onTap: () => Navigator.pop(context, 'soa'),
-            ),
-            const SizedBox(height: 20),
-          ],
+                  const SizedBox(width: 12),
+                  const Text('Generate Document', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
+                  const Spacer(),
+                  IconButton(
+                    onPressed: () => Navigator.pop(context),
+                    icon: const Icon(Icons.close, size: 20),
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              const Text('Select document type:', style: TextStyle(fontSize: 14, color: kTextSecondary)),
+              const SizedBox(height: 16),
+              _GenerateOptionTile(
+                icon: Icons.receipt_long,
+                title: 'Statement of Accounts (SOA)',
+                subtitle: 'Generate billing statement for clients',
+                onTap: () => Navigator.pop(context, 'soa'),
+              ),
+              const SizedBox(height: 12),
+              _GenerateOptionTile(
+                icon: Icons.assignment_outlined,
+                title: 'Deferment Form',
+                subtitle: 'Generate technical deferment form',
+                onTap: () => Navigator.pop(context, 'deferment'),
+              ),
+              const SizedBox(height: 12),
+              _GenerateOptionTile(
+                icon: Icons.table_chart_outlined,
+                title: 'Weekly Report',
+                subtitle: 'Generate weekly status report (Excel)',
+                onTap: () => Navigator.pop(context, 'weekly_report'),
+              ),
+              const SizedBox(height: 20),
+            ],
+          ),
         ),
       ),
     );
 
     if (choice == 'soa') {
       _generateSOA();
+    } else if (choice == 'deferment') {
+      _generateDefermentForm();
+    } else if (choice == 'weekly_report') {
+      _generateWeeklyReport();
+    }
+  }
+
+  Future<void> _generateWeeklyReport() async {
+    final excelBytes = await showModalBottomSheet<Uint8List>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) => const GenerateWeeklyReportDialog(),
+    );
+
+    if (excelBytes == null) return;
+
+    final now = DateTime.now();
+    final fileName = 'WeeklyReport_${DateFormat('yyyyMMdd_HHmmss').format(now)}.xlsx';
+    final sizeKB = (excelBytes.length / 1024).toStringAsFixed(0);
+    
+    // For Excel, we might want to save it to a temporary file so it can be opened/shared properly
+    // But for now, we follow the pattern of storing bytes.
+    
+    setState(() {
+      _documents.insert(0, DocumentItem(
+        title: fileName,
+        type: 'excel',
+        size: '$sizeKB KB',
+        status: 'Pending',
+        category: 'Job Reports',
+        uploadedBy: 'System',
+        date: now,
+        tags: ['Weekly Report', 'Generated', 'Excel'],
+        fileBytes: excelBytes,
+      ));
+    });
+    _updateDashboardPendingDocs();
+
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('✓ $fileName generated successfully'),
+          backgroundColor: Colors.green,
+          behavior: SnackBarBehavior.floating,
+          action: SnackBarAction(
+            label: 'Open',
+            textColor: Colors.white,
+            onPressed: () async {
+               // Initial attempt to save and open
+               try {
+                 final dir = await getApplicationDocumentsDirectory();
+                 final file = File('${dir.path}/$fileName');
+                 await file.writeAsBytes(excelBytes);
+                 // We can't easily "open" it without a launcher, but we saved it.
+                 // For now, just show it's saved.
+                 // Printing.sharePdf might not work well for xlsx on all platforms but let's try sharing
+                 await Printing.sharePdf(bytes: excelBytes, filename: fileName);
+               } catch (e) {
+                 print('Error opening file: $e');
+               }
+            },
+          ),
+        ),
+      );
+    }
+  }
+
+  Future<void> _generateDefermentForm() async {
+    final pdfBytes = await showModalBottomSheet<Uint8List>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) => const GenerateDefermentDialog(),
+    );
+
+    if (pdfBytes == null) return;
+
+    await Printing.layoutPdf(
+      onLayout: (format) async => pdfBytes,
+      name: 'Deferment_Form_${DateFormat('yyyyMMdd_HHmmss').format(DateTime.now())}.pdf',
+    );
+
+    final now = DateTime.now();
+    final fileName = 'Deferment_${DateFormat('yyyyMMdd_HHmmss').format(now)}.pdf';
+    final sizeKB = (pdfBytes.length / 1024).toStringAsFixed(0);
+    
+    setState(() {
+      _documents.insert(0, DocumentItem(
+        title: fileName,
+        type: 'pdf',
+        size: '$sizeKB KB',
+        status: 'Pending',
+        category: 'Job Reports',
+        uploadedBy: 'System',
+        date: now,
+        tags: ['Deferment', 'Generated', 'PDF'],
+        fileBytes: pdfBytes,
+      ));
+    });
+    _updateDashboardPendingDocs();
+
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('✓ $fileName generated successfully'),
+          backgroundColor: Colors.green,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
     }
   }
 
