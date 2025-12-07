@@ -1338,10 +1338,6 @@ class _JobBillingManagerState extends State<_JobBillingManager>
                             ),
                         ],
                       ),
-                      Text(
-                        "${widget.job.jobType} • ${widget.job.displayId}",
-                        style: const TextStyle(color: Colors.grey),
-                      ),
                       const SizedBox(height: 16),
                       TabBar(
                         controller: _tabController,
