@@ -14,7 +14,11 @@ class DashboardProvider extends ChangeNotifier {
   double _totalRevenue = 0.0;
   double _totalExpenses = 0.0;
   List<TodayJobItem> _todayJobs = [];
-  List<AttentionItem> _attentionItems = [];
+
+  // SEPARATE LISTS
+  List<AttentionItem> _notificationItems = []; // For the Bell (Warnings)
+  List<AttentionItem> _activityItems = []; // For the Dashboard List (History)
+
   DateTime? _lastFetch;
 
   // Getters
@@ -23,7 +27,13 @@ class DashboardProvider extends ChangeNotifier {
   double get totalRevenue => _totalRevenue;
   double get totalExpenses => _totalExpenses;
   List<TodayJobItem> get todayJobs => _todayJobs;
-  List<AttentionItem> get attentionItems => _attentionItems;
+
+  // Expose both lists separately
+  List<AttentionItem> get notificationItems => _notificationItems;
+  List<AttentionItem> get activityItems => _activityItems;
+
+  // Legacy getter for backward compatibility (points to notifications)
+  List<AttentionItem> get attentionItems => _notificationItems;
 
   /// Fetch all dashboard data
   Future<void> fetchDashboardData({String dateRange = 'Today'}) async {
@@ -33,7 +43,8 @@ class DashboardProvider extends ChangeNotifier {
         _fetchTodayJobs(dateRange),
         _fetchTotalRevenue(dateRange),
         _fetchTotalExpenses(dateRange),
-        _fetchAttentionItems(),
+        _fetchNotifications(), // 1. Fetch Actionable Warnings
+        _fetchActivityLogs(), // 2. Fetch Audit History
       ]);
       _lastFetch = DateTime.now();
       notifyListeners();
@@ -96,10 +107,7 @@ class DashboardProvider extends ChangeNotifier {
           .select(
             '*, customers(first_name, last_name, company_name), job_types(job_type_name)',
           )
-          .gte(
-            'date_scheduled',
-            startDate.toUtc().toIso8601String(),
-          ) // Ensure query uses UTC
+          .gte('date_scheduled', startDate.toUtc().toIso8601String())
           .lte('date_scheduled', endDate.toUtc().toIso8601String())
           .order('date_scheduled', ascending: true);
 
@@ -115,10 +123,8 @@ class DashboardProvider extends ChangeNotifier {
           }
         }
 
-        // FIX: Convert to Local Time before formatting
         DateTime scheduled = DateTime.parse(row['date_scheduled']).toLocal();
 
-        // --- ADD THIS DATE FORMATTING LOGIC ---
         const months = [
           "Jan",
           "Feb",
@@ -134,7 +140,6 @@ class DashboardProvider extends ChangeNotifier {
           "Dec",
         ];
         String dateStr = "${months[scheduled.month - 1]} ${scheduled.day}";
-        // --------------------------------------
 
         String time =
             '${scheduled.hour == 0 ? 12 : (scheduled.hour > 12 ? scheduled.hour - 12 : scheduled.hour)}:${scheduled.minute.toString().padLeft(2, '0')}';
@@ -246,237 +251,170 @@ class DashboardProvider extends ChangeNotifier {
     }
   }
 
-  Future<void> _fetchAttentionItems() async {
-    _attentionItems = [];
+  // --- 1. FETCH NOTIFICATIONS (Action Items / Warnings) ---
+  Future<void> _fetchNotifications() async {
+    _notificationItems = [];
     final supabase = Supabase.instance.client;
     final now = DateTime.now();
-
-    // Time helpers
-    final startOfDay = DateTime(
-      now.year,
-      now.month,
-      now.day,
-    ).toUtc().toIso8601String();
     final threeDaysFromNow = now
         .add(const Duration(days: 3))
         .toUtc()
         .toIso8601String();
 
     try {
-      // --- 1. PRIORITY WARNINGS ---
+      // A. Pending Payments
+      final pendingPayments = await supabase
+          .from('payments')
+          .select(
+            'reference_number, job_order_id, job_orders(client_jo_number)',
+          )
+          .eq('status', 'Pending')
+          .limit(5);
 
-      // A. Pending Payments (Requires Join to get JO#)
-      try {
-        final pendingPayments = await supabase
-            .from('payments')
-            // FIX: Added job_orders(client_jo_number) to select
-            .select(
-              'reference_number, job_order_id, job_orders(client_jo_number)',
-            )
-            .eq('status', 'Pending')
-            .limit(5);
-
-        for (var payment in pendingPayments) {
-          final joNum =
-              payment['job_orders']?['client_jo_number'] ??
-              'JO-${payment['job_order_id']}';
-
-          _attentionItems.add(
-            AttentionItem(
-              title: 'Payment verification needed',
-              reference:
-                  payment['reference_number'] ??
-                  'REF-${payment['job_order_id']}',
-              priority: 'High',
-              color: Colors.orange,
-              type: AttentionType.payment,
-              relatedId: payment['job_order_id'],
-              searchContext: joNum, // <--- PASS JO# HERE
-            ),
-          );
-        }
-      } catch (e) {
-        debugPrint("Error payments: $e");
+      for (var payment in pendingPayments) {
+        final joNum =
+            payment['job_orders']?['client_jo_number'] ??
+            'JO-${payment['job_order_id']}';
+        _notificationItems.add(
+          AttentionItem(
+            title: 'Payment verification needed',
+            reference:
+                payment['reference_number'] ?? 'REF-${payment['job_order_id']}',
+            priority: 'High',
+            color: Colors.orange,
+            type: AttentionType.payment,
+            relatedId: payment['job_order_id'],
+            searchContext: joNum,
+          ),
+        );
       }
 
       // B. Overdue Jobs
-      try {
-        final overdueJobs = await supabase
-            .from('job_orders')
-            .select('id, client_jo_number, date_scheduled')
-            .neq('status', 'Completed')
-            .neq('status', 'Cancelled')
-            .lt('date_scheduled', now.toUtc().toIso8601String())
-            .order('date_scheduled', ascending: true);
+      final overdueJobs = await supabase
+          .from('job_orders')
+          .select('id, client_jo_number, date_scheduled')
+          .neq('status', 'Completed')
+          .neq('status', 'Cancelled')
+          .lt('date_scheduled', now.toUtc().toIso8601String())
+          .order('date_scheduled', ascending: true);
 
-        for (var job in overdueJobs) {
-          _attentionItems.add(
-            AttentionItem(
-              title: 'Job order overdue',
-              reference: job['client_jo_number'] ?? 'JO-${job['id']}',
-              priority: 'High',
-              color: Colors.red,
-              type: AttentionType.scheduling,
-              relatedId: job['id'],
-              searchContext: job['client_jo_number'], // <--- PASS JO# HERE
-            ),
-          );
-        }
-      } catch (e) {
-        debugPrint("Error overdue: $e");
+      for (var job in overdueJobs) {
+        _notificationItems.add(
+          AttentionItem(
+            title: 'Job order overdue',
+            reference: job['client_jo_number'] ?? 'JO-${job['id']}',
+            priority: 'High',
+            color: Colors.red,
+            type: AttentionType.scheduling,
+            relatedId: job['id'],
+            searchContext: job['client_jo_number'],
+          ),
+        );
       }
 
-      // C. Upcoming Incomplete Jobs
-      try {
-        final upcomingJobs = await supabase
-            .from('job_orders')
-            .select(
-              'id, client_jo_number, date_scheduled, job_order_technicians(count), job_order_aircons(count)',
-            )
-            .neq('status', 'Completed')
-            .neq('status', 'Cancelled')
-            .gt('date_scheduled', now.toUtc().toIso8601String())
-            .lt('date_scheduled', threeDaysFromNow)
-            .order('date_scheduled', ascending: true);
+      // C. Upcoming Incomplete Jobs (Pre-emptive)
+      final upcomingJobs = await supabase
+          .from('job_orders')
+          .select(
+            'id, client_jo_number, date_scheduled, job_order_technicians(count), job_order_aircons(count)',
+          )
+          .neq('status', 'Completed')
+          .neq('status', 'Cancelled')
+          .gt('date_scheduled', now.toUtc().toIso8601String())
+          .lt('date_scheduled', threeDaysFromNow);
 
-        for (var job in upcomingJobs) {
-          final techCount = job['job_order_technicians'][0]['count'] as int;
-          final unitCount = job['job_order_aircons'][0]['count'] as int;
+      for (var job in upcomingJobs) {
+        final techCount = job['job_order_technicians'][0]['count'] as int;
+        final unitCount = job['job_order_aircons'][0]['count'] as int;
 
-          if (techCount == 0 || unitCount == 0) {
-            final date = DateTime.parse(job['date_scheduled']).toLocal();
-            final dateStr =
-                "${date.month}/${date.day} ${date.hour}:${date.minute.toString().padLeft(2, '0')}";
+        if (techCount == 0 || unitCount == 0) {
+          final date = DateTime.parse(job['date_scheduled']).toLocal();
+          final dateStr =
+              "${date.month}/${date.day} ${date.hour}:${date.minute.toString().padLeft(2, '0')}";
 
-            String issue = "";
-            if (techCount == 0 && unitCount == 0)
-              issue = "No Tech or Unit assigned";
-            else if (techCount == 0)
-              issue = "No Tech assigned";
-            else
-              issue = "No Unit identified";
-
-            _attentionItems.add(
-              AttentionItem(
-                title: 'Upcoming Job Incomplete',
-                reference: '${job['client_jo_number']} ($dateStr) - $issue',
-                priority: 'Medium', // Warning level
-                color: Colors.amber.shade700,
-                type: AttentionType.scheduling,
-                relatedId: job['id'],
-                searchContext: job['client_jo_number'],
-              ),
-            );
-          }
-        }
-      } catch (e) {
-        debugPrint("Error fetching upcoming warnings: $e");
-      }
-
-      // --- 3. ACTIVITY LOG (Info Level) ---
-
-      // D. Jobs Created Today
-      try {
-        final newJobs = await supabase
-            .from('job_orders')
-            .select(
-              'id, client_jo_number, customers(first_name, last_name, company_name)',
-            )
-            .gte('date_created', startOfDay)
-            .order('date_created', ascending: false);
-
-        for (var job in newJobs) {
-          final customer = job['customers'];
-          String name = 'Unknown';
-          if (customer != null) {
-            name =
-                customer['company_name'] ??
-                "${customer['first_name']} ${customer['last_name']}";
-          }
-
-          _attentionItems.add(
+          _notificationItems.add(
             AttentionItem(
-              title: 'New Job Created',
-              reference: '$name (JO-${job['id']})',
-              priority: 'Info',
-              color: Colors.blue,
+              title: 'Upcoming Job Incomplete',
+              reference: '${job['client_jo_number']} ($dateStr)',
+              priority: 'Medium',
+              color: Colors.amber.shade700,
               type: AttentionType.scheduling,
               relatedId: job['id'],
               searchContext: job['client_jo_number'],
             ),
           );
         }
-      } catch (e) {
-        debugPrint("Error fetching new jobs: $e");
       }
 
-      // E. Payments Received Today
-      try {
-        final newPayments = await supabase
-            .from('payments')
-            .select('amount, payment_method, job_order_id')
-            .gte('payment_date', startOfDay)
-            .eq('status', 'Verified')
-            .order('payment_date', ascending: false);
-
-        for (var p in newPayments) {
-          final amount = (p['amount'] as num).toDouble();
-          _attentionItems.add(
-            AttentionItem(
-              title: 'Payment Received',
-              reference:
-                  '₱${amount.toStringAsFixed(0)} via ${p['payment_method']}',
-              priority: 'Info',
-              color: Colors.teal,
-              type: AttentionType.payment,
-              relatedId: p['job_order_id'],
-            ),
-          );
-        }
-      } catch (e) {
-        debugPrint("Error fetching new payments: $e");
-      }
-
-      // --- 4. SORTING ---
-      _attentionItems.sort((a, b) {
-        int getScore(String p) {
-          switch (p) {
-            case 'High':
-              return 0;
-            case 'Medium':
-              return 1; // Warnings sit here
-            case 'Low':
-              return 2;
-            case 'Info':
-              return 3;
-            default:
-              return 4;
-          }
-        }
-
-        return getScore(a.priority).compareTo(getScore(b.priority));
-      });
-
-      if (_attentionItems.length > 20) {
-        _attentionItems = _attentionItems.sublist(0, 20);
-      }
-
-      // Notify for High OR Medium items
-      final importantCount = _attentionItems
-          .where((item) => item.priority == 'High' || item.priority == 'Medium')
-          .length;
-
-      if (importantCount > 0) {
+      // Notify only if High Priority exists
+      if (_notificationItems.any((i) => i.priority == 'High')) {
         NotificationService().showNotification(
           id: 1,
           title: 'Action Required',
-          body: 'You have $importantCount items pending attention.',
+          body:
+              'You have ${_notificationItems.length} items pending attention.',
         );
       }
-
-      notifyListeners();
     } catch (e) {
-      debugPrint('Critical error in notifications: $e');
+      debugPrint("Error fetching notifications: $e");
+    }
+  }
+
+  // --- 2. FETCH ACTIVITY LOGS (The "History" List) ---
+  Future<void> _fetchActivityLogs() async {
+    _activityItems = [];
+    final supabase = Supabase.instance.client;
+
+    try {
+      final logs = await supabase
+          .from('activity_logs')
+          .select('*')
+          .order('created_at', ascending: false)
+          .limit(20);
+
+      for (var log in logs) {
+        final date = DateTime.parse(log['created_at']).toLocal();
+        final now = DateTime.now();
+        String timeLabel =
+            (date.year == now.year &&
+                date.month == now.month &&
+                date.day == now.day)
+            ? "Today ${date.hour}:${date.minute.toString().padLeft(2, '0')}"
+            : "${date.month}/${date.day} ${date.hour}:${date.minute.toString().padLeft(2, '0')}";
+
+        String priority = 'Info';
+        Color color = Colors.grey;
+        AttentionType type = AttentionType.document;
+
+        switch (log['action_type']) {
+          case 'Create':
+            color = Colors.blue;
+            type = AttentionType.scheduling;
+            break;
+          case 'Delete':
+            color = Colors.red;
+            break;
+          case 'Update':
+            color = Colors.orange;
+            break;
+          case 'Payment':
+            color = Colors.green;
+            type = AttentionType.payment;
+            break;
+        }
+
+        _activityItems.add(
+          AttentionItem(
+            title: log['details'],
+            reference: "${log['user_name']} • $timeLabel",
+            priority: priority,
+            color: color,
+            type: type,
+          ),
+        );
+      }
+    } catch (e) {
+      debugPrint("Error fetching activity log: $e");
     }
   }
 
@@ -515,7 +453,7 @@ class AttentionItem {
   final Color color;
   final AttentionType type;
   final int? relatedId;
-  final String? searchContext;
+  final String? searchContext; // Added searchContext for passing JO#
 
   AttentionItem({
     required this.title,

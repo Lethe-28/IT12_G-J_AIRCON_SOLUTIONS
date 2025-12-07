@@ -112,7 +112,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                         borderRadius: BorderRadius.circular(12),
                       ),
                       child: Text(
-                        '${_dashboardProvider.attentionItems.length}',
+                        '${_dashboardProvider.notificationItems.length}',
                         style: const TextStyle(
                           color: Color(0xFF2563EB),
                           fontWeight: FontWeight.w600,
@@ -131,7 +131,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 ),
               ),
               Expanded(
-                child: _dashboardProvider.attentionItems.isEmpty
+                child: _dashboardProvider.notificationItems.isEmpty
                     ? const Center(
                         child: Column(
                           mainAxisAlignment: MainAxisAlignment.center,
@@ -163,10 +163,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
                     : ListView.separated(
                         controller: scrollController,
                         padding: const EdgeInsets.all(20),
-                        itemCount: _dashboardProvider.attentionItems.length,
+                        itemCount: _dashboardProvider.notificationItems.length,
                         separatorBuilder: (_, __) => const SizedBox(height: 12),
                         itemBuilder: (ctx, i) => _notificationItem(
-                          _dashboardProvider.attentionItems[i],
+                          _dashboardProvider.notificationItems[i],
                         ),
                       ),
               ),
@@ -295,7 +295,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 ? ''
                 : AppState.headerWelcomeText(),
             subtitleText: AppState.headerSubtitle(),
-            notificationCount: _dashboardProvider.attentionItems.length,
+            notificationCount: _dashboardProvider.notificationItems.length,
             onSearchChanged: (value) {
               setState(() => _searchQuery = value.toLowerCase());
             },
@@ -598,31 +598,23 @@ class _DashboardScreenState extends State<DashboardScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
+          const Row(
             children: [
-              const Text(
-                'Attention Required',
+              Text(
+                'Recent Activity',
                 style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
               ),
-              const Spacer(),
-              if (_filteredAttentionItems.isNotEmpty)
-                Container(
-                  width: 8,
-                  height: 8,
-                  decoration: const BoxDecoration(
-                    color: Colors.red,
-                    shape: BoxShape.circle,
-                  ),
-                ),
+              Spacer(),
+              Icon(Icons.history, color: Colors.grey, size: 20),
             ],
           ),
           const SizedBox(height: 16),
-          if (_filteredAttentionItems.isEmpty)
+          if (_dashboardProvider.activityItems.isEmpty)
             const Padding(
               padding: EdgeInsets.all(20),
               child: Center(
                 child: Text(
-                  'All caught up!',
+                  'No recent activity',
                   style: TextStyle(color: Colors.black54),
                 ),
               ),
@@ -631,22 +623,61 @@ class _DashboardScreenState extends State<DashboardScreen> {
             ListView.separated(
               shrinkWrap: true,
               physics: const NeverScrollableScrollPhysics(),
-              itemCount: _filteredAttentionItems.length,
+              // 1. Correct Count
+              itemCount: _dashboardProvider.activityItems.length,
               separatorBuilder: (_, __) => const SizedBox(height: 12),
-              itemBuilder: (ctx, i) =>
-                  _attentionItemRow(_filteredAttentionItems[i]),
+              itemBuilder: (ctx, i) => _activityItemRow(
+                // 2. FIX IS HERE: Use activityItems instead of _filteredAttentionItems
+                _dashboardProvider.activityItems[i],
+              ),
             ),
         ],
       ),
     );
   }
 
-  Widget _attentionItemRow(AttentionItem item) {
+  Widget _activityItemRow(AttentionItem item) {
+    // 1. DETERMINE ICON & COLOR
+    IconData icon;
+    Color iconColor;
+    Color bgColor;
+
+    // Logic: Different icons for Payments, Jobs, and Warnings
+    if (item.priority == 'High') {
+      // Keep Warnings Red
+      icon = Icons.warning_amber_rounded;
+      iconColor = Colors.red;
+      bgColor = Colors.red.withOpacity(0.05);
+    } else {
+      // Custom Icons for Normal Activity
+      switch (item.type) {
+        case AttentionType.payment:
+          icon = Icons.payments_outlined;
+          iconColor = Colors.green;
+          bgColor = Colors.green.withOpacity(0.05);
+          break;
+        case AttentionType.expense:
+          icon = Icons.receipt_long;
+          iconColor = Colors.orange;
+          bgColor = Colors.orange.withOpacity(0.05);
+          break;
+        case AttentionType.scheduling:
+          icon = Icons.calendar_today; // or Icons.assignment
+          iconColor = Colors.blue;
+          bgColor = Colors.blue.withOpacity(0.05);
+          break;
+        default:
+          icon = Icons.info_outline;
+          iconColor = Colors.grey;
+          bgColor = Colors.grey.withOpacity(0.05);
+      }
+    }
+
     return Material(
       color: Colors.transparent,
       child: InkWell(
         onTap: () {
-          // Navigate to relevant screen based on type
+          // Keep existing navigation logic
           switch (item.type) {
             case AttentionType.payment:
               Navigator.of(context).pushReplacementNamed('/payments');
@@ -655,25 +686,42 @@ class _DashboardScreenState extends State<DashboardScreen> {
               Navigator.of(context).pushReplacementNamed('/expenses');
               break;
             case AttentionType.scheduling:
-              Navigator.of(context).pushReplacementNamed('/scheduling');
+              // Use the new navigation we added earlier
+              if (item.relatedId != null) {
+                // Assuming you imported scheduling.dart
+                // If not, standard pushReplacementNamed works too
+                Navigator.of(context).pushReplacementNamed('/scheduling');
+              } else {
+                Navigator.of(context).pushReplacementNamed('/scheduling');
+              }
               break;
             case AttentionType.document:
               Navigator.of(context).pushReplacementNamed('/documents');
               break;
           }
         },
-        borderRadius: BorderRadius.circular(8),
+        borderRadius: BorderRadius.circular(12), // Softer corners
         child: Container(
           padding: const EdgeInsets.all(12),
           decoration: BoxDecoration(
-            color: item.color.withOpacity(0.05),
-            borderRadius: BorderRadius.circular(8),
-            border: Border.all(color: item.color.withOpacity(0.2)),
+            color: Colors.white, // Clean white background
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: Colors.grey.shade200),
           ),
           child: Row(
             children: [
-              Icon(Icons.warning_amber_rounded, color: item.color, size: 20),
+              // ICON BOX
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: bgColor,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Icon(icon, color: iconColor, size: 20),
+              ),
               const SizedBox(width: 12),
+
+              // TEXT CONTENT
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -683,19 +731,25 @@ class _DashboardScreenState extends State<DashboardScreen> {
                       style: const TextStyle(
                         fontWeight: FontWeight.w600,
                         fontSize: 13,
+                        color: Colors.black87,
                       ),
                     ),
+                    const SizedBox(height: 2),
                     Text(
                       item.reference,
                       style: const TextStyle(
                         fontSize: 11,
                         color: Colors.black54,
                       ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                     ),
                   ],
                 ),
               ),
-              const Icon(Icons.chevron_right, size: 16, color: Colors.black45),
+
+              // TIME OR ARROW (Optional: Just arrow for now)
+              const Icon(Icons.chevron_right, size: 16, color: Colors.black26),
             ],
           ),
         ),

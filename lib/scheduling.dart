@@ -3,6 +3,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'ui_app_shell.dart';
 import 'data/app_state.dart';
 import 'theme/app_theme.dart';
+import '../services/activity_service.dart';
 import 'shared/widgets.dart'
     show
         AnimatedCard,
@@ -1047,6 +1048,13 @@ class _JobBillingManagerState extends State<_JobBillingManager>
     if (confirm == true) {
       try {
         await _supabase.from('job_orders').delete().eq('id', widget.job.dbId);
+
+        // LOG IT!
+        await ActivityLogger.log(
+          type: 'Delete',
+          details: 'Deleted Job ${widget.job.displayId}',
+        );
+
         if (mounted) {
           Navigator.pop(context);
           widget.onJobUpdated();
@@ -1436,6 +1444,14 @@ class _JobBillingManagerState extends State<_JobBillingManager>
                 'payment_date': DateTime.now().toIso8601String(),
                 'status': 'Verified',
               });
+
+              // LOG IT!
+              await ActivityLogger.log(
+                type: 'Payment',
+                details:
+                    'Received ₱${amountController.text} for ${widget.job.displayId}',
+              );
+
               if (mounted) {
                 Navigator.pop(context);
                 widget.onJobUpdated();
@@ -2584,6 +2600,13 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
           });
         }
       }
+      // LOG IT!
+      await ActivityLogger.log(
+        type: widget.existingJob != null ? 'Update' : 'Create',
+        details: widget.existingJob != null
+            ? 'Updated Job $finalJoNumber'
+            : 'Created Job $finalJoNumber for $_customerDisplayController.text',
+      );
 
       // SUCCESS!
       if (mounted) {
