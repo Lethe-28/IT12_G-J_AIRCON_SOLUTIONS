@@ -486,6 +486,11 @@ class _SchedulingScreenState extends State<SchedulingScreen> {
   Widget build(BuildContext context) {
     final isMobileView = MediaQuery.of(context).size.width < 600;
 
+    // 1. CALCULATE ACTIONABLE JOBS FIRST
+    // This ensures the count and the list are always in sync
+    final actionableJobs = _getActionableJobs();
+    final actionableJobsCount = actionableJobs.length;
+
     // --- SEARCH FILTER LOGIC ---
     List<JobOrder> displayedJobs;
 
@@ -499,16 +504,10 @@ class _SchedulingScreenState extends State<SchedulingScreen> {
       }).toList();
     } else {
       // Standard View: Calendar OR Action Items
-      final actionableJobs = _getActionableJobs();
       final calendarJobs = _getJobsForDay(_selectedDate);
       displayedJobs = _showActionItems ? actionableJobs : calendarJobs;
     }
     // ---------------------------
-
-    // Keep this separate so we can use it for the badge count
-    final actionableJobsCount = _orders
-        .where((o) => o.isUnbilled || o.isUnpaid)
-        .length;
 
     return AppShell(
       selectedIndex: 1,
@@ -573,7 +572,8 @@ class _SchedulingScreenState extends State<SchedulingScreen> {
                                     child: Text(
                                       _showActionItems
                                           ? "Back to Calendar"
-                                          : "$actionableJobsCount Jobs need billing or payment",
+                                          // UPDATED TEXT: Uses correct count & generic label
+                                          : "$actionableJobsCount Jobs require attention",
                                       style: TextStyle(
                                         fontWeight: FontWeight.bold,
                                         color: _showActionItems
@@ -583,6 +583,16 @@ class _SchedulingScreenState extends State<SchedulingScreen> {
                                       ),
                                     ),
                                   ),
+                                  // Optional "View" link if not expanded
+                                  if (!_showActionItems)
+                                    const Text(
+                                      "View All",
+                                      style: TextStyle(
+                                        fontWeight: FontWeight.bold,
+                                        color: AppTheme.primary,
+                                        decoration: TextDecoration.underline,
+                                      ),
+                                    ),
                                 ],
                               ),
                             ),
