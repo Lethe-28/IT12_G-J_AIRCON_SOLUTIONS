@@ -83,22 +83,25 @@ class _AppShellState extends State<AppShell> {
             drawer: Drawer(
               width: 280,
               backgroundColor: Colors.white,
-              child: Column(
-                children: [
-                  _MobileDrawerHeader(),
-                  const Divider(height: 1),
-                  Expanded(
-                    child: _NavigationList(
-                      selectedIndex: widget.selectedIndex,
-                      adminMenuExpanded: _adminMenuExpanded,
-                      onAdminExpandToggle: () => setState(
-                        () => _adminMenuExpanded = !_adminMenuExpanded,
+              child: SafeArea(
+                // FIX: Added SafeArea for Mobile Drawer
+                child: Column(
+                  children: [
+                    _MobileDrawerHeader(),
+                    const Divider(height: 1),
+                    Expanded(
+                      child: _NavigationList(
+                        selectedIndex: widget.selectedIndex,
+                        adminMenuExpanded: _adminMenuExpanded,
+                        onAdminExpandToggle: () => setState(
+                          () => _adminMenuExpanded = !_adminMenuExpanded,
+                        ),
+                        onSelect: (index) => _onSelect(context, index),
                       ),
-                      onSelect: (index) => _onSelect(context, index),
                     ),
-                  ),
-                  _UserFooter(isCollapsed: false),
-                ],
+                    _UserFooter(isCollapsed: false),
+                  ],
+                ),
               ),
             ),
             // FIX: Pass the FAB here
@@ -120,34 +123,45 @@ class _AppShellState extends State<AppShell> {
                 duration: const Duration(milliseconds: 200),
                 width: sidebarWidth,
                 color: Colors.white,
-                child: Column(
-                  children: [
-                    _DesktopSidebarHeader(
-                      isCollapsed: _desktopSidebarCollapsed,
-                      onToggle: () => setState(
-                        () => _desktopSidebarCollapsed =
-                            !_desktopSidebarCollapsed,
-                      ),
-                    ),
-                    const Divider(height: 1),
-                    Expanded(
-                      child: _NavigationList(
-                        selectedIndex: widget.selectedIndex,
-                        adminMenuExpanded: _adminMenuExpanded,
-                        onAdminExpandToggle: () => setState(
-                          () => _adminMenuExpanded = !_adminMenuExpanded,
+                child: SafeArea(
+                  right:
+                      false, // Don't pad the right side (internal border exists)
+                  child: Column(
+                    children: [
+                      _DesktopSidebarHeader(
+                        isCollapsed: _desktopSidebarCollapsed,
+                        onToggle: () => setState(
+                          () => _desktopSidebarCollapsed =
+                              !_desktopSidebarCollapsed,
                         ),
-                        onSelect: (index) => _onSelect(context, index),
-                        isDesktopCollapsed: _desktopSidebarCollapsed,
                       ),
-                    ),
-                    const Divider(height: 1),
-                    _UserFooter(isCollapsed: _desktopSidebarCollapsed),
-                  ],
+                      const Divider(height: 1),
+                      Expanded(
+                        child: _NavigationList(
+                          selectedIndex: widget.selectedIndex,
+                          adminMenuExpanded: _adminMenuExpanded,
+                          onAdminExpandToggle: () => setState(
+                            () => _adminMenuExpanded = !_adminMenuExpanded,
+                          ),
+                          onSelect: (index) => _onSelect(context, index),
+                          isDesktopCollapsed: _desktopSidebarCollapsed,
+                        ),
+                      ),
+                      const Divider(height: 1),
+                      _UserFooter(isCollapsed: _desktopSidebarCollapsed),
+                    ],
+                  ),
                 ),
               ),
               const VerticalDivider(width: 1),
-              Expanded(child: widget.body),
+              Expanded(
+                child: SafeArea(
+                  top:
+                      false, // AppBars usually handle top; keep false to blend headers
+                  left: false,
+                  child: widget.body,
+                ),
+              ),
             ],
           ),
         );
