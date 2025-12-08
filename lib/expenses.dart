@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'ui_app_shell.dart';
+import '../services/activity_service.dart';
 import 'shared/widgets.dart' show LoadingOverlay, EmptyState;
 
 // --- MODEL: Unified Transaction ---
@@ -946,6 +947,16 @@ class _AddTransactionDialogState extends State<_AddTransactionDialog> {
             ? _selectedJobId
             : null,
       });
+
+      // --- NEW: LOG THE ACTIVITY ---
+      await ActivityLogger.log(
+        // Use 'Payment' for Money In (Green), 'Expense' for Money Out
+        type: _isIncome ? 'Payment' : 'Expense',
+        details: _isIncome
+            ? 'Recorded Cash In: ₱${amount.toStringAsFixed(0)} (${_nameController.text})'
+            : 'Recorded Expense: ₱${amount.toStringAsFixed(0)} for ${_nameController.text}',
+      );
+      // -----------------------------
 
       if (mounted) Navigator.pop(context);
     } catch (e) {

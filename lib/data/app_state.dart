@@ -6,18 +6,20 @@ class AppState {
   static UserRole currentRole = UserRole.admin;
   static String currentUserName = 'Admin';
   static bool isSidebarCollapsed = false;
-  
+
   // Shared job orders list - accessible by both admin and service manager
   static final List<dynamic> sharedJobOrders = [];
   static bool _jobOrdersSeeded = false;
-  
+
   static bool get jobOrdersSeeded => _jobOrdersSeeded;
   static void setJobOrdersSeeded(bool value) => _jobOrdersSeeded = value;
 
   static bool hasShownWelcome = false;
 
   static String headerWelcomeText() {
-    final label = currentRole == UserRole.serviceManager ? 'Service Manager' : 'Admin';
+    final label = currentRole == UserRole.serviceManager
+        ? 'Service Manager'
+        : 'Admin';
     return 'Welcome, $label ($currentUserName)';
   }
 
@@ -43,6 +45,8 @@ class AppState {
     if (currentUserName.trim().isNotEmpty) {
       return currentUserName;
     }
-    return currentRole == UserRole.serviceManager ? 'Service Manager' : 'Admin User';
+    return currentRole == UserRole.serviceManager
+        ? 'Service Manager'
+        : 'Admin User';
   }
 }
