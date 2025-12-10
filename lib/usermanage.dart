@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'ui_app_shell.dart';
-import 'shared/widgets.dart'; // Assumes EmptyState, etc.
+import 'shared/widgets.dart';
 
 class UserManagementScreen extends StatefulWidget {
   const UserManagementScreen({super.key});
@@ -84,7 +84,9 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
       _fetchData();
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(existing == null ? 'User Added' : 'User Updated'),
+          content: Text(
+            existing == null ? 'Profile Created' : 'Profile Updated',
+          ),
           backgroundColor: Colors.green,
           behavior: SnackBarBehavior.floating,
         ),
@@ -96,9 +98,9 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Remove User Access'),
+        title: const Text('Revoke Access'),
         content: Text(
-          'Are you sure you want to remove ${user.fullName}? They will no longer be able to log in.',
+          'Are you sure you want to remove ${user.fullName}? Their access profile will be deleted.',
         ),
         actions: [
           TextButton(
@@ -108,7 +110,7 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
           TextButton(
             onPressed: () => Navigator.pop(context, true),
             style: TextButton.styleFrom(foregroundColor: Colors.red),
-            child: const Text('Remove'),
+            child: const Text('Revoke'),
           ),
         ],
       ),
@@ -123,7 +125,7 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
-              content: Text('User removed'),
+              content: Text('Access revoked'),
               behavior: SnackBarBehavior.floating,
             ),
           );
@@ -157,8 +159,7 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
     final isMobileView = MediaQuery.of(context).size.width < 800;
 
     return AppShell(
-      selectedIndex: 10, // User Management Tab
-      // Pass FAB to Shell
+      selectedIndex: 10,
       floatingActionButton: isMobileView
           ? FloatingActionButton(
               onPressed: () => _onAddOrEdit(),
@@ -194,7 +195,7 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
                             ),
                             SizedBox(height: 4),
                             Text(
-                              'Control system access and assign roles.',
+                              'Provision access profiles and assign system roles.',
                               style: TextStyle(color: Colors.grey),
                             ),
                           ],
@@ -204,7 +205,7 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
                         ElevatedButton.icon(
                           onPressed: () => _onAddOrEdit(),
                           icon: const Icon(Icons.person_add),
-                          label: const Text('Add User'),
+                          label: const Text('Provision User'),
                           style: ElevatedButton.styleFrom(
                             backgroundColor: Colors.indigo,
                             foregroundColor: Colors.white,
@@ -250,7 +251,7 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
                       child: EmptyState(
                         icon: Icons.people_alt_outlined,
                         title: 'No users found',
-                        message: 'Invite users to give them access.',
+                        message: 'Provision a user profile to give access.',
                       ),
                     )
                   : isMobileView
@@ -451,7 +452,7 @@ class _MobileUserCard extends StatelessWidget {
               const PopupMenuItem(value: 'edit', child: Text('Edit Role')),
               const PopupMenuItem(
                 value: 'delete',
-                child: Text('Remove', style: TextStyle(color: Colors.red)),
+                child: Text('Revoke', style: TextStyle(color: Colors.red)),
               ),
             ],
           ),
@@ -473,10 +474,6 @@ class _RoleBadge extends StatelessWidget {
     Color bg;
     Color text;
 
-    // HCI Color Coding:
-    // Admin = Red/Pink (Power)
-    // Staff/Manager = Blue (Business)
-    // Technician = Orange (Field)
     switch (roleName.toLowerCase()) {
       case 'admin':
         bg = Colors.red[50]!;
@@ -496,7 +493,7 @@ class _RoleBadge extends StatelessWidget {
       decoration: BoxDecoration(
         color: bg,
         borderRadius: BorderRadius.circular(6),
-        border: Border.all(color: bg.withOpacity(0.5)), // Slight border
+        border: Border.all(color: bg.withOpacity(0.5)),
       ),
       child: Text(
         roleName,
@@ -553,11 +550,10 @@ class _UserDialogState extends State<_UserDialog> {
 
     try {
       if (widget.user == null) {
-        // Create (In a real app, this would trigger an Auth Invite)
-        // For now, we insert into public.app_users
+        // Create Profile (This provisions the user for access control)
         await Supabase.instance.client.from('app_users').insert(data);
       } else {
-        // Update
+        // Update Profile
         await Supabase.instance.client
             .from('app_users')
             .update(data)
@@ -601,7 +597,7 @@ class _UserDialogState extends State<_UserDialog> {
                 const Icon(Icons.person, color: Colors.indigo),
                 const SizedBox(width: 12),
                 Text(
-                  widget.user == null ? 'Add User' : 'Edit User',
+                  widget.user == null ? 'Provision User' : 'Edit User Profile',
                   style: const TextStyle(
                     fontSize: 18,
                     fontWeight: FontWeight.bold,
@@ -627,34 +623,38 @@ class _UserDialogState extends State<_UserDialog> {
                   children: [
                     TextFormField(
                       controller: _nameCtrl,
-                      decoration: const InputDecoration(
-                        labelText: 'Full Name *',
-                        border: OutlineInputBorder(),
-                        prefixIcon: Icon(Icons.badge_outlined),
+                      decoration: _inputDeco(
+                        'Full Name',
+                        Icons.badge_outlined,
+                        isRequired: true,
                       ),
-                      validator: (v) => v!.isEmpty ? 'Required' : null,
+                      validator: (v) =>
+                          v == null || v.trim().isEmpty ? 'Required' : null,
                     ),
                     const SizedBox(height: 16),
                     TextFormField(
                       controller: _emailCtrl,
-                      decoration: const InputDecoration(
-                        labelText: 'Email Address *',
-                        border: OutlineInputBorder(),
-                        prefixIcon: Icon(Icons.email_outlined),
+                      decoration: _inputDeco(
+                        'Email Address',
+                        Icons.email_outlined,
+                        isRequired: true,
                       ),
-                      // Allow edit only if new (Standard security practice)
+                      // Email is usually locked after creation to maintain identity link
                       enabled: widget.user == null,
-                      validator: (v) => v!.isEmpty || !v.contains('@')
-                          ? 'Valid email required'
-                          : null,
+                      validator: (v) {
+                        if (v == null || v.trim().isEmpty) return 'Required';
+                        if (!v.contains('@') || !v.contains('.'))
+                          return 'Invalid email format';
+                        return null;
+                      },
                     ),
                     const SizedBox(height: 16),
                     DropdownButtonFormField<int>(
                       value: _selectedRoleId,
-                      decoration: const InputDecoration(
-                        labelText: 'System Role *',
-                        border: OutlineInputBorder(),
-                        prefixIcon: Icon(Icons.security),
+                      decoration: _inputDeco(
+                        'System Role',
+                        Icons.security,
+                        isRequired: true,
                       ),
                       items: widget.roles
                           .map(
@@ -666,14 +666,37 @@ class _UserDialogState extends State<_UserDialog> {
                           .toList(),
                       onChanged: (v) => setState(() => _selectedRoleId = v),
                     ),
+
+                    // Explicit instruction on how to complete the process
                     if (widget.user == null) ...[
-                      const SizedBox(height: 12),
-                      const Text(
-                        "Note: This will create a user profile. In a production app, this would verify the email via Supabase Auth.",
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: Colors.grey,
-                          fontStyle: FontStyle.italic,
+                      const SizedBox(height: 16),
+                      Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: Colors.indigo[50],
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: Colors.indigo[100]!),
+                        ),
+                        child: const Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Icon(
+                              Icons.info_outline,
+                              size: 20,
+                              color: Colors.indigo,
+                            ),
+                            SizedBox(width: 12),
+                            Expanded(
+                              child: Text(
+                                "Action Required: This creates the profile and access level. Ask the user to Sign Up with this exact email to create their password and link their account.",
+                                style: TextStyle(
+                                  fontSize: 13,
+                                  color: Color(0xFF1A237E), // Indigo 900
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                            ),
+                          ],
                         ),
                       ),
                     ],
@@ -710,12 +733,59 @@ class _UserDialogState extends State<_UserDialog> {
                           strokeWidth: 2,
                         ),
                       )
-                    : Text(widget.user == null ? 'Save User' : 'Update User'),
+                    : Text(
+                        widget.user == null
+                            ? 'Save & Provision'
+                            : 'Update User',
+                      ),
               ),
             ),
           ),
         ],
       ),
+    );
+  }
+
+  InputDecoration _inputDeco(
+    String label,
+    IconData? icon, {
+    bool isRequired = false,
+  }) {
+    const labelStyle = TextStyle(color: Color(0xFF757575), fontSize: 16);
+
+    return InputDecoration(
+      label: isRequired
+          ? RichText(
+              text: TextSpan(
+                text: label,
+                style: labelStyle,
+                children: const [
+                  TextSpan(
+                    text: ' *',
+                    style: TextStyle(
+                      color: Colors.red,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ],
+              ),
+            )
+          : Text(label, style: labelStyle),
+      prefixIcon: icon != null
+          ? Icon(icon, size: 20, color: const Color(0xFF9E9E9E))
+          : null,
+      border: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(12),
+        borderSide: BorderSide(color: Colors.grey.shade300),
+      ),
+      enabledBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(12),
+        borderSide: BorderSide(color: Colors.grey.shade300),
+      ),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      filled: true,
+      fillColor: const Color(0xFFFAFAFA),
+      floatingLabelBehavior: FloatingLabelBehavior.auto,
     );
   }
 }
@@ -740,7 +810,7 @@ class AppUser {
   factory AppUser.fromMap(Map<String, dynamic> map) {
     final roleData = map['roles'];
     return AppUser(
-      id: map['id'].toString(), // Handle UUID or Int ID
+      id: map['id'].toString(),
       fullName: map['full_name'] ?? 'Unknown',
       email: map['email'],
       roleId: map['role_id'] ?? 0,
