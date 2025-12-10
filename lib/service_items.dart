@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart'; // Added for input formatters
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'ui_app_shell.dart';
 import 'shared/widgets.dart'; // Assumes EmptyState, AnimatedCard, etc.
@@ -146,8 +147,6 @@ class _ServiceItemsScreenState extends State<ServiceItemsScreen> {
 
     return filtered;
   }
-
-  String _formatPrice(double price) => '₱${price.toStringAsFixed(2)}';
 
   @override
   Widget build(BuildContext context) {
@@ -549,6 +548,7 @@ class _ServiceItemDialogState extends State<_ServiceItemDialog> {
     if (!_formKey.currentState!.validate()) return;
     setState(() => _isSubmitting = true);
 
+    // FIX: Clean inputs to avoid faulty data
     final price = double.tryParse(_priceCtrl.text.trim()) ?? 0.0;
 
     final data = {
@@ -631,18 +631,21 @@ class _ServiceItemDialogState extends State<_ServiceItemDialog> {
                   children: [
                     TextFormField(
                       controller: _nameCtrl,
-                      decoration: const InputDecoration(
-                        labelText: 'Item Name *',
-                        border: OutlineInputBorder(),
+                      decoration: _inputDeco(
+                        'Item Name',
+                        Icons.label_outline,
+                        isRequired: true,
                       ),
-                      validator: (v) => v!.isEmpty ? 'Required' : null,
+                      validator: (v) =>
+                          v == null || v.trim().isEmpty ? 'Required' : null,
                     ),
                     const SizedBox(height: 16),
                     DropdownButtonFormField<String>(
                       value: _itemType,
-                      decoration: const InputDecoration(
-                        labelText: 'Item Type *',
-                        border: OutlineInputBorder(),
+                      decoration: _inputDeco(
+                        'Item Type',
+                        Icons.category,
+                        isRequired: true,
                       ),
                       items: const [
                         DropdownMenuItem(
@@ -660,13 +663,20 @@ class _ServiceItemDialogState extends State<_ServiceItemDialog> {
                     const SizedBox(height: 16),
                     TextFormField(
                       controller: _priceCtrl,
-                      decoration: const InputDecoration(
-                        labelText: 'Price (₱) *',
-                        border: OutlineInputBorder(),
+                      decoration: _inputDeco(
+                        'Price (₱)',
+                        Icons.attach_money,
+                        isRequired: true,
                       ),
                       keyboardType: const TextInputType.numberWithOptions(
                         decimal: true,
                       ),
+                      // FIX: Strict input formatting for money
+                      inputFormatters: [
+                        FilteringTextInputFormatter.allow(
+                          RegExp(r'^\d*\.?\d{0,2}'),
+                        ),
+                      ],
                       validator: (v) {
                         if (v == null || v.isEmpty) return 'Required';
                         if (double.tryParse(v) == null) return 'Invalid number';
@@ -712,6 +722,53 @@ class _ServiceItemDialogState extends State<_ServiceItemDialog> {
           ),
         ],
       ),
+    );
+  }
+
+  // FIX: Consistent Input Decoration with Red Asterisk support
+  InputDecoration _inputDeco(
+    String label,
+    IconData? icon, {
+    bool isRequired = false,
+  }) {
+    const labelStyle = TextStyle(
+      color: Color(0xFF757575),
+      fontSize: 16,
+    ); // Grey 600
+
+    return InputDecoration(
+      label: isRequired
+          ? RichText(
+              text: TextSpan(
+                text: label,
+                style: labelStyle,
+                children: const [
+                  TextSpan(
+                    text: ' *',
+                    style: TextStyle(
+                      color: Colors.red,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ],
+              ),
+            )
+          : Text(label, style: labelStyle),
+      prefixIcon: icon != null
+          ? Icon(icon, size: 20, color: const Color(0xFF9E9E9E)) // Grey 500
+          : null,
+      border: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(12),
+        borderSide: BorderSide(color: Colors.grey.shade300),
+      ),
+      enabledBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(12),
+        borderSide: BorderSide(color: Colors.grey.shade300),
+      ),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      filled: true,
+      fillColor: const Color(0xFFFAFAFA), // Very light grey
+      floatingLabelBehavior: FloatingLabelBehavior.auto,
     );
   }
 }

@@ -17,8 +17,8 @@ class _MasterDataScreenState extends State<MasterDataScreen>
   @override
   void initState() {
     super.initState();
-    // 5 Tabs: Brands, AC Types | Job Types, Statuses, Client Types
-    _tabController = TabController(length: 5, vsync: this);
+    // Reduced to 3 Tabs: Brands, AC Types, and a combined "System References"
+    _tabController = TabController(length: 3, vsync: this);
   }
 
   @override
@@ -48,29 +48,28 @@ class _MasterDataScreenState extends State<MasterDataScreen>
                   ),
                   const SizedBox(height: 4),
                   const Text(
-                    'Manage brands, types, and view system definitions.',
+                    'Manage system options and view reference definitions.',
                     style: TextStyle(color: Colors.grey),
                   ),
                   const SizedBox(height: 16),
 
-                  // Standard Tab Bar (Blue Text + Underline)
+                  // Standard Tab Bar
                   TabBar(
                     controller: _tabController,
-                    isScrollable: true,
+                    isScrollable:
+                        false, // Fixed width looks cleaner for 3 items
                     labelColor: Colors.blue[700],
                     unselectedLabelColor: Colors.grey[600],
                     indicatorColor: Colors.blue[700],
                     indicatorWeight: 3,
                     labelStyle: const TextStyle(fontWeight: FontWeight.bold),
-                    tabAlignment: TabAlignment.start,
                     tabs: const [
-                      // EDITABLE
                       Tab(text: 'Brands'),
                       Tab(text: 'AC Types'),
-                      // SYSTEM (Read Only)
-                      Tab(text: 'Job Types'),
-                      Tab(text: 'Statuses'),
-                      Tab(text: 'Client Types'),
+                      Tab(
+                        icon: Icon(Icons.lock_outline, size: 16),
+                        text: 'System Ref',
+                      ),
                     ],
                   ),
                 ],
@@ -83,7 +82,7 @@ class _MasterDataScreenState extends State<MasterDataScreen>
               child: TabBarView(
                 controller: _tabController,
                 children: const [
-                  // 1. EDITABLE TABS
+                  // 1. EDITABLE: Brands
                   _EditableMasterTab(
                     tableName: 'brands',
                     nameField: 'brand_name',
@@ -91,6 +90,7 @@ class _MasterDataScreenState extends State<MasterDataScreen>
                     icon: Icons.sell,
                     color: Colors.blue,
                   ),
+                  // 2. EDITABLE: AC Types
                   _EditableMasterTab(
                     tableName: 'aircon_types',
                     nameField: 'type_name',
@@ -98,28 +98,8 @@ class _MasterDataScreenState extends State<MasterDataScreen>
                     icon: Icons.ac_unit,
                     color: Colors.teal,
                   ),
-
-                  // 2. SYSTEM TABS (Read Only / Hardcoded Logic)
-                  _SystemMasterTab(
-                    tableName: 'job_types',
-                    nameField: 'job_type_name',
-                    label: 'Job Type',
-                    icon: Icons.work,
-                    color: Colors.purple,
-                    description: "These define the core workflow logic.",
-                  ),
-                  _StaticSystemTab(
-                    label: 'Job Status',
-                    data: ['Pending', 'In Progress', 'Completed', 'Cancelled'],
-                    icon: Icons.flag,
-                    color: Colors.orange,
-                  ),
-                  _StaticSystemTab(
-                    label: 'Customer Type',
-                    data: ['B2B (Corporate)', 'B2C (Individual)'],
-                    icon: Icons.people,
-                    color: Colors.indigo,
-                  ),
+                  // 3. READ-ONLY: System References (Combined)
+                  _SystemReferenceTab(),
                 ],
               ),
             ),
@@ -185,23 +165,60 @@ class _EditableMasterTabState extends State<_EditableMasterTab> {
   }
 
   Future<void> _addOrEdit({Map<String, dynamic>? item}) async {
+    final formKey = GlobalKey<FormState>();
     final TextEditingController controller = TextEditingController(
       text: item != null ? item[widget.nameField] : '',
     );
 
     await showDialog(
       context: context,
+      barrierDismissible: false,
       builder: (ctx) => AlertDialog(
         title: Text(
           item == null ? 'Add ${widget.label}' : 'Edit ${widget.label}',
         ),
-        content: TextField(
-          controller: controller,
-          decoration: InputDecoration(
-            labelText: '${widget.label} Name',
-            border: const OutlineInputBorder(),
+        content: Form(
+          key: formKey,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextFormField(
+                controller: controller,
+                autofocus: true,
+                // VALIDATION: Required & Trim check
+                validator: (v) {
+                  if (v == null || v.trim().isEmpty) return 'Required';
+                  return null;
+                },
+                decoration: InputDecoration(
+                  label: RichText(
+                    text: TextSpan(
+                      text: '${widget.label} Name',
+                      style: const TextStyle(color: Colors.grey, fontSize: 16),
+                      children: const [
+                        TextSpan(
+                          text: ' *',
+                          style: TextStyle(
+                            color: Colors.red,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  filled: true,
+                  fillColor: const Color(0xFFFAFAFA),
+                  contentPadding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 14,
+                  ),
+                ),
+              ),
+            ],
           ),
-          autofocus: true,
         ),
         actions: [
           TextButton(
@@ -210,8 +227,9 @@ class _EditableMasterTabState extends State<_EditableMasterTab> {
           ),
           ElevatedButton(
             onPressed: () async {
+              if (!formKey.currentState!.validate()) return;
+
               final val = controller.text.trim();
-              if (val.isEmpty) return;
 
               try {
                 if (item == null) {
@@ -228,13 +246,19 @@ class _EditableMasterTabState extends State<_EditableMasterTab> {
                   Navigator.pop(ctx);
                   _fetchData();
                   ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text("Saved successfully")),
+                    const SnackBar(
+                      content: Text("Saved successfully"),
+                      backgroundColor: Colors.green,
+                    ),
                   );
                 }
               } catch (e) {
-                ScaffoldMessenger.of(
-                  context,
-                ).showSnackBar(SnackBar(content: Text("Error: $e")));
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text("Error: $e"),
+                    backgroundColor: Colors.red,
+                  ),
+                );
               }
             },
             style: ElevatedButton.styleFrom(
@@ -277,6 +301,7 @@ class _EditableMasterTabState extends State<_EditableMasterTab> {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
               content: Text("Cannot delete: Item might be in use."),
+              backgroundColor: Colors.red,
             ),
           );
         }
@@ -352,7 +377,6 @@ class _EditableMasterTabState extends State<_EditableMasterTab> {
                     ),
                   )
                 : isMobile
-                // FIX: Mobile List with Scrolling Physics
                 ? ListView.separated(
                     physics: const AlwaysScrollableScrollPhysics(),
                     itemCount: filtered.length,
@@ -366,7 +390,6 @@ class _EditableMasterTabState extends State<_EditableMasterTab> {
                       onDelete: () => _delete(filtered[i]['id']),
                     ),
                   )
-                // FIX: Desktop Table with Scrollable Container
                 : _DesktopTable(
                     data: filtered,
                     nameField: widget.nameField,
@@ -383,132 +406,79 @@ class _EditableMasterTabState extends State<_EditableMasterTab> {
 }
 
 // ==============================================================================
-// 2. SYSTEM TAB (For Job Types) - READ ONLY
+// 2. SYSTEM REFERENCE TAB (Combined Read-Only)
 // ==============================================================================
 
-class _SystemMasterTab extends StatefulWidget {
-  final String tableName;
-  final String nameField;
-  final String label;
-  final IconData icon;
-  final MaterialColor color;
-  final String description;
-
-  const _SystemMasterTab({
-    required this.tableName,
-    required this.nameField,
-    required this.label,
-    required this.icon,
-    required this.color,
-    required this.description,
-  });
-
-  @override
-  State<_SystemMasterTab> createState() => _SystemMasterTabState();
-}
-
-class _SystemMasterTabState extends State<_SystemMasterTab> {
-  final _supabase = Supabase.instance.client;
-  List<Map<String, dynamic>> _data = [];
-  bool _isLoading = true;
-
-  @override
-  void initState() {
-    super.initState();
-    _fetchData();
-  }
-
-  Future<void> _fetchData() async {
-    final res = await _supabase
-        .from(widget.tableName)
-        .select()
-        .order('id', ascending: true);
-
-    if (mounted) {
-      setState(() {
-        _data = List<Map<String, dynamic>>.from(res);
-        _isLoading = false;
-      });
-    }
-  }
+class _SystemReferenceTab extends StatelessWidget {
+  const _SystemReferenceTab();
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
+    return SingleChildScrollView(
       padding: const EdgeInsets.all(24),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Container(
-            padding: const EdgeInsets.all(12),
+            padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
               color: Colors.amber[50],
-              borderRadius: BorderRadius.circular(8),
+              borderRadius: BorderRadius.circular(12),
               border: Border.all(color: Colors.amber[200]!),
             ),
             child: Row(
               children: [
-                const Icon(Icons.lock, color: Colors.amber, size: 20),
-                const SizedBox(width: 12),
+                Icon(Icons.lock_outline, color: Colors.amber[800]),
+                const SizedBox(width: 16),
                 Expanded(
-                  child: Text(
-                    "System Definition: ${widget.description}",
-                    style: TextStyle(color: Colors.amber[900], fontSize: 13),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        "System Definitions",
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          color: Colors.amber[900],
+                          fontSize: 16,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        "These values are hardcoded into the application logic and cannot be modified to ensure system stability.",
+                        style: TextStyle(color: Colors.amber[900]),
+                      ),
+                    ],
                   ),
                 ),
               ],
             ),
           ),
+          const SizedBox(height: 24),
+
+          // Job Types Section
+          _SystemExpansionTile(
+            title: "Job Types",
+            icon: Icons.work,
+            color: Colors.purple,
+            tableName: 'job_types',
+            nameField: 'job_type_name',
+          ),
           const SizedBox(height: 16),
 
-          Expanded(
-            child: _isLoading
-                ? const Center(child: CircularProgressIndicator())
-                : Container(
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(12),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withOpacity(0.05),
-                          blurRadius: 4,
-                        ),
-                      ],
-                    ),
-                    child: ListView.separated(
-                      physics: const AlwaysScrollableScrollPhysics(),
-                      padding: const EdgeInsets.all(8),
-                      itemCount: _data.length,
-                      separatorBuilder: (ctx, i) => const Divider(height: 1),
-                      itemBuilder: (ctx, i) {
-                        final item = _data[i];
-                        return ListTile(
-                          leading: Container(
-                            padding: const EdgeInsets.all(8),
-                            decoration: BoxDecoration(
-                              color: widget.color.withOpacity(0.1),
-                              borderRadius: BorderRadius.circular(8),
-                            ),
-                            child: Icon(
-                              widget.icon,
-                              size: 18,
-                              color: widget.color,
-                            ),
-                          ),
-                          title: Text(
-                            item[widget.nameField],
-                            style: const TextStyle(fontWeight: FontWeight.bold),
-                          ),
-                          subtitle: Text("ID: ${item['id']}"),
-                          trailing: const Icon(
-                            Icons.lock,
-                            size: 16,
-                            color: Colors.grey,
-                          ),
-                        );
-                      },
-                    ),
-                  ),
+          // Static Lists
+          _StaticExpansionTile(
+            title: "Job Statuses",
+            icon: Icons.flag,
+            color: Colors.orange,
+            items: const ['Pending', 'In Progress', 'Completed', 'Cancelled'],
+          ),
+          const SizedBox(height: 16),
+
+          _StaticExpansionTile(
+            title: "Customer Types",
+            icon: Icons.people,
+            color: Colors.indigo,
+            items: const ['B2B (Corporate)', 'B2C (Individual)'],
           ),
         ],
       ),
@@ -516,92 +486,137 @@ class _SystemMasterTabState extends State<_SystemMasterTab> {
   }
 }
 
-// ==============================================================================
-// 3. STATIC SYSTEM TAB (For Hardcoded Lists like Statuses)
-// ==============================================================================
-
-class _StaticSystemTab extends StatelessWidget {
-  final String label;
-  final List<String> data;
+// Helper for DB-fetched system data
+class _SystemExpansionTile extends StatefulWidget {
+  final String title;
   final IconData icon;
   final MaterialColor color;
+  final String tableName;
+  final String nameField;
 
-  const _StaticSystemTab({
-    required this.label,
-    required this.data,
+  const _SystemExpansionTile({
+    required this.title,
     required this.icon,
     required this.color,
+    required this.tableName,
+    required this.nameField,
+  });
+
+  @override
+  State<_SystemExpansionTile> createState() => _SystemExpansionTileState();
+}
+
+class _SystemExpansionTileState extends State<_SystemExpansionTile> {
+  List<String> _items = [];
+  bool _loading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    Supabase.instance.client.from(widget.tableName).select().order('id').then((
+      res,
+    ) {
+      if (mounted) {
+        setState(() {
+          _items = (res as List)
+              .map((e) => e[widget.nameField].toString())
+              .toList();
+          _loading = false;
+        });
+      }
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return _StaticExpansionTile(
+      title: widget.title,
+      icon: widget.icon,
+      color: widget.color,
+      items: _items,
+      isLoading: _loading,
+    );
+  }
+}
+
+// Helper for Static Lists
+class _StaticExpansionTile extends StatelessWidget {
+  final String title;
+  final IconData icon;
+  final MaterialColor color;
+  final List<String> items;
+  final bool isLoading;
+
+  const _StaticExpansionTile({
+    required this.title,
+    required this.icon,
+    required this.color,
+    required this.items,
+    this.isLoading = false,
   });
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.all(24),
-      child: Column(
-        children: [
-          Container(
-            padding: const EdgeInsets.all(12),
+    return Card(
+      elevation: 0,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: const BorderSide(color: Color(0xFFE2E8F0)),
+      ),
+      child: Theme(
+        data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+        child: ExpansionTile(
+          leading: Container(
+            padding: const EdgeInsets.all(8),
             decoration: BoxDecoration(
-              color: Colors.grey[100],
+              color: color.withOpacity(0.1),
               borderRadius: BorderRadius.circular(8),
-              border: Border.all(color: Colors.grey[300]!),
             ),
-            child: const Row(
-              children: [
-                Icon(Icons.info_outline, color: Colors.grey, size: 20),
-                SizedBox(width: 12),
-                Expanded(
-                  child: Text(
-                    "These values are hardcoded into the system logic and cannot be changed.",
-                    style: TextStyle(color: Colors.black54, fontSize: 13),
+            child: Icon(icon, color: color),
+          ),
+          title: Text(
+            title,
+            style: const TextStyle(fontWeight: FontWeight.bold),
+          ),
+          subtitle: Text("${items.length} defined items"),
+          children: [
+            const Divider(height: 1),
+            if (isLoading)
+              const Padding(
+                padding: EdgeInsets.all(20),
+                child: Center(child: CircularProgressIndicator()),
+              )
+            else
+              ListView.separated(
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                itemCount: items.length,
+                separatorBuilder: (ctx, i) =>
+                    const Divider(height: 1, indent: 16, endIndent: 16),
+                itemBuilder: (ctx, i) => ListTile(
+                  dense: true,
+                  title: Text(items[i]),
+                  leading: const Icon(
+                    Icons.check_circle,
+                    size: 16,
+                    color: Colors.green,
+                  ),
+                  trailing: const Icon(
+                    Icons.lock,
+                    size: 14,
+                    color: Colors.grey,
                   ),
                 ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 16),
-          Expanded(
-            child: Container(
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(12),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withOpacity(0.05),
-                    blurRadius: 4,
-                  ),
-                ],
               ),
-              child: ListView.separated(
-                physics: const AlwaysScrollableScrollPhysics(),
-                padding: const EdgeInsets.all(8),
-                itemCount: data.length,
-                separatorBuilder: (ctx, i) => const Divider(height: 1),
-                itemBuilder: (ctx, i) {
-                  return ListTile(
-                    leading: Icon(icon, size: 18, color: color),
-                    title: Text(
-                      data[i],
-                      style: const TextStyle(fontWeight: FontWeight.bold),
-                    ),
-                    trailing: const Icon(
-                      Icons.lock,
-                      size: 16,
-                      color: Colors.grey,
-                    ),
-                  );
-                },
-              ),
-            ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
 }
 
 // ==============================================================================
-// HELPER WIDGETS
+// SHARED WIDGETS (Cards/Tables)
 // ==============================================================================
 
 class _MobileCard extends StatelessWidget {
@@ -629,13 +644,6 @@ class _MobileCard extends StatelessWidget {
         color: Colors.white,
         borderRadius: BorderRadius.circular(12),
         border: Border.all(color: const Color(0xFFE2E8F0)),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.05),
-            blurRadius: 4,
-            offset: const Offset(0, 2),
-          ),
-        ],
       ),
       child: Row(
         children: [
@@ -700,7 +708,6 @@ class _DesktopTable extends StatelessWidget {
           ),
         ],
       ),
-      // FIX: Added ClipRRect and SingleChildScrollView for scrolling
       child: ClipRRect(
         borderRadius: BorderRadius.circular(12),
         child: SingleChildScrollView(
@@ -713,12 +720,6 @@ class _DesktopTable extends StatelessWidget {
                 DataColumn(
                   label: Text(
                     "NAME",
-                    style: TextStyle(fontWeight: FontWeight.bold),
-                  ),
-                ),
-                DataColumn(
-                  label: Text(
-                    "ID",
                     style: TextStyle(fontWeight: FontWeight.bold),
                   ),
                 ),
@@ -744,7 +745,6 @@ class _DesktopTable extends StatelessWidget {
                         ],
                       ),
                     ),
-                    DataCell(Text(item['id'].toString())),
                     DataCell(
                       Row(
                         mainAxisSize: MainAxisSize.min,

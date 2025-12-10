@@ -635,7 +635,7 @@ class _AirconDialogState extends State<_AirconDialog> {
   // Selection State
   String _brandName = '';
   int? _selectedTypeId;
-  int? _selectedCustId;
+  int? _selectedCustId; // The ID of the currently selected customer
 
   bool _isSubmitting = false;
 
@@ -648,10 +648,9 @@ class _AirconDialogState extends State<_AirconDialog> {
       _selectedCustId = widget.unit!.customerId;
       _remarksCtrl.text = widget.unit!.remarks ?? '';
     } else {
-      // Default selections if list not empty
+      // For types, default to first if available
       if (widget.types.isNotEmpty) _selectedTypeId = widget.types.first['id'];
-      if (widget.customers.isNotEmpty)
-        _selectedCustId = widget.customers.first['id'];
+      // DO NOT default customer ID here; force the user to search/select.
     }
   }
 
@@ -665,8 +664,10 @@ class _AirconDialogState extends State<_AirconDialog> {
           title: const Text("Add New Type"),
           content: TextField(
             autofocus: true,
-            decoration: const InputDecoration(
-              labelText: "Type Name (e.g. Cassette)",
+            decoration: _inputDeco(
+              "Type Name (e.g. Cassette)",
+              null,
+              isRequired: true,
             ),
             onChanged: (v) => val = v,
           ),
@@ -699,15 +700,41 @@ class _AirconDialogState extends State<_AirconDialog> {
           _selectedTypeId = res['id'];
         });
       } catch (e) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text("Error adding type: $e")));
+        if (mounted) {
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(SnackBar(content: Text("Error adding type: $e")));
+        }
       }
     }
   }
 
   Future<void> _submit() async {
     if (!_formKey.currentState!.validate()) return;
+
+    // Extra Check: Ensure ID is set (Autovalidator handles display, this handles submission)
+    if (_selectedCustId == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Please select a valid Customer from the list'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+
+    // Validate Brand manually since it's not a standard text field
+    final brandTrimmed = _brandName.trim();
+    if (brandTrimmed.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Please select or type a Brand'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+
     setState(() => _isSubmitting = true);
 
     try {
@@ -718,7 +745,7 @@ class _AirconDialogState extends State<_AirconDialog> {
       final brandCheck = await supabase
           .from('brands')
           .select('id')
-          .ilike('brand_name', _brandName.trim())
+          .ilike('brand_name', brandTrimmed)
           .maybeSingle();
 
       if (brandCheck != null) {
@@ -727,7 +754,7 @@ class _AirconDialogState extends State<_AirconDialog> {
         // Create new brand
         final newBrand = await supabase
             .from('brands')
-            .insert({'brand_name': _brandName.trim()})
+            .insert({'brand_name': brandTrimmed})
             .select('id')
             .single();
         brandId = newBrand['id'];
@@ -768,6 +795,15 @@ class _AirconDialogState extends State<_AirconDialog> {
       return c['company_name'];
     }
     return "${c['first_name']} ${c['last_name']}".trim();
+  }
+
+  // Helper to find initial customer object
+  Map<String, dynamic>? _findCustomerById(int id) {
+    try {
+      return widget.customers.firstWhere((c) => c['id'] == id);
+    } catch (e) {
+      return null;
+    }
   }
 
   @override
@@ -817,26 +853,69 @@ class _AirconDialogState extends State<_AirconDialog> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    DropdownButtonFormField<int>(
-                      value: _selectedCustId,
-                      decoration: const InputDecoration(
-                        labelText: 'Owner / Customer',
-                        border: OutlineInputBorder(),
+                    // CUSTOMER: SEARCH & SELECT (Autocomplete)
+                    Autocomplete<Map<String, dynamic>>(
+                      initialValue: TextEditingValue(
+                        text:
+                            _selectedCustId != null &&
+                                _findCustomerById(_selectedCustId!) != null
+                            ? _custName(_findCustomerById(_selectedCustId!)!)
+                            : '',
                       ),
-                      items: widget.customers
-                          .map(
-                            (c) => DropdownMenuItem(
-                              value: c['id'] as int,
-                              child: Text(
-                                _custName(c),
-                                overflow: TextOverflow.ellipsis,
+                      optionsBuilder: (TextEditingValue textEditingValue) {
+                        if (textEditingValue.text.isEmpty) {
+                          // Option: Return empty to force typing, or return all.
+                          // Returning empty is cleaner for large lists.
+                          return const Iterable<Map<String, dynamic>>.empty();
+                        }
+                        return widget.customers.where((
+                          Map<String, dynamic> option,
+                        ) {
+                          return _custName(option).toLowerCase().contains(
+                            textEditingValue.text.toLowerCase(),
+                          );
+                        });
+                      },
+                      displayStringForOption: _custName,
+                      onSelected: (Map<String, dynamic> selection) {
+                        setState(() {
+                          _selectedCustId = selection['id'];
+                        });
+                      },
+                      fieldViewBuilder:
+                          (
+                            context,
+                            textEditingController,
+                            focusNode,
+                            onFieldSubmitted,
+                          ) {
+                            return TextFormField(
+                              controller: textEditingController,
+                              focusNode: focusNode,
+                              // FIX: Consistent Styling
+                              decoration: _inputDeco(
+                                'Owner / Customer (Search)',
+                                Icons.person_search,
+                                isRequired: true,
                               ),
-                            ),
-                          )
-                          .toList(),
-                      onChanged: (v) => setState(() => _selectedCustId = v),
-                      validator: (v) => v == null ? 'Required' : null,
+                              validator: (val) {
+                                if (_selectedCustId == null) {
+                                  return 'You must select a customer from the list';
+                                }
+                                return null;
+                              },
+                              // FIX: Reset selection if user changes text
+                              onChanged: (text) {
+                                if (_selectedCustId != null) {
+                                  setState(() {
+                                    _selectedCustId = null;
+                                  });
+                                }
+                              },
+                            );
+                          },
                     ),
+
                     const SizedBox(height: 16),
                     Row(
                       children: [
@@ -867,9 +946,11 @@ class _AirconDialogState extends State<_AirconDialog> {
                                   return TextFormField(
                                     controller: ctrl,
                                     focusNode: focus,
-                                    decoration: const InputDecoration(
-                                      labelText: 'Brand (Type new to create)',
-                                      border: OutlineInputBorder(),
+                                    // FIX: Consistent Styling
+                                    decoration: _inputDeco(
+                                      'Brand (Type new to create)',
+                                      null,
+                                      isRequired: true,
                                     ),
                                     validator: (v) =>
                                         v!.isEmpty ? 'Required' : null,
@@ -888,9 +969,11 @@ class _AirconDialogState extends State<_AirconDialog> {
                                 child: DropdownButtonFormField<int>(
                                   value: _selectedTypeId,
                                   isExpanded: true,
-                                  decoration: const InputDecoration(
-                                    labelText: 'Type',
-                                    border: OutlineInputBorder(),
+                                  // FIX: Consistent Styling
+                                  decoration: _inputDeco(
+                                    'Type',
+                                    null,
+                                    isRequired: true,
                                   ),
                                   items: widget.types
                                       .map(
@@ -922,11 +1005,8 @@ class _AirconDialogState extends State<_AirconDialog> {
                     const SizedBox(height: 16),
                     TextFormField(
                       controller: _remarksCtrl,
-                      decoration: const InputDecoration(
-                        labelText: 'Location / Remarks (Optional)',
-                        hintText: 'e.g. Master Bedroom, 2nd Floor',
-                        border: OutlineInputBorder(),
-                      ),
+                      // FIX: Consistent Styling (Optional = no isRequired flag)
+                      decoration: _inputDeco('Location / Remarks', null),
                       maxLines: 3,
                     ),
                   ],
@@ -968,6 +1048,53 @@ class _AirconDialogState extends State<_AirconDialog> {
           ),
         ],
       ),
+    );
+  }
+
+  // FIX: Consistent Input Decoration with Red Asterisk support
+  InputDecoration _inputDeco(
+    String label,
+    IconData? icon, {
+    bool isRequired = false,
+  }) {
+    const labelStyle = TextStyle(
+      color: Color(0xFF757575),
+      fontSize: 16,
+    ); // Grey 600
+
+    return InputDecoration(
+      label: isRequired
+          ? RichText(
+              text: TextSpan(
+                text: label,
+                style: labelStyle,
+                children: const [
+                  TextSpan(
+                    text: ' *',
+                    style: TextStyle(
+                      color: Colors.red,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ],
+              ),
+            )
+          : Text(label, style: labelStyle),
+      prefixIcon: icon != null
+          ? Icon(icon, size: 20, color: const Color(0xFF9E9E9E)) // Grey 500
+          : null,
+      border: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(12),
+        borderSide: BorderSide(color: Colors.grey.shade300),
+      ),
+      enabledBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(12),
+        borderSide: BorderSide(color: Colors.grey.shade300),
+      ),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      filled: true,
+      fillColor: const Color(0xFFFAFAFA), // Very light grey
+      floatingLabelBehavior: FloatingLabelBehavior.auto,
     );
   }
 }
