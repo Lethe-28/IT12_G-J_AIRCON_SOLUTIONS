@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart'; // REQUIRED IMPORT
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'login.dart';
 import 'dashboard.dart';
 import 'scheduling.dart';
@@ -20,11 +21,14 @@ Future<void> main() async {
   // 1. Initialize the Flutter engine
   WidgetsFlutterBinding.ensureInitialized();
 
+  // Testing environment
+  await dotenv.load(fileName: ".env");
+
   // 2. Initialize Supabase (THE MISSING PIECE)
   // You MUST replace these strings with your actual Supabase keys
   await Supabase.initialize(
-    url: 'https://tuwiauhnstzocrbcfono.supabase.co',
-    anonKey: 'sb_publishable_lRaDnJO0YkZCNwJS-6jBEA_LNXLRQ5S',
+    url: dotenv.env['https://zhoaskudfiqfxcqldpfr.supabase.co']!,
+    anonKey: dotenv.env['sb_publishable_SD49wda8uqBXAGFfF6yS3A_fZuTtvgd']!,
   );
 
   // 3. Initialize Notifications
