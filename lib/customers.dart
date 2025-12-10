@@ -29,12 +29,10 @@ class _CustomersScreenState extends State<CustomersScreen> {
   Future<void> _fetchCustomers() async {
     setState(() => _isLoading = true);
     try {
-      // Fetch customers and join with customer_types to get the type name (B2B/B2C)
-      // Assuming customer_type_id 1 = B2B, 2 = B2C based on your previous schema
       final response = await _supabase
           .from('customers')
           .select('*, customer_types(type_name)')
-          .order('id', ascending: false); // Newest first
+          .order('id', ascending: false);
 
       final List<Customer> loaded = [];
       for (var row in response) {
@@ -71,9 +69,8 @@ class _CustomersScreenState extends State<CustomersScreen> {
       builder: (context) => _CustomerDialog(customer: existing),
     );
 
-    // If the dialog returned a customer object, it means save was successful
     if (result != null) {
-      _fetchCustomers(); // Refresh list
+      _fetchCustomers();
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
@@ -140,12 +137,10 @@ class _CustomersScreenState extends State<CustomersScreen> {
   List<Customer> get _filteredCustomers {
     var filtered = _customers;
 
-    // 1. Filter by Type
     if (_filterType != 'All') {
       filtered = filtered.where((c) => c.typeName == _filterType).toList();
     }
 
-    // 2. Filter by Search
     if (_searchQuery.isNotEmpty) {
       final q = _searchQuery.toLowerCase();
       filtered = filtered.where((c) {
@@ -162,12 +157,10 @@ class _CustomersScreenState extends State<CustomersScreen> {
   @override
   Widget build(BuildContext context) {
     final filteredList = _filteredCustomers;
-    // Using standard media query for safety
     final isMobileView = MediaQuery.of(context).size.width < 800;
 
     return AppShell(
       selectedIndex: 5,
-      // FIX: Pass the FAB directly to the Shell (HCI Standard)
       floatingActionButton: isMobileView
           ? FloatingActionButton(
               onPressed: () => _onAddOrEdit(),
@@ -176,7 +169,6 @@ class _CustomersScreenState extends State<CustomersScreen> {
               child: const Icon(Icons.add),
             )
           : null,
-      // FIX: Body is just the Container (No inner Scaffold needed)
       body: Container(
         color: const Color(0xFFF8FAFC),
         child: Column(
@@ -224,8 +216,6 @@ class _CustomersScreenState extends State<CustomersScreen> {
                     ],
                   ),
                   const SizedBox(height: 24),
-
-                  // Search & Filter Row
                   Row(
                     children: [
                       Expanded(
@@ -721,7 +711,6 @@ class _CustomerDialogState extends State<_CustomerDialog> {
 
   @override
   Widget build(BuildContext context) {
-    // HCI Logic: Hide company fields if B2C
     final isB2B = _typeId == 1;
 
     return Container(
@@ -806,10 +795,17 @@ class _CustomerDialogState extends State<_CustomerDialog> {
                     if (isB2B) ...[
                       TextFormField(
                         controller: _companyCtrl,
-                        decoration: _inputDeco('Company Name', Icons.domain),
-                        validator: (v) => isB2B && (v == null || v.isEmpty)
-                            ? 'Required for B2B'
-                            : null,
+                        decoration: _inputDeco(
+                          'Company Name',
+                          Icons.domain,
+                          isRequired: true,
+                        ),
+                        validator: (v) {
+                          if (!isB2B) return null;
+                          if (v == null || v.trim().isEmpty)
+                            return 'Company Name is required for B2B';
+                          return null;
+                        },
                       ),
                       const SizedBox(height: 12),
                     ],
@@ -822,16 +818,25 @@ class _CustomerDialogState extends State<_CustomerDialog> {
                             decoration: _inputDeco(
                               'First Name',
                               Icons.person_outline,
+                              isRequired: true,
                             ),
-                            validator: (v) => v!.isEmpty ? 'Required' : null,
+                            validator: (v) => v == null || v.trim().isEmpty
+                                ? 'Required'
+                                : null,
                           ),
                         ),
                         const SizedBox(width: 12),
                         Expanded(
                           child: TextFormField(
                             controller: _lastCtrl,
-                            decoration: _inputDeco('Last Name', null),
-                            validator: (v) => v!.isEmpty ? 'Required' : null,
+                            decoration: _inputDeco(
+                              'Last Name',
+                              null,
+                              isRequired: true,
+                            ),
+                            validator: (v) => v == null || v.trim().isEmpty
+                                ? 'Required'
+                                : null,
                           ),
                         ),
                       ],
@@ -851,9 +856,26 @@ class _CustomerDialogState extends State<_CustomerDialog> {
 
                     TextFormField(
                       controller: _phoneCtrl,
-                      decoration: _inputDeco('Phone Number', Icons.phone),
+                      decoration: _inputDeco(
+                        'Phone Number',
+                        Icons.phone,
+                        isRequired: true,
+                      ),
                       keyboardType: TextInputType.phone,
-                      validator: (v) => v!.isEmpty ? 'Required' : null,
+                      // FIX: Added Regex to allow digits only
+                      inputFormatters: [
+                        FilteringTextInputFormatter.allow(RegExp(r'[0-9+ \-]')),
+                      ],
+                      // FIX: Validation for length
+                      validator: (v) {
+                        if (v == null || v.trim().isEmpty) return 'Required';
+                        // Remove non-digits to check length
+                        final digits = v.replaceAll(RegExp(r'\D'), '');
+                        if (digits.length < 7)
+                          return 'Too short (min 7 digits)';
+                        if (digits.length > 15) return 'Too long';
+                        return null;
+                      },
                     ),
 
                     const SizedBox(height: 24),
@@ -881,14 +903,28 @@ class _CustomerDialogState extends State<_CustomerDialog> {
                         Expanded(
                           child: TextFormField(
                             controller: _brgyCtrl,
-                            decoration: _inputDeco('Barangay', null),
+                            decoration: _inputDeco(
+                              'Barangay',
+                              null,
+                              isRequired: true,
+                            ),
+                            validator: (v) => v == null || v.trim().isEmpty
+                                ? 'Required'
+                                : null,
                           ),
                         ),
                         const SizedBox(width: 12),
                         Expanded(
                           child: TextFormField(
                             controller: _cityCtrl,
-                            decoration: _inputDeco('City', Icons.location_city),
+                            decoration: _inputDeco(
+                              'City',
+                              Icons.location_city,
+                              isRequired: true,
+                            ),
+                            validator: (v) => v == null || v.trim().isEmpty
+                                ? 'Required'
+                                : null,
                           ),
                         ),
                       ],
@@ -939,16 +975,54 @@ class _CustomerDialogState extends State<_CustomerDialog> {
     );
   }
 
-  InputDecoration _inputDeco(String label, IconData? icon) {
+  // UPDATED: Standardized colors for all input labels
+  InputDecoration _inputDeco(
+    String label,
+    IconData? icon, {
+    bool isRequired = false,
+  }) {
+    // FIX: Common style for both required and optional
+    const labelStyle = TextStyle(
+      color: Color(0xFF757575),
+      fontSize: 16,
+    ); // Grey 600
+
     return InputDecoration(
-      labelText: label,
+      label: isRequired
+          ? RichText(
+              text: TextSpan(
+                text: label,
+                style: labelStyle,
+                children: const [
+                  TextSpan(
+                    text: ' *',
+                    style: TextStyle(
+                      color: Colors.red,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ],
+              ),
+            )
+          : Text(
+              label,
+              style: labelStyle,
+            ), // Explicitly set style for optional too
       prefixIcon: icon != null
-          ? Icon(icon, size: 20, color: Colors.grey)
+          ? Icon(icon, size: 20, color: const Color(0xFF9E9E9E)) // Grey 500
           : null,
-      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+      border: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(12),
+        borderSide: BorderSide(color: Colors.grey.shade300),
+      ),
+      enabledBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(12),
+        borderSide: BorderSide(color: Colors.grey.shade300),
+      ),
       contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
       filled: true,
-      fillColor: Colors.white,
+      fillColor: const Color(0xFFFAFAFA), // Very light grey (Grey 50)
+      floatingLabelBehavior: FloatingLabelBehavior.auto,
     );
   }
 }
