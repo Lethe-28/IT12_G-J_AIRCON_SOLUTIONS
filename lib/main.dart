@@ -27,8 +27,8 @@ Future<void> main() async {
   // 2. Initialize Supabase (THE MISSING PIECE)
   // You MUST replace these strings with your actual Supabase keys
   await Supabase.initialize(
-    url: dotenv.env['https://zhoaskudfiqfxcqldpfr.supabase.co']!,
-    anonKey: dotenv.env['sb_publishable_SD49wda8uqBXAGFfF6yS3A_fZuTtvgd']!,
+    url: dotenv.env['SUPABASE_URL']!,
+    anonKey: dotenv.env['SUPABASE_ANON_KEY']!,
   );
 
   // 3. Initialize Notifications
