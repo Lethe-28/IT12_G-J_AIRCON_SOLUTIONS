@@ -147,7 +147,6 @@ class _TechniciansScreenState extends State<TechniciansScreen> {
 
     return AppShell(
       selectedIndex: 6, // 6 = Technicians Tab
-      // FIX: Pass FAB to Shell
       floatingActionButton: isMobileView
           ? FloatingActionButton(
               onPressed: () => _onAddOrEdit(),
@@ -482,6 +481,7 @@ class _TechnicianDialogState extends State<_TechnicianDialog> {
     if (!_formKey.currentState!.validate()) return;
     setState(() => _isSubmitting = true);
 
+    // FIX: Using .trim() on all inputs to prevent faulty object storage
     final data = {
       'first_name': _firstCtrl.text.trim(),
       'middle_name': _middleCtrl.text.trim().isEmpty
@@ -589,8 +589,11 @@ class _TechnicianDialogState extends State<_TechnicianDialog> {
                             decoration: _inputDeco(
                               'First Name',
                               Icons.person_outline,
+                              isRequired: true,
                             ),
-                            validator: (v) => v!.isEmpty ? 'Required' : null,
+                            validator: (v) => v == null || v.trim().isEmpty
+                                ? 'Required'
+                                : null,
                           ),
                         ),
                         const SizedBox(width: 12),
@@ -605,15 +608,36 @@ class _TechnicianDialogState extends State<_TechnicianDialog> {
                     const SizedBox(height: 12),
                     TextFormField(
                       controller: _lastCtrl,
-                      decoration: _inputDeco('Last Name', null),
-                      validator: (v) => v!.isEmpty ? 'Required' : null,
+                      decoration: _inputDeco(
+                        'Last Name',
+                        null,
+                        isRequired: true,
+                      ),
+                      validator: (v) =>
+                          v == null || v.trim().isEmpty ? 'Required' : null,
                     ),
                     const SizedBox(height: 12),
                     TextFormField(
                       controller: _contactCtrl,
-                      decoration: _inputDeco('Contact Number', Icons.phone),
+                      decoration: _inputDeco(
+                        'Contact Number',
+                        Icons.phone,
+                        isRequired: true,
+                      ),
                       keyboardType: TextInputType.phone,
-                      validator: (v) => v!.isEmpty ? 'Required' : null,
+                      // FIX: Strict formatters (Digits, space, dash, plus only)
+                      inputFormatters: [
+                        FilteringTextInputFormatter.allow(RegExp(r'[0-9+ \-]')),
+                      ],
+                      // FIX: Strict length validation
+                      validator: (v) {
+                        if (v == null || v.trim().isEmpty) return 'Required';
+                        final digits = v.replaceAll(RegExp(r'\D'), '');
+                        if (digits.length < 7)
+                          return 'Too short (min 7 digits)';
+                        if (digits.length > 13) return 'Too long';
+                        return null;
+                      },
                     ),
                   ],
                 ),
@@ -661,16 +685,50 @@ class _TechnicianDialogState extends State<_TechnicianDialog> {
     );
   }
 
-  InputDecoration _inputDeco(String label, IconData? icon) {
+  // FIX: Consistent Input Decoration with Red Asterisk support
+  InputDecoration _inputDeco(
+    String label,
+    IconData? icon, {
+    bool isRequired = false,
+  }) {
+    const labelStyle = TextStyle(
+      color: Color(0xFF757575),
+      fontSize: 16,
+    ); // Grey 600
+
     return InputDecoration(
-      labelText: label,
+      label: isRequired
+          ? RichText(
+              text: TextSpan(
+                text: label,
+                style: labelStyle,
+                children: const [
+                  TextSpan(
+                    text: ' *',
+                    style: TextStyle(
+                      color: Colors.red,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ],
+              ),
+            )
+          : Text(label, style: labelStyle),
       prefixIcon: icon != null
-          ? Icon(icon, size: 20, color: Colors.grey)
+          ? Icon(icon, size: 20, color: const Color(0xFF9E9E9E)) // Grey 500
           : null,
-      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+      border: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(12),
+        borderSide: BorderSide(color: Colors.grey.shade300),
+      ),
+      enabledBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(12),
+        borderSide: BorderSide(color: Colors.grey.shade300),
+      ),
       contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
       filled: true,
-      fillColor: Colors.white,
+      fillColor: const Color(0xFFFAFAFA), // Very light grey
+      floatingLabelBehavior: FloatingLabelBehavior.auto,
     );
   }
 }
