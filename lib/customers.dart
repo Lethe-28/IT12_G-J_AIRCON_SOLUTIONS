@@ -669,14 +669,14 @@ class _CustomerDialogState extends State<_CustomerDialog> {
       if (typeId == 1) {
         // --- B2B CHECK ---
 
-        // Check 1: Company Name (FIX: Added .limit(1) to prevent crash on multiple matches)
+        // Check 1: Company Name (FIX: Added .limit(1) to prevent crash)
         if (company.isNotEmpty) {
           final res = await supabase
               .from('customers')
               .select('id, company_name')
               .ilike('company_name', company)
               .neq('id', widget.customer?.id ?? -1)
-              .limit(1) // <--- FIX ADDED HERE
+              .limit(1)
               .maybeSingle();
           if (res != null) duplicate = res;
         }
@@ -688,7 +688,7 @@ class _CustomerDialogState extends State<_CustomerDialog> {
               .select('id, company_name')
               .eq('contact_number', phone)
               .neq('id', widget.customer?.id ?? -1)
-              .limit(1) // <--- FIX ADDED HERE
+              .limit(1)
               .maybeSingle();
           if (res != null) duplicate = res;
         }
@@ -703,7 +703,7 @@ class _CustomerDialogState extends State<_CustomerDialog> {
             .ilike('first_name', first)
             .ilike('last_name', last)
             .neq('id', widget.customer?.id ?? -1)
-            .limit(1) // <--- FIX ADDED HERE
+            .limit(1)
             .maybeSingle();
 
         if (nameRes != null) {
@@ -715,28 +715,40 @@ class _CustomerDialogState extends State<_CustomerDialog> {
               .select('id, first_name, last_name')
               .eq('contact_number', phone)
               .neq('id', widget.customer?.id ?? -1)
-              .limit(1) // <--- FIX ADDED HERE
+              .limit(1)
               .maybeSingle();
           if (phoneRes != null) duplicate = phoneRes;
         }
       }
 
-      // 3. STOP IF DUPLICATE FOUND (The Orange Warning)
+      // 3. STOP IF DUPLICATE FOUND (FIX: VISIBLE ON MOBILE)
       if (duplicate != null) {
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text(
-                'Duplicate Warning: This customer Name or Phone already exists.',
-                style: TextStyle(color: Colors.white),
+          // Replaced hidden SnackBar with visible AlertDialog
+          await showDialog(
+            context: context,
+            builder: (ctx) => AlertDialog(
+              title: const Row(
+                children: [
+                  Icon(Icons.warning_amber_rounded, color: Colors.orange),
+                  SizedBox(width: 8),
+                  Text('Duplicate Found'),
+                ],
               ),
-              backgroundColor: Colors.orange,
-              behavior: SnackBarBehavior.floating,
-              duration: Duration(seconds: 4),
+              content: const Text(
+                'A customer with this Name or Phone Number already exists in the system.',
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(ctx),
+                  child: const Text('OK'),
+                ),
+              ],
             ),
           );
+
           setState(() => _isSubmitting = false);
-          return;
+          return; // Stop the save
         }
       }
 
@@ -783,11 +795,18 @@ class _CustomerDialogState extends State<_CustomerDialog> {
       }
     } catch (e) {
       if (mounted) {
-        // This handles actual system crashes
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error saving: $e'),
-            backgroundColor: Colors.red,
+        // Use Dialog for critical crashes too, just in case
+        showDialog(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            title: const Text('System Error'),
+            content: Text('Failed to save record: $e'),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text('OK'),
+              ),
+            ],
           ),
         );
       }
