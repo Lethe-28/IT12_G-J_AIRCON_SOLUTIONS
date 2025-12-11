@@ -35,12 +35,13 @@ class _AirconsScreenState extends State<AirconsScreen> {
   Future<void> _fetchData() async {
     setState(() => _isLoading = true);
     try {
-      // 1. Fetch Aircons with Relations
+      // 1. Fetch Aircons with Relations (ONLY ACTIVE)
       final airconsRes = await _supabase
           .from('aircons')
           .select(
             '*, brands(brand_name), aircon_types(type_name), customers(first_name, last_name, company_name)',
           )
+          .eq('is_active', true) // <--- ONLY SHOW ACTIVE UNITS
           .order('id', ascending: false);
 
       // 2. Fetch Reference Data for Filters/Dialogs
@@ -55,6 +56,7 @@ class _AirconsScreenState extends State<AirconsScreen> {
       final custRes = await _supabase
           .from('customers')
           .select('id, first_name, last_name, company_name')
+          .eq('is_active', true) // Only show active customers in dropdown
           .order('last_name');
 
       final List<AirconUnit> loaded = [];
@@ -112,13 +114,15 @@ class _AirconsScreenState extends State<AirconsScreen> {
     }
   }
 
-  Future<void> _onDelete(AirconUnit unit) async {
+  // --- CHANGED: DELETE IS NOW ARCHIVE ---
+  Future<void> _onArchive(AirconUnit unit) async {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Delete Unit'),
+        title: const Text('Archive Unit'),
         content: Text(
-          'Are you sure you want to delete this ${unit.brand} ${unit.type}?',
+          'Are you sure you want to archive this ${unit.brand} ${unit.type}?\n\n'
+          'It will be hidden from this list, but previous service history will be preserved.',
         ),
         actions: [
           TextButton(
@@ -127,8 +131,8 @@ class _AirconsScreenState extends State<AirconsScreen> {
           ),
           TextButton(
             onPressed: () => Navigator.pop(context, true),
-            style: TextButton.styleFrom(foregroundColor: Colors.red),
-            child: const Text('Delete'),
+            style: TextButton.styleFrom(foregroundColor: Colors.orange),
+            child: const Text('Archive'),
           ),
         ],
       ),
@@ -136,14 +140,20 @@ class _AirconsScreenState extends State<AirconsScreen> {
 
     if (confirmed == true) {
       try {
-        await _supabase.from('aircons').delete().eq('id', unit.id);
+        // Soft delete
+        await _supabase
+            .from('aircons')
+            .update({'is_active': false})
+            .eq('id', unit.id);
+
         setState(() {
           _aircons.removeWhere((a) => a.id == unit.id);
         });
+
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
-              content: Text('Unit deleted'),
+              content: Text('Unit archived'),
               behavior: SnackBarBehavior.floating,
             ),
           );
@@ -152,7 +162,7 @@ class _AirconsScreenState extends State<AirconsScreen> {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text('Delete failed: $e'),
+              content: Text('Archive failed: $e'),
               backgroundColor: Colors.red,
             ),
           );
@@ -342,7 +352,7 @@ class _AirconsScreenState extends State<AirconsScreen> {
                       itemBuilder: (ctx, i) => _MobileAirconCard(
                         unit: filteredList[i],
                         onEdit: () => _onAddOrEdit(existing: filteredList[i]),
-                        onDelete: () => _onDelete(filteredList[i]),
+                        onDelete: () => _onArchive(filteredList[i]),
                       ),
                     )
                   : SingleChildScrollView(
@@ -350,7 +360,7 @@ class _AirconsScreenState extends State<AirconsScreen> {
                       child: _DesktopAirconTable(
                         units: filteredList,
                         onEdit: (u) => _onAddOrEdit(existing: u),
-                        onDelete: (u) => _onDelete(u),
+                        onDelete: (u) => _onArchive(u),
                       ),
                     ),
             ),
@@ -388,7 +398,7 @@ class _DesktopAirconTable extends StatelessWidget {
         ],
       ),
       child: DataTable(
-        headingRowColor: MaterialStateProperty.all(Colors.grey[50]),
+        headingRowColor: WidgetStateProperty.all(Colors.grey[50]),
         columns: const [
           DataColumn(
             label: Text(
@@ -479,9 +489,12 @@ class _DesktopAirconTable extends StatelessWidget {
                       tooltip: "Edit",
                     ),
                     IconButton(
-                      icon: const Icon(Icons.delete_outline, color: Colors.red),
+                      icon: const Icon(
+                        Icons.archive_outlined,
+                        color: Colors.orange,
+                      ), // Changed Icon
                       onPressed: () => onDelete(u),
-                      tooltip: "Delete",
+                      tooltip: "Archive", // Changed Tooltip
                     ),
                   ],
                 ),
@@ -558,13 +571,16 @@ class _MobileAirconCard extends StatelessWidget {
                 icon: const Icon(Icons.more_vert, color: Colors.grey),
                 onSelected: (value) {
                   if (value == 'edit') onEdit();
-                  if (value == 'delete') onDelete();
+                  if (value == 'archive') onDelete();
                 },
                 itemBuilder: (context) => [
                   const PopupMenuItem(value: 'edit', child: Text('Edit')),
                   const PopupMenuItem(
-                    value: 'delete',
-                    child: Text('Delete', style: TextStyle(color: Colors.red)),
+                    value: 'archive',
+                    child: Text(
+                      'Archive',
+                      style: TextStyle(color: Colors.orange),
+                    ), // Changed Text
                   ),
                 ],
               ),
@@ -650,7 +666,6 @@ class _AirconDialogState extends State<_AirconDialog> {
     } else {
       // For types, default to first if available
       if (widget.types.isNotEmpty) _selectedTypeId = widget.types.first['id'];
-      // DO NOT default customer ID here; force the user to search/select.
     }
   }
 
@@ -767,6 +782,7 @@ class _AirconDialogState extends State<_AirconDialog> {
         'remarks': _remarksCtrl.text.trim().isEmpty
             ? null
             : _remarksCtrl.text.trim(),
+        'is_active': true, // Ensure new units are active
       };
 
       if (widget.unit == null) {
