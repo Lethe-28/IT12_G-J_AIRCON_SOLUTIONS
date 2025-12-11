@@ -29,6 +29,7 @@ class _TechniciansScreenState extends State<TechniciansScreen> {
       final response = await _supabase
           .from('technicians')
           .select()
+          .eq('is_active', true) // <--- ONLY SHOW ACTIVE TECHNICIANS
           .order('first_name', ascending: true);
 
       final List<Technician> loaded = [];
@@ -71,7 +72,7 @@ class _TechniciansScreenState extends State<TechniciansScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            existing == null ? 'Technician Added' : 'Technician Updated',
+            existing == null ? 'Technician Saved' : 'Technician Updated',
           ),
           backgroundColor: Colors.green,
           behavior: SnackBarBehavior.floating,
@@ -80,13 +81,15 @@ class _TechniciansScreenState extends State<TechniciansScreen> {
     }
   }
 
-  Future<void> _onDelete(Technician technician) async {
+  // --- CHANGED: DELETE IS NOW ARCHIVE ---
+  Future<void> _onArchive(Technician technician) async {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Delete Technician'),
+        title: const Text('Archive Technician'),
         content: Text(
-          'Are you sure you want to delete ${technician.fullName}? This action cannot be undone.',
+          'Are you sure you want to archive ${technician.fullName}?\n\n'
+          'They will be hidden from lists but their job history will be preserved.',
         ),
         actions: [
           TextButton(
@@ -95,8 +98,8 @@ class _TechniciansScreenState extends State<TechniciansScreen> {
           ),
           TextButton(
             onPressed: () => Navigator.pop(context, true),
-            style: TextButton.styleFrom(foregroundColor: Colors.red),
-            child: const Text('Delete'),
+            style: TextButton.styleFrom(foregroundColor: Colors.orange),
+            child: const Text('Archive'),
           ),
         ],
       ),
@@ -104,7 +107,11 @@ class _TechniciansScreenState extends State<TechniciansScreen> {
 
     if (confirmed == true) {
       try {
-        await _supabase.from('technicians').delete().eq('id', technician.id);
+        // SOFT DELETE: Set is_active to false
+        await _supabase
+            .from('technicians')
+            .update({'is_active': false})
+            .eq('id', technician.id);
 
         setState(() {
           _technicians.removeWhere((t) => t.id == technician.id);
@@ -113,7 +120,7 @@ class _TechniciansScreenState extends State<TechniciansScreen> {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
-              content: Text('Technician deleted'),
+              content: Text('Technician archived successfully'),
               behavior: SnackBarBehavior.floating,
             ),
           );
@@ -122,7 +129,7 @@ class _TechniciansScreenState extends State<TechniciansScreen> {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text('Delete failed: $e'),
+              content: Text('Archive failed: $e'),
               backgroundColor: Colors.red,
             ),
           );
@@ -247,7 +254,7 @@ class _TechniciansScreenState extends State<TechniciansScreen> {
                       itemBuilder: (ctx, i) => _MobileTechnicianCard(
                         technician: filteredList[i],
                         onEdit: () => _onAddOrEdit(existing: filteredList[i]),
-                        onDelete: () => _onDelete(filteredList[i]),
+                        onDelete: () => _onArchive(filteredList[i]),
                       ),
                     )
                   : SingleChildScrollView(
@@ -255,7 +262,7 @@ class _TechniciansScreenState extends State<TechniciansScreen> {
                       child: _DesktopTechnicianTable(
                         technicians: filteredList,
                         onEdit: (t) => _onAddOrEdit(existing: t),
-                        onDelete: (t) => _onDelete(t),
+                        onDelete: (t) => _onArchive(t),
                       ),
                     ),
             ),
@@ -293,7 +300,7 @@ class _DesktopTechnicianTable extends StatelessWidget {
         ],
       ),
       child: DataTable(
-        headingRowColor: MaterialStateProperty.all(Colors.grey[50]),
+        headingRowColor: WidgetStateProperty.all(Colors.grey[50]),
         columns: const [
           DataColumn(
             label: Text('NAME', style: TextStyle(fontWeight: FontWeight.bold)),
@@ -347,9 +354,12 @@ class _DesktopTechnicianTable extends StatelessWidget {
                       tooltip: "Edit",
                     ),
                     IconButton(
-                      icon: const Icon(Icons.delete_outline, color: Colors.red),
+                      icon: const Icon(
+                        Icons.archive_outlined,
+                        color: Colors.orange,
+                      ), // Changed Icon
                       onPressed: () => onDelete(t),
-                      tooltip: "Delete",
+                      tooltip: "Archive", // Changed Tooltip
                     ),
                   ],
                 ),
@@ -432,13 +442,16 @@ class _MobileTechnicianCard extends StatelessWidget {
             icon: const Icon(Icons.more_vert, color: Colors.grey),
             onSelected: (value) {
               if (value == 'edit') onEdit();
-              if (value == 'delete') onDelete();
+              if (value == 'archive') onDelete();
             },
             itemBuilder: (context) => [
               const PopupMenuItem(value: 'edit', child: Text('Edit')),
               const PopupMenuItem(
-                value: 'delete',
-                child: Text('Delete', style: TextStyle(color: Colors.red)),
+                value: 'archive',
+                child: Text(
+                  'Archive',
+                  style: TextStyle(color: Colors.orange),
+                ), // Changed Text
               ),
             ],
           ),
@@ -481,20 +494,131 @@ class _TechnicianDialogState extends State<_TechnicianDialog> {
     if (!_formKey.currentState!.validate()) return;
     setState(() => _isSubmitting = true);
 
-    // FIX: Using .trim() on all inputs to prevent faulty object storage
-    final data = {
-      'first_name': _firstCtrl.text.trim(),
-      'middle_name': _middleCtrl.text.trim().isEmpty
-          ? null
-          : _middleCtrl.text.trim(),
-      'last_name': _lastCtrl.text.trim(),
-      'contact_number': _contactCtrl.text.trim(),
-    };
+    // Prepare clean data
+    final first = _firstCtrl.text.trim();
+    final middle = _middleCtrl.text.trim().isEmpty
+        ? null
+        : _middleCtrl.text.trim();
+    final last = _lastCtrl.text.trim();
+    final contact = _contactCtrl.text.trim();
+
+    final supabase = Supabase.instance.client;
 
     try {
+      // 1. DUPLICATE CHECK (Check Contact Number)
+      Map<String, dynamic>? duplicate;
+
+      // We only care about contact number for technicians as it's the unique constraint
+      if (contact.isNotEmpty) {
+        final res = await supabase
+            .from('technicians')
+            .select('id, is_active, first_name, last_name') // Include is_active
+            .eq('contact_number', contact)
+            .neq('id', widget.technician?.id ?? -1)
+            .limit(1)
+            .maybeSingle();
+        if (res != null) duplicate = res;
+      }
+
+      // 2. HANDLE DUPLICATE (Active vs Archived)
+      if (duplicate != null) {
+        final bool isActive = duplicate['is_active'] ?? true;
+        final int duplicateId = duplicate['id'];
+        final String existingName =
+            "${duplicate['first_name']} ${duplicate['last_name']}";
+
+        if (isActive) {
+          // ACTIVE DUPLICATE: Error
+          if (mounted) {
+            await showDialog(
+              context: context,
+              builder: (ctx) => AlertDialog(
+                title: const Row(
+                  children: [
+                    Icon(Icons.warning_amber_rounded, color: Colors.orange),
+                    SizedBox(width: 8),
+                    Text('Duplicate Found'),
+                  ],
+                ),
+                content: Text(
+                  'A technician with this number already exists: $existingName',
+                ),
+                actions: [
+                  TextButton(
+                    onPressed: () => Navigator.pop(ctx),
+                    child: const Text('OK'),
+                  ),
+                ],
+              ),
+            );
+          }
+          setState(() => _isSubmitting = false);
+          return;
+        } else {
+          // ARCHIVED DUPLICATE: Resurrect?
+          bool restore = false;
+          if (mounted) {
+            restore =
+                await showDialog<bool>(
+                  context: context,
+                  builder: (ctx) => AlertDialog(
+                    title: const Text('Found in Archive'),
+                    content: Text(
+                      'Technician $existingName exists in the archives with this number. Would you like to restore them with these updated details?',
+                    ),
+                    actions: [
+                      TextButton(
+                        onPressed: () => Navigator.pop(ctx, false),
+                        child: const Text('Cancel'),
+                      ),
+                      TextButton(
+                        onPressed: () => Navigator.pop(ctx, true),
+                        child: const Text('Restore'),
+                      ),
+                    ],
+                  ),
+                ) ??
+                false;
+          }
+
+          if (!restore) {
+            setState(() => _isSubmitting = false);
+            return;
+          }
+
+          // PERFORM RESURRECTION
+          final data = {
+            'first_name': first,
+            'middle_name': middle,
+            'last_name': last,
+            'contact_number': contact,
+            'is_active': true, // REACTIVATE!
+          };
+
+          final response = await supabase
+              .from('technicians')
+              .update(data)
+              .eq('id', duplicateId)
+              .select()
+              .single();
+
+          if (mounted) Navigator.pop(context, Technician.fromMap(response));
+          return;
+        }
+      }
+
+      // 3. NORMAL SAVE (Insert/Update)
+      final data = {
+        'first_name': first,
+        'middle_name': middle,
+        'last_name': last,
+        'contact_number': contact,
+        'is_active': true, // Default to true
+      };
+
       if (widget.technician == null) {
         // Create
-        final response = await Supabase.instance.client
+        final response = await supabase
             .from('technicians')
             .insert(data)
             .select()
@@ -502,7 +626,7 @@ class _TechnicianDialogState extends State<_TechnicianDialog> {
         if (mounted) Navigator.pop(context, Technician.fromMap(response));
       } else {
         // Update
-        final response = await Supabase.instance.client
+        final response = await supabase
             .from('technicians')
             .update(data)
             .eq('id', widget.technician!.id)
