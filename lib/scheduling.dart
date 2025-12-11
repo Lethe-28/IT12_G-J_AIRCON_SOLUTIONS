@@ -32,14 +32,10 @@ class JobOrder {
   String? notes;
   final int? customerId;
   final bool isCorporate;
-
-  // NEW: Billing Status Flags
   final bool isUnbilled;
   final bool isUnpaid;
-
-  // NEW: Operational Flags
-  final bool hasNoTechs; // <--- ADD THIS
-  final bool hasNoUnits; // <--- ADD THIS
+  final bool hasNoTechs;
+  final bool hasNoUnits;
 
   JobOrder({
     required this.dbId,
@@ -54,11 +50,10 @@ class JobOrder {
     this.notes,
     this.customerId,
     required this.isCorporate,
-    // Initialize new flags
     required this.isUnbilled,
     required this.isUnpaid,
-    required this.hasNoTechs, // <--- ADD THIS
-    required this.hasNoUnits, // <--- ADD THIS
+    required this.hasNoTechs,
+    required this.hasNoUnits,
   });
 }
 
@@ -67,13 +62,13 @@ class JobOrder {
 class SchedulingScreen extends StatefulWidget {
   final String? initialSearch;
   final int? autoOpenId;
-  final bool showPendingActions; // <--- NEW PARAMETER
+  final bool showPendingActions;
 
   const SchedulingScreen({
     super.key,
     this.initialSearch,
     this.autoOpenId,
-    this.showPendingActions = false, // Default is false (Calendar view)
+    this.showPendingActions = false,
   });
 
   @override
@@ -83,7 +78,6 @@ class SchedulingScreen extends StatefulWidget {
 class _SchedulingScreenState extends State<SchedulingScreen> {
   List<JobOrder> _orders = [];
   bool _isLoading = true;
-  bool _hasAutoOpened = false;
 
   late TextEditingController _searchController;
   String _searchQuery = '';
@@ -92,17 +86,12 @@ class _SchedulingScreenState extends State<SchedulingScreen> {
   DateTime _focusedDate = DateTime.now();
   DateTime _selectedDate = DateTime.now();
   bool _sortOldestFirst = true;
-
-  // Initialize with the passed value
   late bool _showActionItems;
 
   @override
   void initState() {
     super.initState();
-
-    // 1. Set the initial view mode
     _showActionItems = widget.showPendingActions;
-
     String initialText = widget.initialSearch ?? '';
     _searchController = TextEditingController(text: initialText);
 
@@ -134,7 +123,7 @@ class _SchedulingScreenState extends State<SchedulingScreen> {
       final response = await supabase
           .from('job_orders')
           .select(
-            '*, customers(id, first_name, last_name, company_name, city, barangay, customer_type_id), job_types(job_type_name), job_order_line_items(count), payments(count), job_order_technicians(count), job_order_aircons(count)',
+            '*, customers(id, first_name, last_name, company_name, city, barangay, address_complete, customer_type_id), job_types(job_type_name), job_order_line_items(count), payments(count), job_order_technicians(count), job_order_aircons(count)',
           )
           .order('date_scheduled', ascending: false);
 
@@ -156,9 +145,15 @@ class _SchedulingScreenState extends State<SchedulingScreen> {
           } else {
             clientName = '${customer['first_name']} ${customer['last_name']}';
           }
-          final city = customer['city'] ?? '';
-          final brgy = customer['barangay'] ?? '';
-          location = "$city $brgy".trim();
+          // Use new address_complete if available, fallback to city/brgy
+          if (customer['address_complete'] != null &&
+              customer['address_complete'].toString().isNotEmpty) {
+            location = customer['address_complete'];
+          } else {
+            final city = customer['city'] ?? '';
+            final brgy = customer['barangay'] ?? '';
+            location = "$city $brgy".trim();
+          }
           if (location.isEmpty) location = "View Details";
         }
 
@@ -177,13 +172,10 @@ class _SchedulingScreenState extends State<SchedulingScreen> {
           actualEnd = DateTime.parse(row['date_completed']).toLocal();
         }
 
-        // Status Logic
         final int itemsCount = row['job_order_line_items'][0]['count'] as int;
         final bool unbilled = itemsCount == 0;
         final int payCount = row['payments'][0]['count'] as int;
         final bool unpaid = itemsCount > 0 && payCount == 0;
-
-        // Check for Missing Ops Info
         final int techCount = row['job_order_technicians'][0]['count'] as int;
         final int unitCount = row['job_order_aircons'][0]['count'] as int;
 
@@ -219,8 +211,6 @@ class _SchedulingScreenState extends State<SchedulingScreen> {
       if (mounted) setState(() => _isLoading = false);
     }
   }
-
-  // --- ACTIONS ---
 
   void _onAddOrEdit({JobOrder? existingJob}) async {
     final result = await showDialog(
@@ -272,22 +262,6 @@ class _SchedulingScreenState extends State<SchedulingScreen> {
     }).toList();
   }
 
-  // Get all jobs that need attention
-  List<JobOrder> _getActionableJobs() {
-    final list = _orders
-        .where(
-          (o) => o.isUnbilled || o.isUnpaid || o.hasNoTechs || o.hasNoUnits,
-        )
-        .toList();
-
-    list.sort((a, b) {
-      int comparison = a.startDateTime.compareTo(b.startDateTime);
-      return _sortOldestFirst ? comparison : -comparison;
-    });
-
-    return list;
-  }
-
   void _changeMonth(int increment) {
     setState(() {
       _focusedDate = DateTime(
@@ -299,31 +273,10 @@ class _SchedulingScreenState extends State<SchedulingScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final isMobileView = MediaQuery.of(context).size.width < 600;
-
-    // 1. CALCULATE ACTIONABLE JOBS FIRST
-    final actionableJobs = _getActionableJobs();
-    final actionableJobsCount = actionableJobs.length;
-
-    // --- SEARCH FILTER LOGIC ---
-    List<JobOrder> displayedJobs;
-
-    if (_searchQuery.isNotEmpty) {
-      // Global Search: Ignore dates/tabs, search EVERYTHING
-      displayedJobs = _orders.where((job) {
-        return job.clientName.toLowerCase().contains(_searchQuery) ||
-            job.displayId.toLowerCase().contains(_searchQuery) ||
-            job.location.toLowerCase().contains(_searchQuery) ||
-            job.status.toLowerCase().contains(_searchQuery) ||
-            // NEW: Allow searching by Database ID (hidden ID)
-            job.dbId.toString().contains(_searchQuery);
-      }).toList();
-    } else {
-      // Standard View: Calendar OR Action Items
-      final calendarJobs = _getJobsForDay(_selectedDate);
-      displayedJobs = _showActionItems ? actionableJobs : calendarJobs;
-    }
-    // ---------------------------
+    final isMobile =
+        MediaQuery.of(context).size.width <
+        900; // Adjusted breakpoint for Split View
+    final calendarJobs = _getJobsForDay(_selectedDate);
 
     return AppShell(
       selectedIndex: 1,
@@ -333,163 +286,12 @@ class _SchedulingScreenState extends State<SchedulingScreen> {
           color: const Color(0xFFF8FAFC),
           child: Column(
             children: [
-              // --- 1. SMART HEADER (Search Integrated) ---
-              _buildHeader(isMobileView),
-
+              _buildHeader(isMobile),
               const Divider(height: 1),
-
-              // --- SCROLLABLE CONTENT ---
               Expanded(
-                child: SingleChildScrollView(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      // HIDE Calendar/Action Banner IF SEARCHING
-                      if (_searchQuery.isEmpty) ...[
-                        // 1. ACTION BANNER
-                        if (actionableJobsCount > 0)
-                          GestureDetector(
-                            onTap: () {
-                              setState(() {
-                                _showActionItems = !_showActionItems;
-                              });
-                            },
-                            child: AnimatedContainer(
-                              duration: AppTheme.animationDuration,
-                              width: double.infinity,
-                              padding: const EdgeInsets.symmetric(
-                                vertical: 16,
-                                horizontal: 24,
-                              ),
-                              decoration: BoxDecoration(
-                                color: _showActionItems
-                                    ? AppTheme.surface
-                                    : AppTheme.warning.withOpacity(0.1),
-                                border: Border(
-                                  bottom: BorderSide(
-                                    color: _showActionItems
-                                        ? AppTheme.borderColor
-                                        : AppTheme.warning.withOpacity(0.3),
-                                  ),
-                                ),
-                              ),
-                              child: Row(
-                                children: [
-                                  Icon(
-                                    _showActionItems
-                                        ? Icons.arrow_back
-                                        : Icons.warning_amber_rounded,
-                                    color: _showActionItems
-                                        ? AppTheme.textPrimary
-                                        : AppTheme.warning,
-                                  ),
-                                  const SizedBox(width: 12),
-                                  Expanded(
-                                    child: Text(
-                                      _showActionItems
-                                          ? "Back to Calendar"
-                                          : "$actionableJobsCount Jobs require attention",
-                                      style: TextStyle(
-                                        fontWeight: FontWeight.bold,
-                                        color: _showActionItems
-                                            ? AppTheme.textPrimary
-                                            : AppTheme.warning,
-                                        fontSize: 15,
-                                      ),
-                                    ),
-                                  ),
-                                  // Optional "View" link if not expanded
-                                  if (!_showActionItems)
-                                    const Text(
-                                      "View All",
-                                      style: TextStyle(
-                                        fontWeight: FontWeight.bold,
-                                        color: AppTheme.primary,
-                                        decoration: TextDecoration.underline,
-                                      ),
-                                    ),
-                                ],
-                              ),
-                            ),
-                          ),
-
-                        // 2. CALENDAR GRID
-                        if (!_showActionItems)
-                          Container(
-                            color: Colors.white,
-                            padding: const EdgeInsets.only(bottom: 16),
-                            child: _buildCalendarGrid(),
-                          ),
-                      ],
-
-                      const Divider(height: 1),
-
-                      // 3. JOB LIST
-                      Padding(
-                        padding: const EdgeInsets.all(20),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            // Dynamic Title
-                            Text(
-                              _searchQuery.isNotEmpty
-                                  ? "Search Results (${displayedJobs.length})"
-                                  : (_showActionItems
-                                        ? "Pending Actions"
-                                        : "Schedule for ${_monthName(_selectedDate.month)} ${_selectedDate.day}"),
-                              style: const TextStyle(
-                                fontSize: 18,
-                                fontWeight: FontWeight.w700,
-                                color: Color(0xFF64748B),
-                              ),
-                            ),
-                            const SizedBox(height: 16),
-
-                            if (displayedJobs.isEmpty)
-                              Center(
-                                child: Padding(
-                                  padding: const EdgeInsets.all(32.0),
-                                  child: Column(
-                                    children: [
-                                      Icon(
-                                        _searchQuery.isNotEmpty
-                                            ? Icons.search_off
-                                            : Icons.event_available,
-                                        size: 48,
-                                        color: Colors.grey[300],
-                                      ),
-                                      const SizedBox(height: 12),
-                                      Text(
-                                        _searchQuery.isNotEmpty
-                                            ? "No jobs found for '$_searchQuery'"
-                                            : "No jobs listed.",
-                                        style: const TextStyle(
-                                          color: Colors.grey,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              )
-                            else
-                              ListView.separated(
-                                shrinkWrap: true,
-                                physics: const NeverScrollableScrollPhysics(),
-                                itemCount: displayedJobs.length,
-                                separatorBuilder: (ctx, i) =>
-                                    const SizedBox(height: 12),
-                                itemBuilder: (ctx, i) => GestureDetector(
-                                  onTap: () =>
-                                      _showJobDetails(displayedJobs[i]),
-                                  child: _JobCard(order: displayedJobs[i]),
-                                ),
-                              ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
+                child: isMobile
+                    ? _buildMobileLayout(calendarJobs)
+                    : _buildDesktopLayout(calendarJobs), // NEW: Split Layout
               ),
             ],
           ),
@@ -498,50 +300,156 @@ class _SchedulingScreenState extends State<SchedulingScreen> {
     );
   }
 
-  Widget _buildHeader(bool isMobile) {
-    // SCENARIO 1: Mobile Search Active (Expanded Search Bar)
-    if (isMobile && _isSearchActive) {
-      return Container(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-        color: Colors.white,
-        child: Row(
-          children: [
-            Expanded(
-              child: TextField(
-                controller: _searchController,
-                autofocus: true,
-                decoration: InputDecoration(
-                  hintText: "Search name, JO#, location...",
-                  prefixIcon: const Icon(Icons.search, color: Colors.grey),
-                  filled: true,
-                  fillColor: Colors.grey[100],
-                  contentPadding: const EdgeInsets.symmetric(
-                    vertical: 0,
-                    horizontal: 16,
-                  ),
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                    borderSide: BorderSide.none,
+  // --- DESKTOP SPLIT LAYOUT  ---
+  Widget _buildDesktopLayout(List<JobOrder> jobsForDay) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // LEFT: Calendar Grid (Flex 2)
+        Expanded(
+          flex: 2,
+          child: Container(
+            color: Colors.white,
+            padding: const EdgeInsets.all(24),
+            child: _buildCalendarGrid(),
+          ),
+        ),
+        const VerticalDivider(width: 1),
+        // RIGHT: Details List (Flex 1)
+        Expanded(
+          flex: 1,
+          child: Container(
+            color: const Color(0xFFF8FAFC),
+            child: Column(
+              children: [
+                // Right Header
+                Container(
+                  padding: const EdgeInsets.all(20),
+                  color: Colors.white,
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            "${_monthName(_selectedDate.month)} ${_selectedDate.day}",
+                            style: const TextStyle(
+                              fontSize: 20,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          Text(
+                            "${jobsForDay.length} Scheduled",
+                            style: const TextStyle(color: Colors.grey),
+                          ),
+                        ],
+                      ),
+                      // Add Button for specific day [cite: 87]
+                      IconButton(
+                        onPressed: () => _onAddOrEdit(),
+                        icon: const Icon(
+                          Icons.add_circle,
+                          color: AppTheme.primary,
+                          size: 32,
+                        ),
+                        tooltip: "Add Schedule for this day",
+                      ),
+                    ],
                   ),
                 ),
-              ),
+                const Divider(height: 1),
+                Expanded(
+                  child: jobsForDay.isEmpty
+                      ? _buildEmptyStatePrompt() //
+                      : ListView.separated(
+                          padding: const EdgeInsets.all(16),
+                          itemCount: jobsForDay.length,
+                          separatorBuilder: (ctx, i) =>
+                              const SizedBox(height: 12),
+                          itemBuilder: (ctx, i) => _JobCard(
+                            order: jobsForDay[i],
+                          ), // Use existing card
+                        ),
+                ),
+              ],
             ),
-            const SizedBox(width: 8),
-            TextButton(
-              onPressed: () {
-                setState(() {
-                  _isSearchActive = false;
-                  _searchController.clear();
-                });
-              },
-              child: const Text("Cancel"),
+          ),
+        ),
+      ],
+    );
+  }
+
+  // --- MOBILE LAYOUT (Classic Scroll) ---
+  Widget _buildMobileLayout(List<JobOrder> jobsForDay) {
+    return SingleChildScrollView(
+      child: Column(
+        children: [
+          Container(
+            color: Colors.white,
+            padding: const EdgeInsets.only(bottom: 16),
+            child: _buildCalendarGrid(),
+          ),
+          const Divider(height: 1),
+          Padding(
+            padding: const EdgeInsets.all(20),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  "Schedule for ${_monthName(_selectedDate.month)} ${_selectedDate.day}",
+                  style: const TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.w700,
+                    color: Color(0xFF64748B),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                if (jobsForDay.isEmpty)
+                  _buildEmptyStatePrompt()
+                else
+                  ListView.separated(
+                    shrinkWrap: true,
+                    physics: const NeverScrollableScrollPhysics(),
+                    itemCount: jobsForDay.length,
+                    separatorBuilder: (ctx, i) => const SizedBox(height: 12),
+                    itemBuilder: (ctx, i) => _JobCard(order: jobsForDay[i]),
+                  ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  //  Prompt to add schedule on empty days
+  Widget _buildEmptyStatePrompt() {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(32.0),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.event_available, size: 48, color: Colors.grey[300]),
+            const SizedBox(height: 12),
+            const Text(
+              "No schedules yet.",
+              style: TextStyle(color: Colors.grey),
+            ),
+            const SizedBox(height: 12),
+            OutlinedButton.icon(
+              onPressed: () => _onAddOrEdit(),
+              icon: const Icon(Icons.add),
+              label: const Text("Set Schedule"),
             ),
           ],
         ),
-      );
-    }
+      ),
+    );
+  }
 
-    // SCENARIO 2: Normal Header (Desktop or Mobile Default)
+  Widget _buildHeader(bool isMobile) {
     return Container(
       padding: EdgeInsets.symmetric(
         horizontal: isMobile ? 16 : 32,
@@ -551,148 +459,41 @@ class _SchedulingScreenState extends State<SchedulingScreen> {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          // Left: Month Selector or Title
-          if (_showActionItems)
-            const Text(
-              "Pending Actions",
-              style: TextStyle(
-                fontSize: 20,
-                fontWeight: FontWeight.w800,
-                color: Color(0xFF1E293B),
+          Row(
+            children: [
+              IconButton(
+                icon: const Icon(Icons.chevron_left),
+                onPressed: () => _changeMonth(-1),
               ),
-            )
-          else
-            Row(
-              children: [
-                IconButton(
-                  icon: const Icon(Icons.chevron_left),
-                  onPressed: () => _changeMonth(-1),
-                  padding: EdgeInsets.zero,
-                  constraints: const BoxConstraints(),
+              Text(
+                "${_monthName(_focusedDate.month)} ${_focusedDate.year}",
+                style: const TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.w800,
+                  color: Color(0xFF1E293B),
                 ),
-                const SizedBox(width: 8),
-                Text(
-                  "${_monthName(_focusedDate.month)} ${_focusedDate.year}",
-                  style: TextStyle(
-                    fontSize: isMobile ? 18 : 20,
-                    fontWeight: FontWeight.w800,
-                    color: const Color(0xFF1E293B),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                IconButton(
-                  icon: const Icon(Icons.chevron_right),
-                  onPressed: () => _changeMonth(1),
-                  padding: EdgeInsets.zero,
-                  constraints: const BoxConstraints(),
-                ),
-              ],
+              ),
+              IconButton(
+                icon: const Icon(Icons.chevron_right),
+                onPressed: () => _changeMonth(1),
+              ),
+            ],
+          ),
+          ElevatedButton.icon(
+            onPressed: () => _onAddOrEdit(),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF2563EB),
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
             ),
-
-          // Right: Search & Add
-          if (!_showActionItems)
-            Row(
-              children: [
-                // Search Widget
-                if (!isMobile)
-                  Container(
-                    width: 220,
-                    height: 40,
-                    margin: const EdgeInsets.only(right: 12),
-                    child: TextField(
-                      controller: _searchController,
-                      decoration: InputDecoration(
-                        hintText: "Search...",
-                        prefixIcon: const Icon(
-                          Icons.search,
-                          size: 20,
-                          color: Colors.grey,
-                        ),
-                        filled: true,
-                        fillColor: Colors.grey[100],
-                        contentPadding: const EdgeInsets.symmetric(vertical: 0),
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(12),
-                          borderSide: BorderSide.none,
-                        ),
-                      ),
-                    ),
-                  )
-                else
-                  IconButton(
-                    icon: const Icon(Icons.search),
-                    onPressed: () => setState(() => _isSearchActive = true),
-                  ),
-
-                const SizedBox(width: 8),
-
-                // Add Button
-                ElevatedButton.icon(
-                  onPressed: () => _onAddOrEdit(),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF2563EB),
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 16,
-                      vertical: 12,
-                    ),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                  ),
-                  icon: const Icon(Icons.add, size: 18),
-                  label: Text(
-                    isMobile ? 'Add' : 'Add Job',
-                    style: const TextStyle(fontWeight: FontWeight.w700),
-                  ),
-                ),
-              ],
-            )
-          else
-            // NEW: COUNTER & SORT (For Pending Actions View)
-            Row(
-              children: [
-                // 1. The Counter
-                Text(
-                  "${_getActionableJobs().length} Items",
-                  style: const TextStyle(
-                    color: Colors.grey,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-                const SizedBox(width: 12),
-
-                // 2. The Sort Button
-                OutlinedButton.icon(
-                  onPressed: () {
-                    setState(() {
-                      _sortOldestFirst = !_sortOldestFirst;
-                    });
-                  },
-                  style: OutlinedButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 12,
-                      vertical: 8,
-                    ),
-                    side: BorderSide(color: Colors.grey.shade300),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                  ),
-                  icon: Icon(
-                    _sortOldestFirst
-                        ? Icons.arrow_upward
-                        : Icons.arrow_downward,
-                    size: 16,
-                    color: Colors.black87,
-                  ),
-                  label: Text(
-                    _sortOldestFirst ? "Oldest" : "Newest",
-                    style: const TextStyle(color: Colors.black87, fontSize: 13),
-                  ),
-                ),
-              ],
+            icon: const Icon(Icons.add, size: 18),
+            label: const Text(
+              'Add Job',
+              style: TextStyle(fontWeight: FontWeight.w700),
             ),
+          ),
         ],
       ),
     );
@@ -720,7 +521,6 @@ class _SchedulingScreenState extends State<SchedulingScreen> {
                         day,
                         style: const TextStyle(
                           color: Colors.grey,
-                          fontSize: 12,
                           fontWeight: FontWeight.bold,
                         ),
                       ),
@@ -736,7 +536,7 @@ class _SchedulingScreenState extends State<SchedulingScreen> {
           itemCount: daysInMonth + firstWeekday,
           gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
             crossAxisCount: 7,
-            childAspectRatio: 1.2,
+            childAspectRatio: 1.0, // Square cells look better on Desktop
           ),
           itemBuilder: (context, index) {
             if (index < firstWeekday) return const SizedBox();
@@ -748,13 +548,18 @@ class _SchedulingScreenState extends State<SchedulingScreen> {
             );
             final isSelected = DateUtils.isSameDay(currentDay, _selectedDate);
             final isToday = DateUtils.isSameDay(currentDay, DateTime.now());
-            final hasJobs = _getJobsForDay(currentDay).isNotEmpty;
+
+            final jobs = _getJobsForDay(currentDay);
+            final hasJobs = jobs.isNotEmpty;
+            // [cite: 129] Logic to change color if ALL jobs are completed
+            final allCompleted =
+                hasJobs && jobs.every((j) => j.status == 'Completed');
 
             return GestureDetector(
               onTap: () => setState(() => _selectedDate = currentDay),
               child: AnimatedContainer(
                 duration: const Duration(milliseconds: 200),
-                margin: const EdgeInsets.all(6),
+                margin: const EdgeInsets.all(4),
                 decoration: BoxDecoration(
                   color: isSelected
                       ? AppTheme.primary
@@ -765,7 +570,6 @@ class _SchedulingScreenState extends State<SchedulingScreen> {
                   border: isToday && !isSelected
                       ? Border.all(color: AppTheme.primary)
                       : null,
-                  boxShadow: isSelected ? AppTheme.glow(AppTheme.primary) : [],
                 ),
                 child: Column(
                   mainAxisAlignment: MainAxisAlignment.center,
@@ -777,18 +581,22 @@ class _SchedulingScreenState extends State<SchedulingScreen> {
                         color: isSelected ? Colors.white : AppTheme.textPrimary,
                       ),
                     ),
-                    const SizedBox(height: 4),
-                    if (hasJobs)
+                    if (hasJobs) ...[
+                      const SizedBox(height: 4),
+                      // Dot Color: Green if all done, Orange if pending
                       Container(
                         width: 6,
                         height: 6,
                         decoration: BoxDecoration(
                           shape: BoxShape.circle,
-                          color: isSelected ? Colors.white : AppTheme.warning,
+                          color: isSelected
+                              ? Colors.white
+                              : (allCompleted
+                                    ? Colors.green
+                                    : AppTheme.warning),
                         ),
-                      )
-                    else
-                      const SizedBox(height: 6),
+                      ),
+                    ],
                   ],
                 ),
               ),
@@ -2018,57 +1826,76 @@ class _JobOrderDialog extends StatefulWidget {
 }
 
 class _JobOrderDialogState extends State<_JobOrderDialog> {
+  // Steps: 0=CustomerType, 1=ServiceType, 2=Details
   int _currentStep = 0;
   bool _isSubmitting = false;
   final _supabase = Supabase.instance.client;
   final _formKey = GlobalKey<FormState>();
-  final _customerDisplayController = TextEditingController();
-  List<Map<String, dynamic>> _availableTechnicians = [];
-  final List<int> _selectedTechnicianIds = [];
 
-  // Data
+  // --- Controllers & Variables ---
+
+  // Data State
+  String _customerType = 'Residential'; // Default
   String _jobTypeName = 'Installation';
   int? _jobTypeId;
-  bool _isNewClient = false;
+  bool _isNewClient = true; // Default to New for quicker entry flow
+
+  // Search/Dropdown Options
   List<Map<String, dynamic>> _existingClients = [];
   List<String> _brandOptions = [];
   List<Map<String, dynamic>> _airconTypes = [];
+  List<Map<String, dynamic>> _availableTechnicians = [];
 
+  // Selection State
   int? _selectedClientId;
   List<Map<String, dynamic>> _clientAircons = [];
   final List<int> _selectedAirconIds = [];
+  final List<int> _selectedTechnicianIds = [];
 
-  // New Client Data
-  final _firstNameController = TextEditingController();
-  final _middleNameController = TextEditingController();
-  final _lastNameController = TextEditingController();
-  final _companyController = TextEditingController();
-  final _jobPositionController = TextEditingController();
+  // --- "One Bar" Inputs (New) ---
+  final _fullNameController = TextEditingController();
+  final _addressController = TextEditingController();
+
+  // Contact Info
   final _phoneController = TextEditingController();
   final _emailController = TextEditingController();
-  final _unitController = TextEditingController();
-  final _streetController = TextEditingController();
-  final _villageController = TextEditingController();
-  final _barangayController = TextEditingController();
-  final _cityController = TextEditingController();
-  final _landmarkController = TextEditingController();
 
+  // Unit Details
+  final _customerDisplayController =
+      TextEditingController(); // For search display
   String _selectedBrandName = '';
   int? _selectedAirconTypeId;
   final _unitRemarkController = TextEditingController();
+  // New Aircon Fields
+  final _hpController = TextEditingController();
+  bool _isInverter = false;
 
+  // Job Details
   final _externalRefController = TextEditingController();
-
   late DateTime _scheduleDate;
   TimeOfDay _scheduleTime = const TimeOfDay(hour: 9, minute: 0);
   final _notesController = TextEditingController();
 
-  // Check for conflicts on specific date/time
+  // --- VALIDATORS ---
+  String? _validatePhone(String? value) {
+    if (value == null || value.isEmpty) return 'Required';
+    final trimmed = value.trim();
+    // Regex: Matches 09xxxxxxxxx OR 7-12 digit landlines
+    if (!RegExp(r'^(09\d{9}|\d{7,12})$').hasMatch(trimmed)) return 'Invalid #';
+    return null;
+  }
+
+  String? _validateEmail(String? value) {
+    if (value == null || value.trim().isEmpty) return null; // Email is optional
+    if (!value.contains('@') || !value.contains('.')) return 'Invalid email';
+    return null;
+  }
+
+  // --- Conflict Checker (Kept Existing) ---
   Future<bool> _checkScheduleConflict(
     DateTime proposedDate,
     TimeOfDay proposedTime,
   ) async {
-    // 1. Define the range (e.g., check the whole day)
     final startOfDay = DateTime(
       proposedDate.year,
       proposedDate.month,
@@ -2076,7 +1903,6 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
     );
     final endOfDay = startOfDay.add(const Duration(hours: 23, minutes: 59));
 
-    // 2. Fetch jobs for that day
     final res = await _supabase
         .from('job_orders')
         .select(
@@ -2084,12 +1910,10 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
         )
         .gte('date_scheduled', startOfDay.toUtc().toIso8601String())
         .lte('date_scheduled', endOfDay.toUtc().toIso8601String())
-        .neq('status', 'Completed') // Ignore completed jobs? Up to you.
+        .neq('status', 'Completed')
         .neq('status', 'Cancelled');
 
-    // 3. Analyze for time overlap (e.g., within 2 hours buffer)
     for (var job in res) {
-      // Skip self if editing
       if (widget.existingJob != null && job['id'] == widget.existingJob!.dbId)
         continue;
 
@@ -2107,29 +1931,31 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
           .inMinutes
           .abs();
 
-      // CONFLICT THRESHOLD: 120 minutes (2 hours)
-      // If another job starts within 2 hours of this one, flag it.
       if (diff < 120) {
-        return true; // Conflict found
+        return true;
       }
     }
-    return false; // No conflict
+    return false;
   }
 
   @override
   void initState() {
     super.initState();
-    // Initialize Data from existing job or default
     if (widget.existingJob != null) {
+      // If editing, we skip the "Type" steps and go straight to details
+      _currentStep = 2;
       _jobTypeName = widget.existingJob!.jobType;
       _scheduleDate = widget.existingJob!.startDateTime;
       _scheduleTime = TimeOfDay.fromDateTime(widget.existingJob!.startDateTime);
       _notesController.text = widget.existingJob!.notes ?? '';
       _selectedClientId = widget.existingJob!.customerId;
       _externalRefController.text = widget.existingJob!.displayId;
+      _isNewClient = false;
 
-      // In a real edit scenario, we would also fetch the client details if _selectedClientId is set
-      // For now, we just set the ID to trigger the dropdown selection
+      // Determine Customer Type based on data
+      _customerType = widget.existingJob!.isCorporate
+          ? 'Commercial'
+          : 'Residential';
     } else {
       _scheduleDate = widget.initialDate ?? DateTime.now();
     }
@@ -2139,18 +1965,20 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
 
   Future<void> _fetchInitialData() async {
     // 1. Fetch Master Data
+    // Added address_complete to selection
     final customers = await _supabase
         .from('customers')
-        .select('id, first_name, last_name, company_name, city, barangay')
+        .select(
+          'id, first_name, last_name, company_name, city, barangay, address_complete',
+        )
         .order('last_name', ascending: true);
 
     final types = await _supabase.from('job_types').select();
     final brands = await _supabase.from('brands').select().order('brand_name');
     final acTypes = await _supabase.from('aircon_types').select();
-
     final techs = await _supabase
         .from('technicians')
-        .select('id, first_name, last_name')
+        .select()
         .order('first_name');
 
     // 2. Prepare Variables for Edit Mode
@@ -2159,7 +1987,6 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
     List<Map<String, dynamic>> loadedClientAircons = [];
 
     if (widget.existingJob != null) {
-      // A. Fetch Linked Aircon IDs
       final linkedAcRes = await _supabase
           .from('job_order_aircons')
           .select('aircon_id')
@@ -2168,7 +1995,6 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
         linkedAcRes.map((e) => e['aircon_id']),
       );
 
-      // B. Fetch Linked Technician IDs
       final linkedTechRes = await _supabase
           .from('job_order_technicians')
           .select('technician_id')
@@ -2177,21 +2003,15 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
         linkedTechRes.map((e) => e['technician_id']),
       );
 
-      // C. FIX: Fetch the Customer's Aircon List MANUALLY here
-      // (We do this here to avoid calling _fetchClientAircons which clears selections)
-      // 1. Create a local variable (Dart trusts local variables)
       final int? custId = widget.existingJob?.customerId;
-
-      // 2. Check the LOCAL variable
       if (custId != null) {
+        // Fetch specific aircon columns including new HP/Inverter
         final units = await _supabase
             .from('aircons')
-            .select('id, remarks, brands(brand_name), aircon_types(type_name)')
-            .eq(
-              'customer_id',
-              custId,
-            ); // 3. Use the LOCAL variable here (Error gone!)
-
+            .select(
+              'id, remarks, horse_power, is_inverter, brands(brand_name), aircon_types(type_name)',
+            )
+            .eq('customer_id', custId);
         loadedClientAircons = List<Map<String, dynamic>>.from(units);
       }
     }
@@ -2204,37 +2024,49 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
         _availableTechnicians = List<Map<String, dynamic>>.from(techs);
 
         if (widget.existingJob == null) {
-          // --- CREATE MODE ---
           final installType = types.firstWhere(
             (t) => t['job_type_name'] == 'Installation',
             orElse: () => types.first,
           );
           _jobTypeId = installType['id'];
         } else {
-          // --- EDIT MODE ---
-
-          // 1. Set Customer Text
+          // --- EDIT MODE RESTORATION ---
           if (_selectedClientId != null) {
             final cust = _existingClients.firstWhere(
               (c) => c['id'] == _selectedClientId,
               orElse: () => {},
             );
             if (cust.isNotEmpty) {
-              _customerDisplayController.text =
-                  cust['company_name'] ??
-                  '${cust['first_name']} ${cust['last_name']}';
+              // Pre-fill One Bar inputs for display
+              if (cust['company_name'] != null &&
+                  cust['company_name'].toString().isNotEmpty) {
+                _fullNameController.text = cust['company_name'];
+                _customerDisplayController.text = cust['company_name'];
+              } else {
+                _fullNameController.text =
+                    '${cust['first_name']} ${cust['last_name']}';
+                _customerDisplayController.text =
+                    '${cust['first_name']} ${cust['last_name']}';
+              }
+
+              // Restore Address
+              if (cust['address_complete'] != null) {
+                _addressController.text = cust['address_complete'];
+              } else {
+                // Fallback for old data
+                _addressController.text =
+                    "${cust['unit_building_house_no'] ?? ''} ${cust['street'] ?? ''} ${cust['barangay'] ?? ''} ${cust['city'] ?? ''}"
+                        .trim();
+              }
             }
           }
 
-          // 2. Populate Aircon List (from our manual fetch above)
           if (loadedClientAircons.isNotEmpty) {
             _clientAircons = loadedClientAircons;
           }
 
-          // 3. Restore Checkboxes (Now safe from being cleared)
           _selectedAirconIds.clear();
           _selectedAirconIds.addAll(existingLinkedAircons);
-
           _selectedTechnicianIds.clear();
           _selectedTechnicianIds.addAll(existingLinkedTechs);
         }
@@ -2246,10 +2078,14 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
     }
   }
 
+  // --- Actions ---
+
   Future<void> _fetchClientAircons(int clientId) async {
     final units = await _supabase
         .from('aircons')
-        .select('id, remarks, brands(brand_name), aircon_types(type_name)')
+        .select(
+          'id, remarks, horse_power, is_inverter, brands(brand_name), aircon_types(type_name)',
+        )
         .eq('customer_id', clientId);
 
     if (mounted) {
@@ -2260,6 +2096,7 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
     }
   }
 
+  // Used for adding EXTRA units to existing clients
   void _addNewUnitDialog() {
     showDialog(
       context: context,
@@ -2305,6 +2142,34 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
               onChanged: (v) => _selectedAirconTypeId = v,
             ),
             const SizedBox(height: 12),
+            // NEW FIELDS IN POPUP
+            Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: _hpController,
+                    decoration: const InputDecoration(
+                      labelText: "HP",
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: StatefulBuilder(
+                    builder: (context, setState) {
+                      return CheckboxListTile(
+                        title: const Text("Inverter"),
+                        value: _isInverter,
+                        onChanged: (v) =>
+                            setState(() => _isInverter = v ?? false),
+                      );
+                    },
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
             TextField(
               controller: _unitRemarkController,
               decoration: const InputDecoration(
@@ -2324,15 +2189,16 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
               if (_selectedClientId == null) return;
               final brandName = _selectedBrandName.trim();
               if (brandName.isEmpty) return;
+
               int brandId;
               final brandCheck = await _supabase
                   .from('brands')
                   .select('id')
                   .ilike('brand_name', brandName)
                   .maybeSingle();
-              if (brandCheck != null)
+              if (brandCheck != null) {
                 brandId = brandCheck['id'];
-              else {
+              } else {
                 final newBrand = await _supabase
                     .from('brands')
                     .insert({'brand_name': brandName})
@@ -2340,12 +2206,17 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
                     .single();
                 brandId = newBrand['id'];
               }
+
               await _supabase.from('aircons').insert({
                 'customer_id': _selectedClientId,
                 'brand_id': brandId,
                 'aircon_type_id': _selectedAirconTypeId ?? 1,
                 'remarks': _unitRemarkController.text,
+                // Insert New Fields
+                'horse_power': _hpController.text,
+                'is_inverter': _isInverter,
               });
+
               if (mounted) {
                 Navigator.pop(context);
                 _fetchClientAircons(_selectedClientId!);
@@ -2358,24 +2229,9 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
     );
   }
 
-  // --- VALIDATORS ---
-  String? _validatePhone(String? value) {
-    if (value == null || value.isEmpty) return 'Required';
-    final trimmed = value.trim();
-    if (!RegExp(r'^(09\d{9}|\d{7,10})$').hasMatch(trimmed)) return 'Invalid #';
-    return null;
-  }
-
-  String? _validateEmail(String? value) {
-    if (value == null || value.isEmpty) return null;
-    if (!value.contains('@') || !value.contains('.')) return 'Invalid email';
-    return null;
-  }
-
-  // --- SUBMIT ---
-  // 2. FIXED SUBMIT METHOD
+  // --- SUBMISSION LOGIC (Smart Parse) ---
   Future<void> _submit() async {
-    // Pre-validation
+    // 1. Validation
     if (!_isNewClient && _selectedClientId == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -2385,18 +2241,13 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
       );
       return;
     }
-
     if (_isNewClient) {
-      // Validate required fields explicitly
-      if (_firstNameController.text.trim().isEmpty ||
-          _lastNameController.text.trim().isEmpty ||
-          _phoneController.text.trim().isEmpty ||
-          _streetController.text.trim().isEmpty ||
-          _barangayController.text.trim().isEmpty ||
-          _cityController.text.trim().isEmpty) {
+      if (_fullNameController.text.trim().isEmpty ||
+          _addressController.text.trim().isEmpty ||
+          _phoneController.text.trim().isEmpty) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text("Please fill in all required fields"),
+            content: Text("Name, Address, and Phone are required"),
             backgroundColor: Colors.red,
           ),
         );
@@ -2409,35 +2260,46 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
     try {
       int? finalCustomerId = _selectedClientId;
 
-      // 1. CREATE CUSTOMER (if new)
+      // 2. CREATE CUSTOMER (Parsing One Bar inputs)
       if (_isNewClient) {
-        print("Creating new customer...");
+        String firstName = '-';
+        String lastName = '-';
+        String? companyName;
+
+        final fullName = _fullNameController.text.trim();
+
+        if (_customerType == 'Commercial') {
+          companyName = fullName;
+          firstName =
+              "Contact"; // Default placeholders for DB structure constraints
+          lastName = "Person";
+        } else {
+          // Naive Name Splitter for Residential
+          List<String> parts = fullName.split(' ');
+          if (parts.isNotEmpty) {
+            firstName = parts.first;
+            if (parts.length > 1) {
+              lastName = parts.sublist(1).join(' ');
+            } else {
+              lastName = '.'; // Placeholder if single name
+            }
+          }
+        }
 
         final newCustomerData = {
-          'first_name': _firstNameController.text.trim(),
-          'middle_name': _middleNameController.text.trim().isEmpty
-              ? null
-              : _middleNameController.text.trim(),
-          'last_name': _lastNameController.text.trim(),
-          'company_name': _companyController.text.trim().isEmpty
-              ? null
-              : _companyController.text.trim(),
-          'job_position': _jobPositionController.text.trim().isEmpty
-              ? null
-              : _jobPositionController.text.trim(),
+          'first_name': firstName,
+          'last_name': lastName,
+          'company_name': companyName,
+          'address_complete': _addressController.text
+              .trim(), // Saving One Bar Address
           'contact_number': _phoneController.text.trim(),
           'email': _emailController.text.trim().isEmpty
               ? null
               : _emailController.text.trim(),
-          'unit_building_house_no': _unitController.text.trim(),
-          'street': _streetController.text.trim(),
-          'subdivision_village': _villageController.text.trim(),
-          'barangay': _barangayController.text.trim(),
-          'city': _cityController.text.trim(),
-          'landmark': _landmarkController.text.trim().isEmpty
-              ? null
-              : _landmarkController.text.trim(),
-          'customer_type_id': _companyController.text.trim().isEmpty ? 2 : 1,
+          'customer_type_id': _customerType == 'Commercial' ? 1 : 2,
+          // Legacy fields can be left null or derived if needed
+          'city': '',
+          'barangay': '',
         };
 
         final custRes = await _supabase
@@ -2445,22 +2307,14 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
             .insert(newCustomerData)
             .select('id')
             .single();
-
         finalCustomerId = custRes['id'] as int;
       }
 
-      if (finalCustomerId == null) {
-        throw "Customer selection error. Please try again.";
-      }
-
-      // 2. CREATE AIRCON (if new client)
+      // 3. CREATE AIRCON (If New Client & Info Provided)
+      // Check if user entered brand info
       if (_isNewClient && _selectedBrandName.trim().isNotEmpty) {
-        print("Creating aircon unit...");
-
         final brandName = _selectedBrandName.trim();
         int brandId;
-
-        // Check if brand exists
         final brandCheck = await _supabase
             .from('brands')
             .select('id')
@@ -2468,25 +2322,25 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
             .maybeSingle();
 
         if (brandCheck != null) {
-          brandId = brandCheck['id'] as int;
+          brandId = brandCheck['id'];
         } else {
-          // Create new brand
           final newBrand = await _supabase
               .from('brands')
               .insert({'brand_name': brandName})
               .select('id')
               .single();
-          brandId = newBrand['id'] as int;
+          brandId = newBrand['id'];
         }
 
-        // Create aircon unit
         final airconData = {
           'customer_id': finalCustomerId,
           'brand_id': brandId,
           'aircon_type_id': _selectedAirconTypeId ?? 1,
           'remarks': _unitRemarkController.text.trim().isEmpty
-              ? 'New Unit'
+              ? 'Main Unit'
               : _unitRemarkController.text.trim(),
+          'horse_power': _hpController.text.trim(), // New
+          'is_inverter': _isInverter, // New
         };
 
         final newAircon = await _supabase
@@ -2494,47 +2348,36 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
             .insert(airconData)
             .select('id')
             .single();
-
-        final airconId = newAircon['id'] as int;
-        _selectedAirconIds.add(airconId);
+        _selectedAirconIds.add(newAircon['id']);
       }
 
-      // 3. CREATE/UPDATE JOB ORDER
-      print("Creating/updating job order...");
-
-      // Get correct job type ID
+      // 4. CREATE JOB ORDER
       final typeRes = await _supabase
           .from('job_types')
           .select('id')
           .eq('job_type_name', _jobTypeName)
           .maybeSingle();
-
       final correctTypeId = typeRes != null
           ? (typeRes['id'] as int)
           : _jobTypeId;
 
-      // Create DateTime
       final scheduleDateTime = DateTime(
         _scheduleDate.year,
         _scheduleDate.month,
         _scheduleDate.day,
         _scheduleTime.hour,
         _scheduleTime.minute,
-        0,
       );
 
-      // --- LOGIC FOR REFERENCE NUMBER (CLIENT JO/MSR) ---
+      // Reference Number Logic
       String finalJoNumber = _externalRefController.text.trim();
-
       if (finalJoNumber.isEmpty) {
-        // If user left it blank:
         if (widget.existingJob != null) {
-          // On Edit: Keep the old one
           finalJoNumber = widget.existingJob!.displayId;
         } else {
-          // On Create: Generate a new internal JO-XXXX
+          // Format: JO-TIMESTAMP (Last 5 digits)
           finalJoNumber =
-              'JO-${DateTime.now().millisecondsSinceEpoch.toString().substring(9)}';
+              'JO-${DateTime.now().millisecondsSinceEpoch.toString().substring(8)}';
         }
       }
 
@@ -2546,101 +2389,73 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
         'notes': _notesController.text.isNotEmpty
             ? _notesController.text
             : null,
-        // SAVE THE REFERENCE NUMBER
         'client_jo_number': finalJoNumber,
       };
 
       int newJoId;
 
       if (widget.existingJob != null) {
-        // UPDATE EXISTING JOB
         await _supabase
             .from('job_orders')
             .update(jobData)
             .eq('id', widget.existingJob!.dbId);
-
         newJoId = widget.existingJob!.dbId;
-
-        // Clear old aircon links before adding new ones
+        // Clean slate for links
         await _supabase
             .from('job_order_aircons')
             .delete()
             .eq('job_order_id', newJoId);
+        await _supabase
+            .from('job_order_technicians')
+            .delete()
+            .eq('job_order_id', newJoId);
       } else {
-        // CREATE NEW JOB
-        // Add fields only for new jobs
         jobData['user_id'] = _supabase.auth.currentUser?.id;
-
         final joRes = await _supabase
             .from('job_orders')
             .insert(jobData)
             .select('id')
             .single();
-
         newJoId = joRes['id'] as int;
       }
 
-      // 4. LINK AIRCONS TO JOB ORDER
-      if (_selectedAirconIds.isNotEmpty) {
-        for (int airconId in _selectedAirconIds) {
-          await _supabase.from('job_order_aircons').insert({
-            'job_order_id': newJoId,
-            'aircon_id': airconId,
-          });
-        }
+      // 5. LINK ASSETS & TECHS
+      for (int airconId in _selectedAirconIds) {
+        await _supabase.from('job_order_aircons').insert({
+          'job_order_id': newJoId,
+          'aircon_id': airconId,
+        });
+      }
+      for (int techId in _selectedTechnicianIds) {
+        await _supabase.from('job_order_technicians').insert({
+          'job_order_id': newJoId,
+          'technician_id': techId,
+          'role': 'Technician',
+        });
       }
 
-      // 5. LINK TECHNICIANS
-      await _supabase
-          .from('job_order_technicians')
-          .delete()
-          .eq('job_order_id', newJoId);
-
-      if (_selectedTechnicianIds.isNotEmpty) {
-        for (int techId in _selectedTechnicianIds) {
-          await _supabase.from('job_order_technicians').insert({
-            'job_order_id': newJoId,
-            'technician_id': techId,
-            'role': 'Technician',
-          });
-        }
-      }
-      // LOG IT!
+      // 6. LOG & CLOSE
       await ActivityLogger.log(
         type: widget.existingJob != null ? 'Update' : 'Create',
         details: widget.existingJob != null
             ? 'Updated Job $finalJoNumber'
-            : 'Created Job $finalJoNumber for ${_customerDisplayController.text}',
+            : 'Created Job $finalJoNumber',
       );
 
-      // SUCCESS!
       if (mounted) {
         Navigator.pop(context, true);
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              widget.existingJob != null
-                  ? "Job Updated Successfully!"
-                  : "Job Order Created Successfully!",
-            ),
+          const SnackBar(
+            content: Text("Success!"),
             backgroundColor: Colors.green,
-            duration: const Duration(seconds: 2),
           ),
         );
       }
-    } catch (e, stackTrace) {
-      print("ERROR in _submit: $e");
-      print("Stack trace: $stackTrace");
-
-      if (mounted) {
+    } catch (e) {
+      if (mounted)
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text("Error: ${e.toString()}"),
-            backgroundColor: Colors.red,
-            duration: const Duration(seconds: 5),
-          ),
+          SnackBar(content: Text("Error: $e"), backgroundColor: Colors.red),
         );
-      }
     } finally {
       if (mounted) setState(() => _isSubmitting = false);
     }
@@ -2648,7 +2463,6 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
 
   @override
   Widget build(BuildContext context) {
-    // FIX: Using LayoutBuilder for dynamic sizing
     return LayoutBuilder(
       builder: (context, constraints) {
         return Dialog(
@@ -2660,10 +2474,12 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
           ),
           child: Container(
             width: constraints.maxWidth < 600 ? double.infinity : 600,
-            height: constraints.maxHeight * 0.85,
+            height:
+                constraints.maxHeight * 0.90, // Slightly taller for new fields
             color: Colors.white,
             child: Column(
               children: [
+                // --- STEP HEADER ---
                 Container(
                   padding: const EdgeInsets.all(20),
                   decoration: const BoxDecoration(
@@ -2681,10 +2497,10 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
                       Expanded(
                         child: Text(
                           _currentStep == 0
-                              ? "Service Type"
+                              ? "Customer Type"
                               : _currentStep == 1
-                              ? "Customer & Asset"
-                              : "Schedule",
+                              ? "Service Type"
+                              : "Job Details",
                           textAlign: TextAlign.center,
                           style: const TextStyle(
                             fontSize: 18,
@@ -2700,6 +2516,7 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
                   ),
                 ),
 
+                // --- CONTENT ---
                 Expanded(
                   child: Padding(
                     padding: const EdgeInsets.all(24),
@@ -2707,6 +2524,7 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
                   ),
                 ),
 
+                // --- FOOTER BUTTON ---
                 Padding(
                   padding: const EdgeInsets.all(24),
                   child: SizedBox(
@@ -2716,46 +2534,24 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
                       onPressed: _isSubmitting
                           ? null
                           : () {
-                              // Step 1 -> Step 2: Just advance
                               if (_currentStep == 0) {
                                 setState(() => _currentStep++);
-                              }
-                              // Step 2 -> Step 3: Validate form if new client
-                              else if (_currentStep == 1) {
-                                if (_isNewClient) {
-                                  // Validate the form NOW while it is still on screen
-                                  if (_formKey.currentState!.validate()) {
-                                    setState(() => _currentStep++);
-                                  } else {
-                                    // Show error if validation fails
-                                    ScaffoldMessenger.of(context).showSnackBar(
-                                      const SnackBar(
-                                        content: Text(
-                                          "Please fix errors in red",
-                                        ),
-                                        backgroundColor: Colors.red,
-                                      ),
-                                    );
-                                  }
+                              } else if (_currentStep == 1) {
+                                // Skip validation if simply choosing Service Type
+                                setState(() => _currentStep++);
+                              } else {
+                                // Final Step: Submit
+                                if (_isNewClient &&
+                                    !_formKey.currentState!.validate()) {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    const SnackBar(
+                                      content: Text("Please check fields"),
+                                      backgroundColor: Colors.red,
+                                    ),
+                                  );
                                 } else {
-                                  // Existing client - just check if selected
-                                  if (_selectedClientId == null) {
-                                    ScaffoldMessenger.of(context).showSnackBar(
-                                      const SnackBar(
-                                        content: Text(
-                                          "Please select a customer",
-                                        ),
-                                        backgroundColor: Colors.red,
-                                      ),
-                                    );
-                                  } else {
-                                    setState(() => _currentStep++);
-                                  }
+                                  _submit();
                                 }
-                              }
-                              // Step 3: Submit
-                              else if (_currentStep == 2) {
-                                _submit();
                               }
                             },
                       style: ElevatedButton.styleFrom(
@@ -2789,12 +2585,37 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
   }
 
   Widget _buildCurrentStep() {
-    if (_currentStep == 0) return _stepOne();
-    if (_currentStep == 1) return _stepTwo();
-    return _stepThree();
+    if (_currentStep == 0) return _stepCustomerType();
+    if (_currentStep == 1) return _stepServiceType();
+    return _stepDetails();
   }
 
-  Widget _stepOne() {
+  // --- STEP 0: CUSTOMER TYPE ---
+  Widget _stepCustomerType() {
+    return Column(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        _BigVisualOption(
+          icon: Icons.home_rounded,
+          title: "Residential",
+          color: Colors.blue,
+          isSelected: _customerType == 'Residential',
+          onTap: () => setState(() => _customerType = 'Residential'),
+        ),
+        const SizedBox(height: 16),
+        _BigVisualOption(
+          icon: Icons.business_rounded,
+          title: "Commercial",
+          color: Colors.orange,
+          isSelected: _customerType == 'Commercial',
+          onTap: () => setState(() => _customerType = 'Commercial'),
+        ),
+      ],
+    );
+  }
+
+  // --- STEP 1: SERVICE TYPE ---
+  Widget _stepServiceType() {
     return SingleChildScrollView(
       child: Column(
         children: [
@@ -2834,14 +2655,15 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
     );
   }
 
-  Widget _stepTwo() {
+  // --- STEP 2: DETAILS (Consolidated) ---
+  Widget _stepDetails() {
     final isEditing = widget.existingJob != null;
 
     return SingleChildScrollView(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // 1. HIDE TOGGLE IF EDITING
+          // 1. Existing vs New Toggle (Only show if not editing)
           if (!isEditing) ...[
             Container(
               padding: const EdgeInsets.all(4),
@@ -2853,14 +2675,14 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
                 children: [
                   Expanded(
                     child: _ToggleOption(
-                      label: "Existing",
+                      label: "Existing Client",
                       isSelected: !_isNewClient,
                       onTap: () => setState(() => _isNewClient = false),
                     ),
                   ),
                   Expanded(
                     child: _ToggleOption(
-                      label: "New Client",
+                      label: "New Entry",
                       isSelected: _isNewClient,
                       onTap: () => setState(() => _isNewClient = true),
                     ),
@@ -2871,71 +2693,55 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
             const SizedBox(height: 20),
           ],
 
+          // 2. CLIENT SELECTION / ENTRY
           if (!_isNewClient) ...[
             const Text(
-              "Customer",
+              "Select Customer",
               style: TextStyle(fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 8),
-
-            // 2. SHOW LOCKED FIELD IF EDITING, ELSE SHOW SEARCH
-            if (isEditing)
-              TextField(
-                controller: _customerDisplayController,
-                readOnly: true,
-                decoration: const InputDecoration(
-                  labelText: "Selected Customer",
-                  prefixIcon: Icon(Icons.lock, color: Colors.grey),
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.all(Radius.circular(12)),
+            // Existing Client Search
+            Autocomplete<Map<String, dynamic>>(
+              optionsBuilder: (v) {
+                if (v.text.isEmpty)
+                  return const Iterable<Map<String, dynamic>>.empty();
+                return _existingClients.where((c) {
+                  final name =
+                      c['company_name'] ??
+                      '${c['first_name']} ${c['last_name']}';
+                  return name.toLowerCase().contains(v.text.toLowerCase());
+                });
+              },
+              displayStringForOption: (c) =>
+                  c['company_name'] ?? '${c['first_name']} ${c['last_name']}',
+              onSelected: (selection) {
+                setState(() {
+                  _selectedClientId = selection['id'];
+                  _fetchClientAircons(_selectedClientId!);
+                });
+              },
+              fieldViewBuilder: (ctx, ctrl, focus, onSub) {
+                // If editing, use the display controller which is locked
+                return TextField(
+                  controller: isEditing ? _customerDisplayController : ctrl,
+                  focusNode: focus,
+                  readOnly: isEditing,
+                  decoration: InputDecoration(
+                    hintText: "Search name...",
+                    prefixIcon: isEditing
+                        ? const Icon(Icons.lock)
+                        : const Icon(Icons.search),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    filled: true,
+                    fillColor: isEditing ? Colors.grey[100] : Colors.white,
                   ),
-                  filled: true,
-                  fillColor: Color(
-                    0xFFF1F5F9,
-                  ), // Light grey to indicate disabled
-                ),
-              )
-            else
-              Autocomplete<Map<String, dynamic>>(
-                optionsBuilder: (TextEditingValue textEditingValue) {
-                  if (textEditingValue.text == '')
-                    return const Iterable<Map<String, dynamic>>.empty();
-                  return _existingClients.where((Map<String, dynamic> option) {
-                    final name =
-                        option['company_name'] ??
-                        '${option['first_name']} ${option['last_name']}';
-                    return name.toLowerCase().contains(
-                      textEditingValue.text.toLowerCase(),
-                    );
-                  });
-                },
-                displayStringForOption: (Map<String, dynamic> option) =>
-                    option['company_name'] ??
-                    '${option['first_name']} ${option['last_name']}',
-                onSelected: (Map<String, dynamic> selection) {
-                  setState(() {
-                    _selectedClientId = selection['id'];
-                    _fetchClientAircons(_selectedClientId!);
-                  });
-                },
-                fieldViewBuilder:
-                    (context, controller, focusNode, onFieldSubmitted) {
-                      return TextField(
-                        controller: controller,
-                        focusNode: focusNode,
-                        decoration: const InputDecoration(
-                          hintText: "Type client name...",
-                          prefixIcon: Icon(Icons.search),
-                          border: OutlineInputBorder(
-                            borderRadius: BorderRadius.all(Radius.circular(12)),
-                          ),
-                          filled: true,
-                          fillColor: Colors.white,
-                        ),
-                      );
-                    },
-              ),
+                );
+              },
+            ),
 
+            // Unit Selection for Existing
             if (_selectedClientId != null) ...[
               const SizedBox(height: 20),
               Row(
@@ -2952,22 +2758,19 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
                   ),
                 ],
               ),
-              const SizedBox(height: 8),
               if (_clientAircons.isNotEmpty)
                 ..._clientAircons.map((unit) {
-                  final brand = unit['brands'] != null
-                      ? unit['brands']['brand_name']
-                      : 'Unknown';
-                  final type = unit['aircon_types'] != null
-                      ? unit['aircon_types']['type_name']
-                      : 'Unit';
-
-                  final isChecked = _selectedAirconIds.contains(unit['id']);
+                  final brand = unit['brands']?['brand_name'] ?? 'Generic';
+                  final type = unit['aircon_types']?['type_name'] ?? 'Unit';
+                  final hp = unit['horse_power'] != null
+                      ? "${unit['horse_power']}HP"
+                      : "";
+                  final inv = unit['is_inverter'] == true ? "Inverter" : "";
 
                   return CheckboxListTile(
-                    title: Text("$brand $type"),
+                    title: Text("$brand $type $hp $inv".trim()),
                     subtitle: Text(unit['remarks'] ?? ''),
-                    value: isChecked,
+                    value: _selectedAirconIds.contains(unit['id']),
                     onChanged: (v) {
                       setState(() {
                         if (v == true)
@@ -2980,96 +2783,91 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
                 })
               else
                 const Padding(
-                  padding: EdgeInsets.only(top: 10),
+                  padding: EdgeInsets.all(8.0),
                   child: Text(
-                    "No registered units found.",
-                    style: TextStyle(
-                      color: Colors.grey,
-                      fontStyle: FontStyle.italic,
-                    ),
+                    "No units found.",
+                    style: TextStyle(color: Colors.grey),
                   ),
                 ),
             ],
           ] else ...[
-            // FULL NEW CLIENT FORM
+            // NEW CLIENT FORM ("One Bar" inputs)
             Form(
               key: _formKey,
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   const Text(
-                    "Client Info",
+                    "Client Information",
                     style: TextStyle(
                       fontWeight: FontWeight.bold,
                       color: Colors.blue,
                     ),
                   ),
                   const SizedBox(height: 12),
+
+                  // ONE BAR NAME
+                  TextFormField(
+                    controller: _fullNameController,
+                    decoration: InputDecoration(
+                      labelText: _customerType == 'Residential'
+                          ? "Full Name"
+                          : "Company Name / Contact Person",
+                      hintText: "e.g. Juan Dela Cruz",
+                      prefixIcon: const Icon(Icons.person_outline),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
+                    validator: (v) => v!.isEmpty ? "Required" : null,
+                  ),
+                  const SizedBox(height: 12),
+
+                  // ONE BAR ADDRESS
+                  TextFormField(
+                    controller: _addressController,
+                    maxLines: 2,
+                    decoration: InputDecoration(
+                      labelText: "Complete Address",
+                      hintText: "Unit, Street, Barangay, City, Landmark...",
+                      prefixIcon: const Icon(Icons.location_on_outlined),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
+                    validator: (v) => v!.isEmpty ? "Required" : null,
+                  ),
+                  const SizedBox(height: 12),
+
+                  // CONTACT
                   Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Expanded(
-                        child: _SimpleInput(
-                          controller: _firstNameController,
-                          hint: "First Name",
-                          icon: Icons.person,
-                          isRequired: true,
-                          textCapitalization: TextCapitalization.words,
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: _SimpleInput(
-                          controller: _middleNameController,
-                          hint: "Middle (Opt)",
-                          textCapitalization: TextCapitalization.words,
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 12),
-                  _SimpleInput(
-                    controller: _lastNameController,
-                    hint: "Last Name",
-                    isRequired: true,
-                    textCapitalization: TextCapitalization.words,
-                  ),
-                  const SizedBox(height: 12),
-                  _SimpleInput(
-                    controller: _companyController,
-                    hint: "Company Name (Optional)",
-                    icon: Icons.business,
-                    textCapitalization: TextCapitalization.words,
-                  ),
-                  const SizedBox(height: 12),
-                  _SimpleInput(
-                    controller: _jobPositionController,
-                    hint: "Job Position (e.g. Manager)",
-                    icon: Icons.badge,
-                    textCapitalization: TextCapitalization.words,
-                  ),
-                  const SizedBox(height: 12),
-                  Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Expanded(
-                        child: _SimpleInput(
+                        child: TextFormField(
                           controller: _phoneController,
-                          hint: "Mobile/Landline",
-                          icon: Icons.phone,
-                          isRequired: true,
                           keyboardType: TextInputType.phone,
+                          decoration: InputDecoration(
+                            labelText: "Phone Number",
+                            prefixIcon: const Icon(Icons.phone),
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                          ),
                           validator: _validatePhone,
                         ),
                       ),
                       const SizedBox(width: 12),
                       Expanded(
-                        child: _SimpleInput(
+                        child: TextFormField(
                           controller: _emailController,
-                          hint: "Email Address",
-                          icon: Icons.email,
                           keyboardType: TextInputType.emailAddress,
-                          validator: _validateEmail,
+                          decoration: InputDecoration(
+                            labelText: "Email (Optional)",
+                            prefixIcon: const Icon(Icons.email_outlined),
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                          ),
                         ),
                       ),
                     ],
@@ -3077,130 +2875,44 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
 
                   const SizedBox(height: 24),
                   const Text(
-                    "Detailed Address",
+                    "First Unit Details",
                     style: TextStyle(
                       fontWeight: FontWeight.bold,
                       color: Colors.blue,
                     ),
                   ),
                   const SizedBox(height: 12),
-                  Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Expanded(
-                        child: _SimpleInput(
-                          controller: _unitController,
-                          hint: "Unit/House #",
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: _SimpleInput(
-                          controller: _streetController,
-                          hint: "Street Name",
-                          isRequired: true,
-                          textCapitalization: TextCapitalization.words,
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 12),
-                  _SimpleInput(
-                    controller: _villageController,
-                    hint: "Subdivision / Village",
-                    textCapitalization: TextCapitalization.words,
-                  ),
-                  const SizedBox(height: 12),
-                  Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Expanded(
-                        child: _SimpleInput(
-                          controller: _barangayController,
-                          hint: "Barangay",
-                          isRequired: true,
-                          textCapitalization: TextCapitalization.words,
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: _SimpleInput(
-                          controller: _cityController,
-                          hint: "City",
-                          icon: Icons.location_city,
-                          isRequired: true,
-                          textCapitalization: TextCapitalization.words,
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 12),
-                  _SimpleInput(
-                    controller: _landmarkController,
-                    hint: "Landmark (Near...)",
-                    icon: Icons.flag,
-                    textCapitalization: TextCapitalization.sentences,
-                  ),
 
-                  const SizedBox(height: 24),
-                  const Text(
-                    "First Aircon Unit (Optional)",
-                    style: TextStyle(
-                      fontWeight: FontWeight.bold,
-                      color: Colors.grey,
-                    ),
-                  ),
-                  const SizedBox(height: 12),
+                  // BRAND & TYPE ROW
                   Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Expanded(
                         child: LayoutBuilder(
-                          builder: (context, constraints) {
+                          builder: (ctx, constr) {
                             return Autocomplete<String>(
-                              optionsBuilder:
-                                  (TextEditingValue textEditingValue) {
-                                    if (textEditingValue.text == '')
-                                      return const Iterable<String>.empty();
-                                    return _brandOptions.where((String option) {
-                                      return option.toLowerCase().contains(
-                                        textEditingValue.text.toLowerCase(),
-                                      );
-                                    });
-                                  },
-                              onSelected: (String selection) {
-                                _selectedBrandName = selection;
-                              },
-                              fieldViewBuilder:
-                                  (
-                                    context,
-                                    textEditingController,
-                                    focusNode,
-                                    onFieldSubmitted,
-                                  ) {
-                                    textEditingController.addListener(() {
-                                      _selectedBrandName =
-                                          textEditingController.text;
-                                    });
-                                    return TextFormField(
-                                      controller: textEditingController,
-                                      focusNode: focusNode,
-                                      decoration: const InputDecoration(
-                                        label: Text("Brand (Search/Add)"),
-                                        border: OutlineInputBorder(
-                                          borderRadius: BorderRadius.all(
-                                            Radius.circular(12),
-                                          ),
-                                        ),
-                                        filled: true,
-                                        fillColor: Colors.white,
-                                        contentPadding: EdgeInsets.symmetric(
-                                          horizontal: 16,
-                                          vertical: 14,
-                                        ),
+                              optionsBuilder: (v) => v.text == ''
+                                  ? const Iterable<String>.empty()
+                                  : _brandOptions.where(
+                                      (o) => o.toLowerCase().contains(
+                                        v.text.toLowerCase(),
                                       ),
-                                    );
-                                  },
+                                    ),
+                              onSelected: (s) => _selectedBrandName = s,
+                              fieldViewBuilder: (ctx, c, f, o) {
+                                c.addListener(
+                                  () => _selectedBrandName = c.text,
+                                );
+                                return TextFormField(
+                                  controller: c,
+                                  focusNode: f,
+                                  decoration: InputDecoration(
+                                    labelText: "Brand",
+                                    border: OutlineInputBorder(
+                                      borderRadius: BorderRadius.circular(12),
+                                    ),
+                                  ),
+                                );
+                              },
                             );
                           },
                         ),
@@ -3209,18 +2921,10 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
                       Expanded(
                         child: DropdownButtonFormField<int>(
                           value: _selectedAirconTypeId,
-                          decoration: const InputDecoration(
-                            hintText: "Type",
+                          decoration: InputDecoration(
+                            labelText: "Type",
                             border: OutlineInputBorder(
-                              borderRadius: BorderRadius.all(
-                                Radius.circular(12),
-                              ),
-                            ),
-                            filled: true,
-                            fillColor: Colors.white,
-                            contentPadding: EdgeInsets.symmetric(
-                              horizontal: 16,
-                              vertical: 14,
+                              borderRadius: BorderRadius.circular(12),
                             ),
                           ),
                           items: _airconTypes
@@ -3238,188 +2942,156 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
                     ],
                   ),
                   const SizedBox(height: 12),
-                  _SimpleInput(
+
+                  // HP & INVERTER ROW (NEW)
+                  Row(
+                    children: [
+                      Expanded(
+                        child: TextFormField(
+                          controller: _hpController,
+                          decoration: InputDecoration(
+                            labelText: "Horsepower",
+                            hintText: "e.g. 1.5 HP",
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 12),
+                          decoration: BoxDecoration(
+                            border: Border.all(color: Colors.grey),
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: CheckboxListTile(
+                            contentPadding: EdgeInsets.zero,
+                            title: const Text("Inverter?"),
+                            value: _isInverter,
+                            onChanged: (v) =>
+                                setState(() => _isInverter = v ?? false),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+
+                  TextFormField(
                     controller: _unitRemarkController,
-                    hint: "Location (e.g. Lobby)",
-                    textCapitalization: TextCapitalization.words,
+                    decoration: InputDecoration(
+                      labelText: "Location / Notes",
+                      hintText: "e.g. Master Bedroom",
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
                   ),
                 ],
               ),
             ),
           ],
-        ],
-      ),
-    );
-  }
 
-  Widget _stepThree() {
-    return SingleChildScrollView(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // NEW: External Reference Field
-          const Text(
-            "Reference No.",
-            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-          ),
-          const SizedBox(height: 8),
-          TextField(
-            controller: _externalRefController,
-            decoration: const InputDecoration(
-              labelText: "Client JO / MSR # (Optional)",
-              hintText: "Leave blank to auto-generate (JO-XXXX)",
-              border: OutlineInputBorder(),
-              filled: true,
-              fillColor: Colors.white,
-              prefixIcon: Icon(Icons.tag),
-            ),
-          ),
+          const SizedBox(height: 24),
+          const Divider(),
           const SizedBox(height: 24),
 
+          // 3. SCHEDULE & REF
           const Text(
-            "Date & Time",
+            "Schedule & Reference",
             style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-          ),
-          const SizedBox(height: 16),
-
-          // Date Picker
-          ListTile(
-            tileColor: Colors.grey[50],
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(12),
-              side: BorderSide(color: Colors.grey.shade300),
-            ),
-            leading: const Icon(Icons.calendar_month, color: Colors.blue),
-            title: Text("${_scheduleDate.toLocal()}".split(' ')[0]),
-            onTap: () async {
-              final d = await showDatePicker(
-                context: context,
-                initialDate: _scheduleDate,
-                // OPEN: Allow selection of past dates (back to 2020) for record keeping
-                firstDate: DateTime(2020),
-                lastDate: DateTime(2030),
-              );
-              if (d != null) setState(() => _scheduleDate = d);
-            },
           ),
           const SizedBox(height: 12),
 
-          // Time Picker with Conflict Warning
-          ListTile(
-            tileColor: Colors.grey[50],
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(12),
-              side: BorderSide(color: Colors.grey.shade300),
+          TextField(
+            controller: _externalRefController,
+            decoration: InputDecoration(
+              labelText: "Reference No. (Optional)",
+              hintText: "Auto-generates if blank",
+              prefixIcon: const Icon(Icons.tag),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
             ),
-            leading: const Icon(Icons.access_time, color: Colors.orange),
-            title: Text(_scheduleTime.format(context)),
-            onTap: () async {
-              final t = await showTimePicker(
-                context: context,
-                initialTime: _scheduleTime,
-              );
+          ),
+          const SizedBox(height: 12),
 
-              if (t != null) {
-                // 1. Check for conflict
-                final hasConflict = await _checkScheduleConflict(
-                  _scheduleDate,
-                  t,
-                );
-
-                if (hasConflict) {
-                  if (!mounted) return;
-                  // 2. Show Warning
-                  final proceed = await showDialog<bool>(
-                    context: context,
-                    builder: (ctx) => AlertDialog(
-                      title: const Row(
-                        children: [
-                          Icon(
-                            Icons.warning_amber_rounded,
-                            color: Colors.orange,
-                          ),
-                          SizedBox(width: 8),
-                          Text("Double Booking Warning"),
-                        ],
-                      ),
-                      content: Text(
-                        "Another job is already scheduled near ${t.format(context)}.\n\nDo you want to proceed anyway?",
-                      ),
-                      actions: [
-                        TextButton(
-                          onPressed: () => Navigator.pop(ctx, false),
-                          child: const Text("Choose Different Time"),
-                        ),
-                        ElevatedButton(
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.orange,
-                          ),
-                          onPressed: () => Navigator.pop(ctx, true),
-                          child: const Text("Keep This Time"),
-                        ),
-                      ],
-                    ),
-                  );
-
-                  // If user cancelled or clicked outside, stop here
-                  if (proceed != true) return;
-                }
-
-                // 3. Update State
-                setState(() => _scheduleTime = t);
-              }
-            },
+          Row(
+            children: [
+              Expanded(
+                child: ListTile(
+                  tileColor: Colors.grey[50],
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    side: BorderSide(color: Colors.grey.shade300),
+                  ),
+                  leading: const Icon(Icons.calendar_month, color: Colors.blue),
+                  title: Text("${_scheduleDate.toLocal()}".split(' ')[0]),
+                  onTap: () async {
+                    final d = await showDatePicker(
+                      context: context,
+                      initialDate: _scheduleDate,
+                      firstDate: DateTime(2020),
+                      lastDate: DateTime(2030),
+                    );
+                    if (d != null) setState(() => _scheduleDate = d);
+                  },
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: ListTile(
+                  tileColor: Colors.grey[50],
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    side: BorderSide(color: Colors.grey.shade300),
+                  ),
+                  leading: const Icon(Icons.access_time, color: Colors.orange),
+                  title: Text(_scheduleTime.format(context)),
+                  onTap: () async {
+                    final t = await showTimePicker(
+                      context: context,
+                      initialTime: _scheduleTime,
+                    );
+                    if (t != null) {
+                      // Simple conflict check logic here if needed
+                      setState(() => _scheduleTime = t);
+                    }
+                  },
+                ),
+              ),
+            ],
           ),
 
           const SizedBox(height: 24),
           const Text(
-            "Assign Team (Optional)",
+            "Technicians",
             style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
           ),
           const SizedBox(height: 8),
 
-          // Technician Selection Area
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              border: Border.all(color: Colors.grey.shade300),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: _availableTechnicians.isEmpty
-                ? const Text("No technicians found in database.")
-                : Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: _availableTechnicians.map((tech) {
-                      final id = tech['id'] as int;
-                      final name =
-                          "${tech['first_name']} ${tech['last_name'][0]}.";
-                      final isSelected = _selectedTechnicianIds.contains(id);
-
-                      return FilterChip(
-                        label: Text(name),
-                        selected: isSelected,
-                        onSelected: (bool selected) {
-                          setState(() {
-                            if (selected) {
-                              _selectedTechnicianIds.add(id);
-                            } else {
-                              _selectedTechnicianIds.remove(id);
-                            }
-                          });
-                        },
-                        selectedColor: Colors.blue.withOpacity(0.2),
-                        checkmarkColor: Colors.blue,
-                        labelStyle: TextStyle(
-                          color: isSelected ? Colors.blue[900] : Colors.black87,
-                          fontWeight: isSelected
-                              ? FontWeight.bold
-                              : FontWeight.normal,
-                        ),
-                      );
-                    }).toList(),
-                  ),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: _availableTechnicians.map((tech) {
+              final id = tech['id'] as int;
+              final name = "${tech['first_name']} ${tech['last_name'][0]}.";
+              final isSelected = _selectedTechnicianIds.contains(id);
+              return FilterChip(
+                label: Text(name),
+                selected: isSelected,
+                onSelected: (bool selected) {
+                  setState(() {
+                    if (selected)
+                      _selectedTechnicianIds.add(id);
+                    else
+                      _selectedTechnicianIds.remove(id);
+                  });
+                },
+              );
+            }).toList(),
           ),
 
           const SizedBox(height: 24),
@@ -3430,9 +3102,9 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
           const SizedBox(height: 8),
           TextField(
             controller: _notesController,
-            maxLines: 3,
+            maxLines: 2,
             decoration: InputDecoration(
-              hintText: "Additional instructions...",
+              hintText: "Gate pass needed, dogs, etc...",
               border: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(12),
               ),
