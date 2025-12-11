@@ -1,0 +1,1124 @@
+﻿
+  build_log_2.txt:171:[   +2 ms] 
+LocalFile: 'C:\Users\Jester\Documents\
+Flutter_Projects\it12_cloned_2\IT12_G-
+J_AIRCON_SOLUTIONS\android\settings.gr
+adle.kts' provides AGP version: 8.9.1
+  build_log_2.txt:172:[  +11 ms] 
+Running Gradle task 
+'assembleRelease'...
+  build_log_2.txt:173:[   +1 ms] 
+executing: [C:\Users\Jester\Documents\
+Flutter_Projects\it12_cloned_2\IT12_G-
+J_AIRCON_SOLUTIONS\android/] C:\Users\
+Jester\Documents\Flutter_Projects\it12
+_cloned_2\IT12_G-J_AIRCON_SOLUTIONS\an
+droid\gradlew.bat --full-stacktrace 
+--info -Pverbose=true -Ptarget-platfor
+m=android-arm,android-arm64,android-x6
+4 -Ptarget=lib\main.dart -Pbase-applic
+ation-name=android.app.Application -Pd
+art-defines=RkxVVFRFUl9WRVJTSU9OPTMuMz
+guMw==,RkxVVFRFUl9DSEFOTkVMPXN0YWJsZQ=
+=,RkxVVFRFUl9HSVRfVVJMPWh0dHBzOi8vZ2l0
+aHViLmNvbS9mbHV0dGVyL2ZsdXR0ZXIuZ2l0,R
+kxVVFRFUl9GUkFNRVdPUktfUkVWSVNJT049MTk
+wNzRkMTJmNw==,RkxVVFRFUl9FTkdJTkVfUkVW
+SVNJT049MTNlNjU4NzI1ZA==,RkxVVFRFUl9EQ
+VJUX1ZFUlNJT049My4xMC4x 
+-Pdart-obfuscation=false 
+-Ptrack-widget-creation=true 
+-Ptree-shake-icons=true 
+assembleRelease
+  build_log_2.txt:174:[+1464 ms] 
+Initialized native services in: 
+C:\Users\Jester\.gradle\native
+  build_log_2.txt:175:[   +1 ms] 
+Initialized jansi services in: 
+C:\Users\Jester\.gradle\native
+> build_log_2.txt:176:[ +633 ms] 
+Found daemon DaemonInfo{pid=209508, ad
+dress=[a8d9863c-bdd0-4cb2-9c7f-054fcb5
+e54bf port:58765, 
+addresses:[/127.0.0.1]], state=Idle, 
+lastBusy=1758253038422, context=Defaul
+tDaemonContext[uid=e89c74be-379c-4722-
+a1b6-f3a93761e498,javaHome=C:\Program 
+Files\Java\jdk-25,javaVersion=25,javaV
+endor=Oracle Corporation,daemonRegistr
+yDir=C:\Users\Jester\.gradle\daemon,pi
+d=209508,idleTimeout=10800000,priority
+=NORMAL,applyInstrumentationAgent=true
+,nativeServicesMode=ENABLED,daemonOpts
+=-XX:MaxMetaspaceSize=4G,-XX:ReservedC
+odeCacheSize=512m,-XX:+HeapDumpOnOutOf
+MemoryError,-Xmx8G,-Dfile.encoding=UTF
+-8,-Duser.country=PH,-Duser.language=e
+n,-Duser.variant]} however its 
+context does not match the desired 
+criteria.
+> build_log_2.txt:177:[   +2 ms] JVM 
+is incompatible.
+> build_log_2.txt:178:[        ] 
+Wanted: DaemonRequestContext{jvmCriter
+ia=C:\Program Files\Android\Android 
+Studio\jbr (no JDK specified, using 
+current Java home), 
+daemonOpts=[-XX:MaxMetaspaceSize=4G, 
+-XX:ReservedCodeCacheSize=512m, 
+-XX:+HeapDumpOnOutOfMemoryError, 
+-Xmx8G, -Dfile.encoding=UTF-8, 
+-Duser.country=PH, 
+-Duser.language=en, -Duser.variant], 
+applyInstrumentationAgent=true, 
+nativeServicesMode=ENABLED, 
+priority=NORMAL}
+> build_log_2.txt:179:[        ] 
+Actual: DefaultDaemonContext[uid=e89c7
+4be-379c-4722-a1b6-f3a93761e498,javaHo
+me=C:\Program Files\Java\jdk-25,javaVe
+rsion=25,javaVendor=Oracle Corporation
+,daemonRegistryDir=C:\Users\Jester\.gr
+adle\daemon,pid=209508,idleTimeout=108
+00000,priority=NORMAL,applyInstrumenta
+tionAgent=true,nativeServicesMode=ENAB
+LED,daemonOpts=-XX:MaxMetaspaceSize=4G
+,-XX:ReservedCodeCacheSize=512m,-XX:+H
+eapDumpOnOutOfMemoryError,-Xmx8G,-Dfil
+e.encoding=UTF-8,-Duser.country=PH,-Du
+ser.language=en,-Duser.variant]
+  build_log_2.txt:180:[        ]   
+Looking for a different daemon...
+> build_log_2.txt:181:[        ] 
+Found daemon DaemonInfo{pid=28580, add
+ress=[fcb5ac81-ec2d-4b0b-a8e9-df50ec6f
+fae0 port:59699, 
+addresses:[/127.0.0.1]], state=Idle, 
+lastBusy=1760546566122, context=Defaul
+tDaemonContext[uid=96405044-01fb-4561-
+a2e4-38cefc5a1323,javaHome=C:\Program 
+Files\Java\jdk-17,javaVersion=17,javaV
+endor=Oracle Corporation,daemonRegistr
+yDir=C:\Users\Jester\.gradle\daemon,pi
+d=28580,idleTimeout=10800000,priority=
+NORMAL,applyInstrumentationAgent=true,
+nativeServicesMode=ENABLED,daemonOpts=
+-XX:MaxMetaspaceSize=1G,-XX:ReservedCo
+deCacheSize=256m,-XX:+HeapDumpOnOutOfM
+emoryError,-Xmx2048M,-Dfile.encoding=w
+indows-1252,-Duser.country=PH,-Duser.l
+anguage=en,-Duser.variant]} however 
+its context does not match the 
+desired criteria.
+> build_log_2.txt:182:[        ] JVM 
+is incompatible.
+> build_log_2.txt:183:[        ] 
+Wanted: DaemonRequestContext{jvmCriter
+ia=C:\Program Files\Android\Android 
+Studio\jbr (no JDK specified, using 
+current Java home), 
+daemonOpts=[-XX:MaxMetaspaceSize=4G, 
+-XX:ReservedCodeCacheSize=512m, 
+-XX:+HeapDumpOnOutOfMemoryError, 
+-Xmx8G, -Dfile.encoding=UTF-8, 
+-Duser.country=PH, 
+-Duser.language=en, -Duser.variant], 
+applyInstrumentationAgent=true, 
+nativeServicesMode=ENABLED, 
+priority=NORMAL}
+> build_log_2.txt:184:[        ] 
+Actual: DefaultDaemonContext[uid=96405
+044-01fb-4561-a2e4-38cefc5a1323,javaHo
+me=C:\Program Files\Java\jdk-17,javaVe
+rsion=17,javaVendor=Oracle Corporation
+,daemonRegistryDir=C:\Users\Jester\.gr
+adle\daemon,pid=28580,idleTimeout=1080
+0000,priority=NORMAL,applyInstrumentat
+ionAgent=true,nativeServicesMode=ENABL
+ED,daemonOpts=-XX:MaxMetaspaceSize=1G,
+-XX:ReservedCodeCacheSize=256m,-XX:+He
+apDumpOnOutOfMemoryError,-Xmx2048M,-Df
+ile.encoding=windows-1252,-Duser.count
+ry=PH,-Duser.language=en,-Duser.varian
+t]
+  build_log_2.txt:185:[        ]   
+Looking for a different daemon...
+  build_log_2.txt:186:[  +78 ms] The 
+client will now receive all logging 
+from the daemon (pid: 4928). The 
+daemon log file: C:\Users\Jester\.grad
+le\daemon\8.12\daemon-4928.out.log
+  build_log_2.txt:187:[        ] 
+Starting 6th build in daemon [uptime: 
+9 mins 12.253 secs, performance: 
+100%, GC rate: 0.00/s, heap usage: 0% 
+of 8 GiB, non-heap usage: 5% of 4 GiB]
+  build_log_2.txt:188:[  +91 ms] 
+Using 12 worker leases.
+  build_log_2.txt:189:[        ] Now 
+considering [C:\Users\Jester\Documents
+\Flutter_Projects\it12_cloned_2\IT12_G
+-J_AIRCON_SOLUTIONS\android, C:\dev\fl
+utter\packages\flutter_tools\gradle] 
+as hierarchies to watch
+  build_log_2.txt:202:[        ] 
+kotlin scripting plugin: created the 
+scripting discovery configuration: 
+testKotlinScriptDef
+  build_log_2.txt:203:[        ] file 
+or directory 'C:\dev\flutter\packages\
+flutter_tools\gradle\src\main\java', 
+not found
+  build_log_2.txt:204:[        ] 
+Resolved plugin [id: 
+'dev.flutter.flutter-plugin-loader', 
+version: '1.0.0']
+  build_log_2.txt:205:[        ] 
+Resolved plugin [id: 
+'com.android.application', version: 
+'8.9.1', apply: false]
+  build_log_2.txt:206:[        ] 
+Resolved plugin [id: 
+'org.jetbrains.kotlin.android', 
+version: '2.1.0', apply: false]
+> build_log_2.txt:207:[  +89 ms] 
+Resolve mutations for :gradle:checkKot
+linGradlePluginConfigurationErrors 
+(Thread[#741,Execution 
+worker,5,main]) started.
+> build_log_2.txt:208:[        ] :grad
+le:checkKotlinGradlePluginConfiguratio
+nErrors (Thread[#741,Execution 
+worker,5,main]) started.
+> build_log_2.txt:209:[        ] > 
+Task :gradle:checkKotlinGradlePluginCo
+nfigurationErrors SKIPPED
+> build_log_2.txt:210:[        ] 
+Skipping task ':gradle:checkKotlinGrad
+lePluginConfigurationErrors' as task 
+onlyIf 'errorDiagnostics are present' 
+is false.
+  build_log_2.txt:211:[        ] 
+Resolve mutations for 
+:gradle:compileKotlin 
+(Thread[#741,Execution 
+worker,5,main]) started.
+  build_log_2.txt:212:[        ] 
+:gradle:compileKotlin 
+(Thread[#741,Execution 
+worker,5,main]) started.
+  build_log_2.txt:213:[ +105 ms] > 
+Task :gradle:compileKotlin UP-TO-DATE
+  build_log_2.txt:214:[        ] 
+Caching disabled for task 
+':gradle:compileKotlin' because:
+  build_log_2.txt:215:[        ]   
+Build cache is disabled
+  build_log_2.txt:374:[        ] 
+Evaluating project 
+':url_launcher_android' using build 
+file 'C:\Users\Jester\AppData\Local\Pu
+b\Cache\hosted\pub.dev\url_launcher_an
+droid-6.3.28\android\build.gradle'.
+  build_log_2.txt:375:[        ] 
+Using default execution profile
+  build_log_2.txt:376:[        ] All 
+projects evaluated.
+  build_log_2.txt:377:[        ] Task 
+name matched 'assembleRelease'
+  build_log_2.txt:378:[        ] 
+Selected primary task 
+'assembleRelease' from project :
+> build_log_2.txt:379:[ +703 ms] 
+Tasks to be executed: [task 
+':app:ReleaseMinSdkCheck', task 
+':app:compileFlutterBuildRelease', 
+task ':app:packJniLibsflutterBuildRele
+ase', task ':app:preBuild', task 
+':app:preReleaseBuild', task ':app:con
+figureCMakeRelease[arm64-v8a]', task 
+':app:buildCMakeRelease[arm64-v8a]', 
+task ':app:configureCMakeRelease[armea
+bi-v7a]', task ':app:buildCMakeRelease
+[armeabi-v7a]', task 
+':app:configureCMakeRelease[x86_64]', 
+task 
+':app:buildCMakeRelease[x86_64]', 
+task 
+':app:mergeReleaseJniLibFolders', 
+task ':app_links:preBuild', task 
+':app_links:preReleaseBuild', task ':a
+pp_links:mergeReleaseJniLibFolders', 
+task 
+':app_links:mergeReleaseNativeLibs', 
+task ':app_links:copyReleaseJniLibsPro
+jectOnly', task ':flutter_local_notifi
+cations:preBuild', task ':flutter_loca
+l_notifications:preReleaseBuild', 
+task ':flutter_local_notifications:mer
+geReleaseJniLibFolders', task ':flutte
+r_local_notifications:mergeReleaseNati
+veLibs', task ':flutter_local_notifica
+tions:copyReleaseJniLibsProjectOnly', 
+task 
+':path_provider_android:preBuild', 
+task ':path_provider_android:preReleas
+eBuild', task ':path_provider_android:
+mergeReleaseJniLibFolders', task ':pat
+h_provider_android:mergeReleaseNativeL
+ibs', task ':path_provider_android:cop
+yReleaseJniLibsProjectOnly', task 
+':printing:preBuild', task 
+':printing:preReleaseBuild', task ':pr
+inting:mergeReleaseJniLibFolders', 
+task 
+':printing:mergeReleaseNativeLibs', 
+task ':printing:copyReleaseJniLibsProj
+ectOnly', task ':shared_preferences_an
+droid:preBuild', task ':shared_prefere
+nces_android:preReleaseBuild', task ':
+shared_preferences_android:mergeReleas
+eJniLibFolders', task ':shared_prefere
+nces_android:mergeReleaseNativeLibs', 
+task ':shared_preferences_android:copy
+ReleaseJniLibsProjectOnly', task 
+':url_launcher_android:preBuild', 
+task ':url_launcher_android:preRelease
+Build', task ':url_launcher_android:me
+rgeReleaseJniLibFolders', task ':url_l
+auncher_android:mergeReleaseNativeLibs
+', task ':url_launcher_android:copyRel
+easeJniLibsProjectOnly', task 
+':app:mergeReleaseNativeLibs', task 
+':app:stripReleaseDebugSymbols', task 
+':app:extractReleaseNativeSymbolTables
+', task ':app:mergeReleaseNativeDebugM
+etadata', task ':app_links:generateRel
+easeResValues', task ':app_links:gener
+ateReleaseResources', task 
+':app_links:packageReleaseResources', 
+task ':app_links:parseReleaseLocalReso
+urces', task 
+':app_links:generateReleaseRFile', 
+task 
+':app_links:javaPreCompileRelease', 
+task ':app_links:compileReleaseJavaWit
+hJavac', task ':app_links:mergeRelease
+GeneratedProguardFiles', task ':app_li
+nks:exportReleaseConsumerProguardFiles
+', task ':flutter_local_notifications:
+generateReleaseResValues', task ':flut
+ter_local_notifications:generateReleas
+eResources', task ':flutter_local_noti
+fications:packageReleaseResources', 
+task ':flutter_local_notifications:par
+seReleaseLocalResources', task ':flutt
+er_local_notifications:generateRelease
+RFile', task ':flutter_local_notificat
+ions:javaPreCompileRelease', task ':fl
+utter_local_notifications:compileRelea
+seJavaWithJavac', task ':flutter_local
+_notifications:mergeReleaseGeneratedPr
+oguardFiles', task ':flutter_local_not
+ifications:exportReleaseConsumerProgua
+rdFiles', task ':path_provider_android
+:generateReleaseResValues', task ':pat
+h_provider_android:generateReleaseReso
+urces', task ':path_provider_android:p
+ackageReleaseResources', task ':path_p
+rovider_android:parseReleaseLocalResou
+rces', task ':path_provider_android:ge
+nerateReleaseRFile', task ':path_provi
+der_android:javaPreCompileRelease', 
+task ':path_provider_android:compileRe
+leaseJavaWithJavac', task ':path_provi
+der_android:mergeReleaseGeneratedProgu
+ardFiles', task ':path_provider_androi
+d:exportReleaseConsumerProguardFiles',
+ task 
+':printing:generateReleaseResValues', 
+task 
+':printing:generateReleaseResources', 
+task 
+':printing:packageReleaseResources', 
+task ':printing:parseReleaseLocalResou
+rces', task 
+':printing:generateReleaseRFile', 
+task 
+':printing:javaPreCompileRelease', 
+task ':printing:compileReleaseJavaWith
+Javac', task ':printing:mergeReleaseGe
+neratedProguardFiles', task ':printing
+:exportReleaseConsumerProguardFiles', 
+task ':shared_preferences_android:chec
+kKotlinGradlePluginConfigurationErrors
+', task ':shared_preferences_android:g
+enerateReleaseResValues', task ':share
+d_preferences_android:generateReleaseR
+esources', task ':shared_preferences_a
+ndroid:packageReleaseResources', task 
+':shared_preferences_android:parseRele
+aseLocalResources', task ':shared_pref
+erences_android:generateReleaseRFile',
+ task ':shared_preferences_android:com
+pileReleaseKotlin', task ':shared_pref
+erences_android:javaPreCompileRelease'
+, task ':shared_preferences_android:co
+mpileReleaseJavaWithJavac', task ':sha
+red_preferences_android:mergeReleaseGe
+neratedProguardFiles', task ':shared_p
+references_android:exportReleaseConsum
+erProguardFiles', task ':url_launcher_
+android:generateReleaseBuildConfig', 
+task ':url_launcher_android:generateRe
+leaseResValues', task ':url_launcher_a
+ndroid:generateReleaseResources', 
+task ':url_launcher_android:packageRel
+easeResources', task ':url_launcher_an
+droid:parseReleaseLocalResources', 
+task ':url_launcher_android:generateRe
+leaseRFile', task ':url_launcher_andro
+id:javaPreCompileRelease', task ':url_
+launcher_android:compileReleaseJavaWit
+hJavac', task ':url_launcher_android:m
+ergeReleaseGeneratedProguardFiles', 
+task ':url_launcher_android:exportRele
+aseConsumerProguardFiles', task 
+':app:buildKotlinToolingMetadata', 
+task 
+':app:checkReleaseDuplicateClasses', 
+task ':app:checkKotlinGradlePluginConf
+igurationErrors', task 
+':app_links:writeReleaseAarMetadata', 
+task ':flutter_local_notifications:wri
+teReleaseAarMetadata', task ':path_pro
+vider_android:writeReleaseAarMetadata'
+, task 
+':printing:writeReleaseAarMetadata', 
+task ':shared_preferences_android:writ
+eReleaseAarMetadata', task ':url_launc
+her_android:writeReleaseAarMetadata', 
+task ':app:checkReleaseAarMetadata', 
+task ':app:cleanMergeReleaseAssets', 
+task ':app:mergeReleaseShaders', task 
+':app:compileReleaseShaders', task 
+':app:generateReleaseAssets', task 
+':app_links:mergeReleaseShaders', 
+task 
+':app_links:compileReleaseShaders', 
+task 
+':app_links:generateReleaseAssets', 
+task ':app_links:mergeReleaseAssets', 
+task ':flutter_local_notifications:mer
+geReleaseShaders', task ':flutter_loca
+l_notifications:compileReleaseShaders'
+, task ':flutter_local_notifications:g
+enerateReleaseAssets', task ':flutter_
+local_notifications:mergeReleaseAssets
+', task ':path_provider_android:mergeR
+eleaseShaders', task ':path_provider_a
+ndroid:compileReleaseShaders', task ':
+path_provider_android:generateReleaseA
+ssets', task ':path_provider_android:m
+ergeReleaseAssets', task 
+':printing:mergeReleaseShaders', task 
+':printing:compileReleaseShaders', 
+task 
+':printing:generateReleaseAssets', 
+task ':printing:mergeReleaseAssets', 
+task ':shared_preferences_android:merg
+eReleaseShaders', task ':shared_prefer
+ences_android:compileReleaseShaders', 
+task ':shared_preferences_android:gene
+rateReleaseAssets', task ':shared_pref
+erences_android:mergeReleaseAssets', 
+task ':url_launcher_android:mergeRelea
+seShaders', task ':url_launcher_androi
+d:compileReleaseShaders', task ':url_l
+auncher_android:generateReleaseAssets'
+, task ':url_launcher_android:mergeRel
+easeAssets', task 
+':app:mergeReleaseAssets', task 
+':app:copyFlutterAssetsRelease', task 
+':app:generateReleaseResValues', task 
+':app:mapReleaseSourceSetPaths', task 
+':app:generateReleaseResources', task 
+':app:mergeReleaseResources', task 
+':app:packageReleaseResources', task 
+':app:parseReleaseLocalResources', 
+task ':app:createReleaseCompatibleScre
+enManifests', task 
+':app:extractDeepLinksRelease', task 
+':app_links:extractDeepLinksRelease', 
+task 
+':app_links:processReleaseManifest', 
+task ':flutter_local_notifications:ext
+ractDeepLinksRelease', task ':flutter_
+local_notifications:processReleaseMani
+fest', task ':path_provider_android:ex
+tractDeepLinksRelease', task ':path_pr
+ovider_android:processReleaseManifest'
+, task 
+':printing:extractDeepLinksRelease', 
+task 
+':printing:processReleaseManifest', 
+task ':shared_preferences_android:extr
+actDeepLinksRelease', task ':shared_pr
+eferences_android:processReleaseManife
+st', task ':url_launcher_android:extra
+ctDeepLinksRelease', task ':url_launch
+er_android:processReleaseManifest', 
+task 
+':app:processReleaseMainManifest', 
+task 
+':app:outputReleaseAppLinkSettings', 
+task ':app:processReleaseManifest', 
+task ':app:processReleaseManifestForPa
+ckage', task 
+':app:processReleaseResources', task '
+:app_links:bundleLibCompileToJarReleas
+e', task ':flutter_local_notifications
+:bundleLibCompileToJarRelease', task '
+:path_provider_android:bundleLibCompil
+eToJarRelease', task ':printing:bundle
+LibCompileToJarRelease', task ':shared
+_preferences_android:bundleLibCompileT
+oJarRelease', task ':url_launcher_andr
+oid:bundleLibCompileToJarRelease', 
+task ':app:compileReleaseKotlin', 
+task ':app:javaPreCompileRelease', 
+task 
+':app:compileReleaseJavaWithJavac', 
+task ':app_links:prepareReleaseArtProf
+ile', task ':flutter_local_notificatio
+ns:prepareReleaseArtProfile', task ':p
+ath_provider_android:prepareReleaseArt
+Profile', task 
+':printing:prepareReleaseArtProfile', 
+task ':shared_preferences_android:prep
+areReleaseArtProfile', task ':url_laun
+cher_android:prepareReleaseArtProfile'
+, task ':app:mergeReleaseArtProfile', 
+task ':app_links:bundleLibRuntimeToJar
+Release', task ':flutter_local_notific
+ations:bundleLibRuntimeToJarRelease', 
+task ':path_provider_android:bundleLib
+RuntimeToJarRelease', task ':printing:
+bundleLibRuntimeToJarRelease', task ':
+shared_preferences_android:bundleLibRu
+ntimeToJarRelease', task ':url_launche
+r_android:bundleLibRuntimeToJarRelease
+', task ':app:expandReleaseArtProfileW
+ildcards', task 
+':app:extractProguardFiles', task ':ap
+p:mergeReleaseGeneratedProguardFiles',
+ task ':app:processReleaseJavaRes', 
+task 
+':app_links:processReleaseJavaRes', 
+task ':flutter_local_notifications:pro
+cessReleaseJavaRes', task ':path_provi
+der_android:processReleaseJavaRes', 
+task 
+':printing:processReleaseJavaRes', 
+task ':shared_preferences_android:proc
+essReleaseJavaRes', task ':url_launche
+r_android:processReleaseJavaRes', 
+task ':app:mergeReleaseJavaResource', 
+task 
+':app:mergeReleaseStartupProfile', 
+task ':app:minifyReleaseWithR8', task 
+':app:compileReleaseArtProfile', task 
+':app:compressReleaseAssets', task ':a
+pp:extractReleaseVersionControlInfo', 
+task 
+':app_links:createFullJarRelease', 
+task 
+':app_links:extractProguardFiles', 
+task ':app_links:generateReleaseLintMo
+del', task ':app_links:prepareLintJarF
+orPublish', task ':flutter_local_notif
+ications:createFullJarRelease', task '
+:flutter_local_notifications:extractPr
+oguardFiles', task ':flutter_local_not
+ifications:generateReleaseLintModel', 
+task ':flutter_local_notifications:pre
+pareLintJarForPublish', task ':path_pr
+ovider_android:createFullJarRelease', 
+task ':path_provider_android:extractPr
+oguardFiles', task ':path_provider_and
+roid:generateReleaseLintModel', task '
+:path_provider_android:prepareLintJarF
+orPublish', task 
+':printing:createFullJarRelease', 
+task 
+':printing:extractProguardFiles', 
+task 
+':printing:generateReleaseLintModel', 
+task 
+':printing:prepareLintJarForPublish', 
+task ':shared_preferences_android:crea
+teFullJarRelease', task ':shared_prefe
+rences_android:extractProguardFiles', 
+task ':shared_preferences_android:gene
+rateReleaseLintModel', task ':shared_p
+references_android:prepareLintJarForPu
+blish', task ':url_launcher_android:cr
+eateFullJarRelease', task ':url_launch
+er_android:extractProguardFiles', 
+task ':url_launcher_android:generateRe
+leaseLintModel', task ':url_launcher_a
+ndroid:prepareLintJarForPublish', 
+task ':app:generateReleaseLintVitalRep
+ortModel', task ':app_links:stripRelea
+seDebugSymbols', task ':app_links:copy
+ReleaseJniLibsProjectAndLocalJars', 
+task ':app_links:extractDeepLinksForAa
+rRelease', task ':app_links:extractRel
+easeAnnotations', task ':app_links:mer
+geReleaseConsumerProguardFiles', task 
+':app_links:mergeReleaseJavaResource',
+ task 
+':app_links:syncReleaseLibJars', task 
+':app_links:bundleReleaseLocalLintAar'
+, task ':flutter_local_notifications:s
+tripReleaseDebugSymbols', task ':flutt
+er_local_notifications:copyReleaseJniL
+ibsProjectAndLocalJars', task ':flutte
+r_local_notifications:extractDeepLinks
+ForAarRelease', task ':flutter_local_n
+otifications:extractReleaseAnnotations
+', task ':flutter_local_notifications:
+mergeReleaseConsumerProguardFiles', 
+task ':flutter_local_notifications:mer
+geReleaseJavaResource', task ':flutter
+_local_notifications:syncReleaseLibJar
+s', task ':flutter_local_notifications
+:bundleReleaseLocalLintAar', task ':pa
+th_provider_android:stripReleaseDebugS
+ymbols', task ':path_provider_android:
+copyReleaseJniLibsProjectAndLocalJars'
+, task ':path_provider_android:extract
+DeepLinksForAarRelease', task ':path_p
+rovider_android:extractReleaseAnnotati
+ons', task ':path_provider_android:mer
+geReleaseConsumerProguardFiles', task 
+':path_provider_android:mergeReleaseJa
+vaResource', task ':path_provider_andr
+oid:syncReleaseLibJars', task ':path_p
+rovider_android:bundleReleaseLocalLint
+Aar', task 
+':printing:stripReleaseDebugSymbols', 
+task ':printing:copyReleaseJniLibsProj
+ectAndLocalJars', task ':printing:extr
+actDeepLinksForAarRelease', task ':pri
+nting:extractReleaseAnnotations', 
+task ':printing:mergeReleaseConsumerPr
+oguardFiles', task 
+':printing:mergeReleaseJavaResource', 
+task ':printing:syncReleaseLibJars', 
+task ':printing:bundleReleaseLocalLint
+Aar', task ':shared_preferences_androi
+d:stripReleaseDebugSymbols', task ':sh
+ared_preferences_android:copyReleaseJn
+iLibsProjectAndLocalJars', task ':shar
+ed_preferences_android:extractDeepLink
+sForAarRelease', task ':shared_prefere
+nces_android:extractReleaseAnnotations
+', task ':shared_preferences_android:m
+ergeReleaseConsumerProguardFiles', 
+task ':shared_preferences_android:merg
+eReleaseJavaResource', task ':shared_p
+references_android:syncReleaseLibJars'
+, task ':shared_preferences_android:bu
+ndleReleaseLocalLintAar', task ':url_l
+auncher_android:stripReleaseDebugSymbo
+ls', task ':url_launcher_android:copyR
+eleaseJniLibsProjectAndLocalJars', 
+task ':url_launcher_android:extractDee
+pLinksForAarRelease', task ':url_launc
+her_android:extractReleaseAnnotations'
+, task ':url_launcher_android:mergeRel
+easeConsumerProguardFiles', task ':url
+_launcher_android:mergeReleaseJavaReso
+urce', task ':url_launcher_android:syn
+cReleaseLibJars', task ':url_launcher_
+android:bundleReleaseLocalLintAar', 
+task 
+':app_links:lintVitalAnalyzeRelease', 
+task ':app_links:writeReleaseLintModel
+Metadata', task ':flutter_local_notifi
+cations:lintVitalAnalyzeRelease', 
+task ':flutter_local_notifications:wri
+teReleaseLintModelMetadata', task ':pa
+th_provider_android:lintVitalAnalyzeRe
+lease', task ':path_provider_android:w
+riteReleaseLintModelMetadata', task 
+':printing:lintVitalAnalyzeRelease', 
+task ':printing:writeReleaseLintModelM
+etadata', task ':shared_preferences_an
+droid:lintVitalAnalyzeRelease', task '
+:shared_preferences_android:writeRelea
+seLintModelMetadata', task ':url_launc
+her_android:lintVitalAnalyzeRelease', 
+task ':url_launcher_android:writeRelea
+seLintModelMetadata', task 
+':app:lintVitalAnalyzeRelease', task '
+:app_links:generateReleaseLintVitalMod
+el', task ':flutter_local_notification
+s:generateReleaseLintVitalModel', 
+task ':path_provider_android:generateR
+eleaseLintVitalModel', task ':printing
+:generateReleaseLintVitalModel', task 
+':shared_preferences_android:generateR
+eleaseLintVitalModel', task ':url_laun
+cher_android:generateReleaseLintVitalM
+odel', task 
+':app:lintVitalReportRelease', task 
+':app:lintVitalRelease', task ':app:co
+nvertShrunkResourcesToBinaryRelease', 
+task ':app:optimizeReleaseResources', 
+task 
+':app:collectReleaseDependencies', 
+task ':app:sdkReleaseDependencyData', 
+task ':app:validateSigningRelease', 
+task ':app:writeReleaseAppMetadata', 
+task ':app:writeReleaseSigningConfigVe
+rsions', task ':app:packageRelease', 
+task ':app:createReleaseApkListingFile
+Redirect', task 
+':app:assembleRelease', task 
+':app_links:bundleReleaseAar', task ':
+app_links:mapReleaseSourceSetPaths', 
+task 
+':app_links:mergeReleaseResources', 
+task 
+':app_links:verifyReleaseResources', 
+task ':app_links:assembleRelease', 
+task ':flutter_local_notifications:bun
+dleReleaseAar', task ':flutter_local_n
+otifications:mapReleaseSourceSetPaths'
+, task ':flutter_local_notifications:m
+ergeReleaseResources', task ':flutter_
+local_notifications:verifyReleaseResou
+rces', task ':flutter_local_notificati
+ons:assembleRelease', task ':path_prov
+ider_android:bundleReleaseAar', task '
+:path_provider_android:mapReleaseSourc
+eSetPaths', task ':path_provider_andro
+id:mergeReleaseResources', task ':path
+_provider_android:verifyReleaseResourc
+es', task ':path_provider_android:asse
+mbleRelease', task 
+':printing:bundleReleaseAar', task 
+':printing:mapReleaseSourceSetPaths', 
+task 
+':printing:mergeReleaseResources', 
+task 
+':printing:verifyReleaseResources', 
+task ':printing:assembleRelease', 
+task ':shared_preferences_android:bund
+leReleaseAar', task ':shared_preferenc
+es_android:mapReleaseSourceSetPaths', 
+task ':shared_preferences_android:merg
+eReleaseResources', task ':shared_pref
+erences_android:verifyReleaseResources
+', task ':shared_preferences_android:a
+ssembleRelease', task ':url_launcher_a
+ndroid:bundleReleaseAar', task ':url_l
+auncher_android:mapReleaseSourceSetPat
+hs', task ':url_launcher_android:merge
+ReleaseResources', task ':url_launcher
+_android:verifyReleaseResources', 
+task ':url_launcher_android:assembleRe
+lease']
+  build_log_2.txt:380:[   +2 ms] 
+Tasks that were excluded: []
+  build_log_2.txt:381:[        ] work 
+action Parameters of 
+FilterShrinkerRulesTransform 
+(Thread[#744,Execution worker Thread 
+4,5,main]) started.
+  build_log_2.txt:382:[        ] work 
+action Parameters of 
+ExtractAarTransform 
+(Thread[#744,Execution worker Thread 
+4,5,main]) started.
+  build_log_2.txt:383:[        ] 
+Resolve mutations for 
+:app:ReleaseMinSdkCheck 
+(Thread[#744,Execution worker Thread 
+4,5,main]) started.
+  build_log_2.txt:384:[        ] 
+:app:ReleaseMinSdkCheck 
+(Thread[#744,Execution worker Thread 
+4,5,main]) started.
+  build_log_2.txt:1017:[        ]   
+Build cache is disabled
+  build_log_2.txt:1018:[        ]   
+Caching has been disabled for the task
+  build_log_2.txt:1019:[        ] 
+Skipping task ':printing:exportRelease
+ConsumerProguardFiles' as it is 
+up-to-date.
+  build_log_2.txt:1020:[        ] 
+work action resolve 
+exportReleaseConsumerProguardFiles 
+(project :printing) 
+(Thread[#743,Execution worker Thread 
+3,5,main]) started.
+  build_log_2.txt:1021:[        ] 
+FilterShrinkerRulesTransform 
+(Thread[#743,Execution worker Thread 
+3,5,main]) started.
+> build_log_2.txt:1022:[        ] 
+Resolve mutations for :shared_preferen
+ces_android:checkKotlinGradlePluginCon
+figurationErrors 
+(Thread[#740,included builds,5,main]) 
+started.
+> build_log_2.txt:1023:[        ] :sha
+red_preferences_android:checkKotlinGra
+dlePluginConfigurationErrors 
+(Thread[#740,included builds,5,main]) 
+started.
+> build_log_2.txt:1024:[        ] > 
+Task :shared_preferences_android:check
+KotlinGradlePluginConfigurationErrors 
+SKIPPED
+> build_log_2.txt:1025:[        ] 
+Skipping task ':shared_preferences_and
+roid:checkKotlinGradlePluginConfigurat
+ionErrors' as task onlyIf 
+'errorDiagnostics are present' is 
+false.
+  build_log_2.txt:1026:[        ] 
+Resolve mutations for :shared_preferen
+ces_android:generateReleaseResValues 
+(Thread[#740,included builds,5,main]) 
+started.
+  build_log_2.txt:1027:[        ] :sha
+red_preferences_android:generateReleas
+eResValues (Thread[#740,included 
+builds,5,main]) started.
+  build_log_2.txt:1028:[        ] > 
+Task :shared_preferences_android:gener
+ateReleaseResValues UP-TO-DATE
+  build_log_2.txt:1029:[        ] 
+Caching disabled for task ':shared_pre
+ferences_android:generateReleaseResVal
+ues' because:
+  build_log_2.txt:1030:[        ]   
+Build cache is disabled
+  build_log_2.txt:1183:[        ] > 
+Task 
+:app:checkReleaseDuplicateClasses 
+UP-TO-DATE
+  build_log_2.txt:1184:[        ] 
+Caching disabled for task 
+':app:checkReleaseDuplicateClasses' 
+because:
+  build_log_2.txt:1185:[        ]   
+Build cache is disabled
+  build_log_2.txt:1186:[        ]   
+Caching has been disabled for the task
+  build_log_2.txt:1187:[        ] 
+Skipping task 
+':app:checkReleaseDuplicateClasses' 
+as it is up-to-date.
+> build_log_2.txt:1188:[        ] 
+Resolve mutations for :app:checkKotlin
+GradlePluginConfigurationErrors 
+(Thread[#746,Execution worker Thread 
+6,5,main]) started.
+> build_log_2.txt:1189:[        ] :app
+:checkKotlinGradlePluginConfigurationE
+rrors (Thread[#746,Execution worker 
+Thread 6,5,main]) started.
+> build_log_2.txt:1190:[  +83 ms] > 
+Task :app:checkKotlinGradlePluginConfi
+gurationErrors SKIPPED
+> build_log_2.txt:1191:[        ] 
+Skipping task ':app:checkKotlinGradleP
+luginConfigurationErrors' as task 
+onlyIf 'errorDiagnostics are present' 
+is false.
+  build_log_2.txt:1192:[        ] 
+Resolve mutations for 
+:app_links:writeReleaseAarMetadata 
+(Thread[#746,Execution worker Thread 
+6,5,main]) started.
+  build_log_2.txt:1193:[        ] 
+:app_links:writeReleaseAarMetadata 
+(Thread[#746,Execution worker Thread 
+6,5,main]) started.
+  build_log_2.txt:1194:[        ] > 
+Task 
+:app_links:writeReleaseAarMetadata 
+UP-TO-DATE
+  build_log_2.txt:1195:[        ] 
+Caching disabled for task 
+':app_links:writeReleaseAarMetadata' 
+because:
+  build_log_2.txt:1196:[        ]   
+Build cache is disabled
+  build_log_2.txt:1317:[        ]   
+Simple merging task
+  build_log_2.txt:1318:[        ] 
+Task ':flutter_local_notifications:mer
+geReleaseAssets' is not up-to-date 
+because:
+  build_log_2.txt:1319:[        ]   
+No history is available.
+  build_log_2.txt:1320:[        ] The 
+input changes require a full rebuild 
+for incremental task ':flutter_local_n
+otifications:mergeReleaseAssets'.
+  build_log_2.txt:1321:[   +1 ms] 
+[Incubating] Problems report is 
+available at: file:///C:/Users/Jester/
+Documents/Flutter_Projects/it12_cloned
+_2/IT12_G-J_AIRCON_SOLUTIONS/build/rep
+orts/problems/problems-report.html
+> build_log_2.txt:1322:flutter : [    
+    ] FAILURE: Build 
+> build_log_2.txt:1323:failed with an 
+exception.
+  build_log_2.txt:1324:At line:1 
+char:1
+  build_log_2.txt:1325:+ flutter 
+build apk --verbose > 
+  
+build_log_2.txt:1326:build_log_2.txt 
+2>&1
+  build_log_2.txt:1327:+ 
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+  build_log_2.txt:1328:~~~~~~~~~~~~~~
+  build_log_2.txt:1329:    + 
+CategoryInfo          : NotSpec 
+  build_log_2.txt:1330:   ified: ([   
+     ] FAIL...h an ex  
+  build_log_2.txt:1331:  
+ception.:String) [], RemoteExcept   
+  build_log_2.txt:1332: ion
+> build_log_2.txt:1333:    + 
+FullyQualifiedErrorId : NativeC 
+> build_log_2.txt:1334:   ommandError
+  build_log_2.txt:1335: 
+  build_log_2.txt:1336:[   +2 ms] * 
+What went wrong:
+  build_log_2.txt:1337:[        ] 
+Execution failed for task 
+  build_log_2.txt:1338:':app:checkRele
+aseAarMetadata'.
+> build_log_2.txt:1339:[        ] > A 
+failure occurred while 
+  build_log_2.txt:1340:executing 
+com.android.build.gradle.int
+  build_log_2.txt:1341:ernal.tasks.Che
+ckAarMetadataWorkAction
+  build_log_2.txt:1342:[        ]    
+> An issue was found 
+  build_log_2.txt:1343:when checking 
+AAR metadata:
+  build_log_2.txt:1344:[        ]     
+   1.  Dependency 
+  build_log_2.txt:1355:to get more 
+log output.
+  build_log_2.txt:1356:[        ] > 
+Run with --scan to get 
+  build_log_2.txt:1357:full insights.
+  build_log_2.txt:1358:[        ] > 
+Get more help at 
+  build_log_2.txt:1359:https://help.gr
+adle.org.
+> build_log_2.txt:1360:[        ] * 
+Exception is:
+  build_log_2.txt:1361:[        ] 
+org.gradle.api.tasks.TaskEx
+> build_log_2.txt:1362:ecutionExceptio
+n: Execution failed 
+  build_log_2.txt:1363:for task 
+  build_log_2.txt:1364:':app:checkRele
+aseAarMetadata'.
+  build_log_2.txt:1365:[        ] 	at 
+org.gradle.api.internal
+  build_log_2.txt:1366:.tasks.executio
+n.ExecuteActionsTaskExe
+  build_log_2.txt:1367:cuter.lambda$ex
+ecuteIfValid$1(ExecuteA
+  build_log_2.txt:1368:ctionsTaskExecu
+ter.java:130)
+  build_log_2.txt:1369:[        ] 	at 
+org.gradle.internal.Try
+> build_log_2.txt:1370:$Failure.ifSucc
+essfulOrElse(Try.java:2
+  build_log_2.txt:1371:93)
+  build_log_2.txt:1372:[        ] 	at 
+org.gradle.api.internal
+  build_log_2.txt:1373:.tasks.executio
+n.ExecuteActionsTaskExe
+  build_log_2.txt:1374:cuter.executeIf
+Valid(ExecuteActionsTas
+  build_log_2.txt:1375:kExecuter.java:
+128)
+  build_log_2.txt:1396:[        ] 	at 
+org.gradle.api.internal
+  build_log_2.txt:1397:.tasks.executio
+n.SkipOnlyIfTaskExecute
+  build_log_2.txt:1398:r.execute(SkipO
+nlyIfTaskExecuter.java:
+  build_log_2.txt:1399:74)
+  build_log_2.txt:1400:[        ] 	at 
+org.gradle.api.internal
+> build_log_2.txt:1401:.tasks.executio
+n.CatchExceptionTaskExe
+> build_log_2.txt:1402:cuter.execute(C
+atchExceptionTaskExecut
+  build_log_2.txt:1403:er.java:36)
+  build_log_2.txt:1404:[        ] 	at 
+org.gradle.api.internal
+  build_log_2.txt:1405:.tasks.executio
+n.EventFiringTaskExecut
+  build_log_2.txt:1406:er$1.executeTas
+k(EventFiringTaskExecut
+  build_log_2.txt:1407:er.java:77)
+  build_log_2.txt:1493:Unknown Source)
+  build_log_2.txt:1494:[        ] 	at 
+java.base/java.lang.Thr
+  
+build_log_2.txt:1495:ead.run(Unknown 
+Source)
+  build_log_2.txt:1496:[        ] 
+Caused by: org.gradle.worke
+  build_log_2.txt:1497:rs.internal.Def
+aultWorkerExecutor$Work
+> build_log_2.txt:1498:ExecutionExcept
+ion: A failure 
+  build_log_2.txt:1499:occurred while 
+executing com.android.b
+  build_log_2.txt:1500:uild.gradle.int
+ernal.tasks.CheckAarMet
+  build_log_2.txt:1501:adataWorkAction
+  build_log_2.txt:1502:[        ] 	at 
+org.gradle.workers.inte
+  build_log_2.txt:1503:rnal.DefaultWor
+kerExecutor$WorkItemExe
+  build_log_2.txt:1504:cution.waitForC
+ompletion(DefaultWorker
+  build_log_2.txt:1505:Executor.java:2
+87)
+  build_log_2.txt:1506:[        ] 	at 
+org.gradle.internal.wor
+  build_log_2.txt:1507:k.DefaultAsyncW
+orkTracker.lambda$waitF
+> build_log_2.txt:1508:orItemsAndGathe
+rFailures$2(DefaultAsyn
+  build_log_2.txt:1509:cWorkTracker.ja
+va:130)
+  build_log_2.txt:1510:[        ] 	at 
+org.gradle.internal.Fac
+  build_log_2.txt:1511:tories$1.create
+(Factories.java:31)
+  build_log_2.txt:1512:[        ] 	at 
+org.gradle.internal.wor
+  build_log_2.txt:1513:k.DefaultWorker
+LeaseService.withoutLoc
+  build_log_2.txt:1518:[        ] 	at 
+org.gradle.internal.wor
+  build_log_2.txt:1519:k.DefaultWorker
+LeaseService.withoutLoc
+  build_log_2.txt:1520:k(DefaultWorker
+LeaseService.java:323)
+  build_log_2.txt:1521:[        ] 	at 
+org.gradle.internal.wor
+  build_log_2.txt:1522:k.DefaultAsyncW
+orkTracker.waitForItems
+> build_log_2.txt:1523:AndGatherFailur
+es(DefaultAsyncWorkTrac
+  build_log_2.txt:1524:ker.java:126)
+  build_log_2.txt:1525:[        ] 	at 
+org.gradle.internal.wor
+  build_log_2.txt:1526:k.DefaultAsyncW
+orkTracker.waitForItems
+> build_log_2.txt:1527:AndGatherFailur
+es(DefaultAsyncWorkTrac
+  build_log_2.txt:1528:ker.java:92)
+  build_log_2.txt:1529:[        ] 	at 
+org.gradle.internal.wor
+  build_log_2.txt:1530:k.DefaultAsyncW
+orkTracker.waitForAll(D
+  build_log_2.txt:1531:efaultAsyncWork
+Tracker.java:78)
+  build_log_2.txt:1532:[        ] 	at 
+org.gradle.internal.wor
+  build_log_2.txt:1860:[        ] 	at 
+org.gradle.api.internal
+  build_log_2.txt:1861:.tasks.executio
+n.SkipOnlyIfTaskExecute
+  build_log_2.txt:1862:r.execute(SkipO
+nlyIfTaskExecuter.java:
+  build_log_2.txt:1863:74)
+  build_log_2.txt:1864:[        ] 	at 
+org.gradle.api.internal
+> build_log_2.txt:1865:.tasks.executio
+n.CatchExceptionTaskExe
+> build_log_2.txt:1866:cuter.execute(C
+atchExceptionTaskExecut
+  build_log_2.txt:1867:er.java:36)
+  build_log_2.txt:1868:[        ] 	at 
+org.gradle.api.internal
+  build_log_2.txt:1869:.tasks.executio
+n.EventFiringTaskExecut
+  build_log_2.txt:1870:er$1.executeTas
+k(EventFiringTaskExecut
+  build_log_2.txt:1871:er.java:77)
+  build_log_2.txt:1956:current.ThreadP
+oolExecutor$Worker.run(
+  build_log_2.txt:1957:Unknown Source)
+  build_log_2.txt:1958:[        ] 	at 
+java.base/java.lang.Thr
+  
+build_log_2.txt:1959:ead.run(Unknown 
+Source)
+  build_log_2.txt:1960:[        ] 
+Caused by: 
+> build_log_2.txt:1961:java.lang.Runti
+meException: An issue 
+  build_log_2.txt:1962:was found when 
+checking AAR metadata:
+  build_log_2.txt:1963:[        ]   
+1.  Dependency 
+  build_log_2.txt:1964:':flutter_local
+_notifications' 
+  build_log_2.txt:1965:requires core 
+library desugaring to 
+  build_log_2.txt:1966:be enabled
+  build_log_2.txt:1967:[        ]     
+  for :app.
+  build_log_2.txt:1968:[        ]     
+  See https://developer
+  build_log_2.txt:1969:.android.com/st
+udio/write/java8-suppor
+  build_log_2.txt:1970:t.html for more
+> build_log_2.txt:1971:[        ] 
+Deprecated Gradle features were used 
+in this build, making it incompatible 
+with Gradle 9.0.
+  build_log_2.txt:1972:[        ] You 
+can use '--warning-mode all' to show 
+the individual deprecation warnings 
+and determine if they come from your 
+own scripts or plugins.
+  build_log_2.txt:1973:[        ] For 
+more on this, please refer to https://
+docs.gradle.org/8.12/userguide/command
+_line_interface.html#sec:command_line_
+warnings in the Gradle documentation.
+  build_log_2.txt:1974:[        ]     
+  details.
+  build_log_2.txt:1975:[        ] 	at 
+com.android.build.gradl
+  build_log_2.txt:1976:e.internal.task
+s.CheckAarMetadataWorkA
+
+

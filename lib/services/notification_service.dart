@@ -59,14 +59,22 @@ class NotificationService {
   Future<void> showNotification({required int id, required String title, required String body}) async {
     if (!_isEnabled) return;
 
-    const androidDetails = AndroidNotificationDetails(
+    final BigTextStyleInformation bigTextStyleInformation = BigTextStyleInformation(
+      body, 
+      htmlFormatBigText: true,
+      contentTitle: title,
+      htmlFormatContentTitle: true,
+    );
+
+    final AndroidNotificationDetails androidDetails = AndroidNotificationDetails(
       'high_importance_channel', 
       'High Importance Notifications',
       importance: Importance.max,
       priority: Priority.high,
+      styleInformation: bigTextStyleInformation,
     );
     
-    const notificationDetails = NotificationDetails(
+    final notificationDetails = NotificationDetails(
       android: androidDetails,
       iOS: DarwinNotificationDetails(presentAlert: true, presentBadge: true, presentSound: true),
       macOS: DarwinNotificationDetails(presentAlert: true, presentBadge: true, presentSound: true),

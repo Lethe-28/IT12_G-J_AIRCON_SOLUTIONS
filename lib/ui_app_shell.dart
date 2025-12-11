@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'data/app_state.dart';
 
 class AppShell extends StatefulWidget {
@@ -7,12 +8,14 @@ class AppShell extends StatefulWidget {
 
   // NEW: Allow pages to pass a FAB to the main shell
   final Widget? floatingActionButton;
+  final List<Widget>? actions;
 
   const AppShell({
     super.key,
     required this.selectedIndex,
     required this.body,
-    this.floatingActionButton, // Initialize it
+    this.floatingActionButton,
+    this.actions,
   });
 
   @override
@@ -59,76 +62,65 @@ class _AppShellState extends State<AppShell> {
     }
   }
 
+  Future<bool> _showExitConfirmationDialog() async {
+    return await showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Exit App'),
+        content: const Text('Do you want to exit the app?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('No'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('Yes'),
+          ),
+        ],
+      ),
+    ) ?? false;
+  }
+
   @override
   Widget build(BuildContext context) {
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final bool isMobile = constraints.maxWidth < 800;
-
-        // --- MOBILE LAYOUT ---
-        if (isMobile) {
-          return Scaffold(
-            key: _scaffoldKey,
-            backgroundColor: const Color(0xFFF5F5F5),
-            appBar: AppBar(
-              backgroundColor: Colors.white,
-              elevation: 1,
-              title: _MobileAppBarTitle(selectedIndex: widget.selectedIndex),
-              iconTheme: const IconThemeData(color: Colors.black87),
-              leading: IconButton(
-                icon: const Icon(Icons.menu),
-                onPressed: () => _scaffoldKey.currentState?.openDrawer(),
-              ),
-            ),
-            drawer: Drawer(
-              width: 280,
-              backgroundColor: Colors.white,
-              child: Column(
-                children: [
-                  _MobileDrawerHeader(),
-                  const Divider(height: 1),
-                  Expanded(
-                    child: _NavigationList(
-                      selectedIndex: widget.selectedIndex,
-                      adminMenuExpanded: _adminMenuExpanded,
-                      onAdminExpandToggle: () => setState(
-                        () => _adminMenuExpanded = !_adminMenuExpanded,
-                      ),
-                      onSelect: (index) => _onSelect(context, index),
-                    ),
-                  ),
-                  _UserFooter(isCollapsed: false),
-                ],
-              ),
-            ),
-            // FIX: Pass the FAB here
-            floatingActionButton: widget.floatingActionButton,
-            body: widget.body,
-          );
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, result) async {
+        if (didPop) return;
+        
+        final shouldExit = await _showExitConfirmationDialog();
+        
+        if (shouldExit && context.mounted) {
+           SystemNavigator.pop();
         }
+      },
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final bool isMobile = constraints.maxWidth < 800;
 
-        // --- DESKTOP LAYOUT ---
-        final double sidebarWidth = _desktopSidebarCollapsed ? 70 : 250;
-
-        return Scaffold(
-          backgroundColor: const Color(0xFFF5F5F5),
-          // FIX: Pass the FAB here (even if rare on desktop, it's supported)
-          floatingActionButton: widget.floatingActionButton,
-          body: Row(
-            children: [
-              AnimatedContainer(
-                duration: const Duration(milliseconds: 200),
-                width: sidebarWidth,
-                color: Colors.white,
+          // --- MOBILE LAYOUT ---
+          if (isMobile) {
+            return Scaffold(
+              key: _scaffoldKey,
+              backgroundColor: const Color(0xFFF5F5F5),
+              appBar: AppBar(
+                backgroundColor: Colors.white,
+                elevation: 1,
+                title: _MobileAppBarTitle(selectedIndex: widget.selectedIndex),
+                actions: widget.actions,
+                iconTheme: const IconThemeData(color: Colors.black87),
+                leading: IconButton(
+                  icon: const Icon(Icons.menu),
+                  onPressed: () => _scaffoldKey.currentState?.openDrawer(),
+                ),
+              ),
+              drawer: Drawer(
+                width: 280,
+                backgroundColor: Colors.white,
                 child: Column(
                   children: [
-                    _DesktopSidebarHeader(
-                      isCollapsed: _desktopSidebarCollapsed,
-                      onToggle: () => setState(
-                        () => _desktopSidebarCollapsed =
-                            !_desktopSidebarCollapsed,
-                      ),
-                    ),
+                    _MobileDrawerHeader(),
                     const Divider(height: 1),
                     Expanded(
                       child: _NavigationList(
@@ -138,20 +130,64 @@ class _AppShellState extends State<AppShell> {
                           () => _adminMenuExpanded = !_adminMenuExpanded,
                         ),
                         onSelect: (index) => _onSelect(context, index),
-                        isDesktopCollapsed: _desktopSidebarCollapsed,
                       ),
                     ),
-                    const Divider(height: 1),
-                    _UserFooter(isCollapsed: _desktopSidebarCollapsed),
+                    _UserFooter(isCollapsed: false),
                   ],
                 ),
               ),
-              const VerticalDivider(width: 1),
-              Expanded(child: widget.body),
-            ],
-          ),
-        );
-      },
+              // FIX: Pass the FAB here
+              floatingActionButton: widget.floatingActionButton,
+              body: widget.body,
+            );
+          }
+
+          // --- DESKTOP LAYOUT ---
+          final double sidebarWidth = _desktopSidebarCollapsed ? 70 : 250;
+
+          return Scaffold(
+            backgroundColor: const Color(0xFFF5F5F5),
+            // FIX: Pass the FAB here (even if rare on desktop, it's supported)
+            floatingActionButton: widget.floatingActionButton,
+            body: Row(
+              children: [
+                AnimatedContainer(
+                  duration: const Duration(milliseconds: 200),
+                  width: sidebarWidth,
+                  color: Colors.white,
+                  child: Column(
+                    children: [
+                      _DesktopSidebarHeader(
+                        isCollapsed: _desktopSidebarCollapsed,
+                        onToggle: () => setState(
+                          () => _desktopSidebarCollapsed =
+                              !_desktopSidebarCollapsed,
+                        ),
+                      ),
+                      const Divider(height: 1),
+                      Expanded(
+                        child: _NavigationList(
+                          selectedIndex: widget.selectedIndex,
+                          adminMenuExpanded: _adminMenuExpanded,
+                          onAdminExpandToggle: () => setState(
+                            () => _adminMenuExpanded = !_adminMenuExpanded,
+                          ),
+                          onSelect: (index) => _onSelect(context, index),
+                          isDesktopCollapsed: _desktopSidebarCollapsed,
+                        ),
+                      ),
+                      const Divider(height: 1),
+                      _UserFooter(isCollapsed: _desktopSidebarCollapsed),
+                    ],
+                  ),
+                ),
+                const VerticalDivider(width: 1),
+                Expanded(child: widget.body),
+              ],
+            ),
+          );
+        },
+      ),
     );
   }
 }

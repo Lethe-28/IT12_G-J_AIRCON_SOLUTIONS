@@ -348,11 +348,24 @@ class DashboardProvider extends ChangeNotifier {
 
       // Notify only if High Priority exists
       if (_notificationItems.any((i) => i.priority == 'High')) {
+        final highPriorityItems = _notificationItems.where((i) => i.priority == 'High').toList();
+        final buffer = StringBuffer();
+        
+        // Take up to 3 high priority items to list details
+        final itemsToShow = highPriorityItems.take(3).toList();
+        for (var item in itemsToShow) {
+          buffer.writeln('• ${item.title}: ${item.reference}');
+        }
+        
+        final remaining = highPriorityItems.length - itemsToShow.length;
+        if (remaining > 0) {
+          buffer.writeln('... and $remaining more items.');
+        }
+
         NotificationService().showNotification(
           id: 1,
-          title: 'Action Required',
-          body:
-              'You have ${_notificationItems.length} items pending attention.',
+          title: 'Action Required (${highPriorityItems.length})',
+          body: buffer.toString().trim(),
         );
       }
     } catch (e) {
