@@ -648,46 +648,132 @@ class _CustomerDialogState extends State<_CustomerDialog> {
   }
 
   Future<void> _submit() async {
+    // 1. Basic Form Validation
     if (!_formKey.currentState!.validate()) return;
+
     setState(() => _isSubmitting = true);
 
-    final data = {
-      'customer_type_id': _typeId,
-      'company_name': _companyCtrl.text.trim().isEmpty
-          ? null
-          : _companyCtrl.text.trim(),
-      'first_name': _firstCtrl.text.trim(),
-      'middle_name': _middleCtrl.text.trim().isEmpty
-          ? null
-          : _middleCtrl.text.trim(),
-      'last_name': _lastCtrl.text.trim(),
-      'job_position': _jobCtrl.text.trim().isEmpty
-          ? null
-          : _jobCtrl.text.trim(),
-      'contact_number': _phoneCtrl.text.trim(),
-      'email': _emailCtrl.text.trim().isEmpty ? null : _emailCtrl.text.trim(),
-      'unit_building_house_no': _unitCtrl.text.trim(),
-      'street': _streetCtrl.text.trim(),
-      'subdivision_village': _villageCtrl.text.trim(),
-      'barangay': _brgyCtrl.text.trim(),
-      'city': _cityCtrl.text.trim(),
-      'landmark': _landmarkCtrl.text.trim().isEmpty
-          ? null
-          : _landmarkCtrl.text.trim(),
-    };
+    // Prepare clean data variables
+    final typeId = _typeId;
+    final company = _companyCtrl.text.trim();
+    final first = _firstCtrl.text.trim();
+    final last = _lastCtrl.text.trim();
+    final phone = _phoneCtrl.text.trim();
+
+    final supabase = Supabase.instance.client;
 
     try {
+      // 2. DUPLICATE CHECKING LOGIC
+      Map<String, dynamic>? duplicate;
+
+      if (typeId == 1) {
+        // --- B2B CHECK ---
+
+        // Check 1: Company Name (FIX: Added .limit(1) to prevent crash on multiple matches)
+        if (company.isNotEmpty) {
+          final res = await supabase
+              .from('customers')
+              .select('id, company_name')
+              .ilike('company_name', company)
+              .neq('id', widget.customer?.id ?? -1)
+              .limit(1) // <--- FIX ADDED HERE
+              .maybeSingle();
+          if (res != null) duplicate = res;
+        }
+
+        // Check 2: Phone
+        if (duplicate == null && phone.isNotEmpty) {
+          final res = await supabase
+              .from('customers')
+              .select('id, company_name')
+              .eq('contact_number', phone)
+              .neq('id', widget.customer?.id ?? -1)
+              .limit(1) // <--- FIX ADDED HERE
+              .maybeSingle();
+          if (res != null) duplicate = res;
+        }
+      } else {
+        // --- B2C CHECK ---
+
+        // Check 1: Name Combination
+        final nameRes = await supabase
+            .from('customers')
+            .select('id, first_name, last_name')
+            .eq('customer_type_id', 2)
+            .ilike('first_name', first)
+            .ilike('last_name', last)
+            .neq('id', widget.customer?.id ?? -1)
+            .limit(1) // <--- FIX ADDED HERE
+            .maybeSingle();
+
+        if (nameRes != null) {
+          duplicate = nameRes;
+        } else if (phone.isNotEmpty) {
+          // Check 2: Phone Match
+          final phoneRes = await supabase
+              .from('customers')
+              .select('id, first_name, last_name')
+              .eq('contact_number', phone)
+              .neq('id', widget.customer?.id ?? -1)
+              .limit(1) // <--- FIX ADDED HERE
+              .maybeSingle();
+          if (phoneRes != null) duplicate = phoneRes;
+        }
+      }
+
+      // 3. STOP IF DUPLICATE FOUND (The Orange Warning)
+      if (duplicate != null) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text(
+                'Duplicate Warning: This customer Name or Phone already exists.',
+                style: TextStyle(color: Colors.white),
+              ),
+              backgroundColor: Colors.orange,
+              behavior: SnackBarBehavior.floating,
+              duration: Duration(seconds: 4),
+            ),
+          );
+          setState(() => _isSubmitting = false);
+          return;
+        }
+      }
+
+      // 4. PREPARE FINAL DATA
+      final data = {
+        'customer_type_id': typeId,
+        'company_name': company.isEmpty ? null : company,
+        'first_name': first,
+        'middle_name': _middleCtrl.text.trim().isEmpty
+            ? null
+            : _middleCtrl.text.trim(),
+        'last_name': last,
+        'job_position': _jobCtrl.text.trim().isEmpty
+            ? null
+            : _jobCtrl.text.trim(),
+        'contact_number': phone,
+        'email': _emailCtrl.text.trim().isEmpty ? null : _emailCtrl.text.trim(),
+        'unit_building_house_no': _unitCtrl.text.trim(),
+        'street': _streetCtrl.text.trim(),
+        'subdivision_village': _villageCtrl.text.trim(),
+        'barangay': _brgyCtrl.text.trim(),
+        'city': _cityCtrl.text.trim(),
+        'landmark': _landmarkCtrl.text.trim().isEmpty
+            ? null
+            : _landmarkCtrl.text.trim(),
+      };
+
+      // 5. INSERT / UPDATE
       if (widget.customer == null) {
-        // Create
-        final response = await Supabase.instance.client
+        final response = await supabase
             .from('customers')
             .insert(data)
             .select('*, customer_types(type_name)')
             .single();
         if (mounted) Navigator.pop(context, Customer.fromMap(response));
       } else {
-        // Update
-        final response = await Supabase.instance.client
+        final response = await supabase
             .from('customers')
             .update(data)
             .eq('id', widget.customer!.id)
@@ -697,6 +783,7 @@ class _CustomerDialogState extends State<_CustomerDialog> {
       }
     } catch (e) {
       if (mounted) {
+        // This handles actual system crashes
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('Error saving: $e'),
