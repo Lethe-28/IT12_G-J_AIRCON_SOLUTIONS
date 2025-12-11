@@ -32,6 +32,7 @@ class _CustomersScreenState extends State<CustomersScreen> {
       final response = await _supabase
           .from('customers')
           .select('*, customer_types(type_name)')
+          .eq('is_active', true) // <--- ONLY SHOW ACTIVE CUSTOMERS
           .order('id', ascending: false);
 
       final List<Customer> loaded = [];
@@ -74,7 +75,7 @@ class _CustomersScreenState extends State<CustomersScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            existing == null ? 'Customer Added' : 'Customer Updated',
+            existing == null ? 'Customer Saved' : 'Customer Updated',
           ),
           backgroundColor: Colors.green,
           behavior: SnackBarBehavior.floating,
@@ -83,13 +84,15 @@ class _CustomersScreenState extends State<CustomersScreen> {
     }
   }
 
-  Future<void> _onDelete(Customer customer) async {
+  // --- CHANGED: DELETE IS NOW ARCHIVE ---
+  Future<void> _onArchive(Customer customer) async {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Delete Customer'),
+        title: const Text('Archive Customer'),
         content: Text(
-          'Are you sure you want to delete ${customer.displayName}? This action cannot be undone.',
+          'Are you sure you want to archive ${customer.displayName}?\n\n'
+          'They will be hidden from lists but their history (Job Orders, Payments) will be preserved.',
         ),
         actions: [
           TextButton(
@@ -98,8 +101,8 @@ class _CustomersScreenState extends State<CustomersScreen> {
           ),
           TextButton(
             onPressed: () => Navigator.pop(context, true),
-            style: TextButton.styleFrom(foregroundColor: Colors.red),
-            child: const Text('Delete'),
+            style: TextButton.styleFrom(foregroundColor: Colors.orange),
+            child: const Text('Archive'),
           ),
         ],
       ),
@@ -107,7 +110,11 @@ class _CustomersScreenState extends State<CustomersScreen> {
 
     if (confirmed == true) {
       try {
-        await _supabase.from('customers').delete().eq('id', customer.id);
+        // SOFT DELETE: Set is_active to false
+        await _supabase
+            .from('customers')
+            .update({'is_active': false})
+            .eq('id', customer.id);
 
         setState(() {
           _customers.removeWhere((c) => c.id == customer.id);
@@ -116,7 +123,7 @@ class _CustomersScreenState extends State<CustomersScreen> {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
-              content: Text('Customer deleted'),
+              content: Text('Customer archived successfully'),
               behavior: SnackBarBehavior.floating,
             ),
           );
@@ -125,7 +132,7 @@ class _CustomersScreenState extends State<CustomersScreen> {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text('Delete failed: $e'),
+              content: Text('Archive failed: $e'),
               backgroundColor: Colors.red,
             ),
           );
@@ -294,7 +301,7 @@ class _CustomersScreenState extends State<CustomersScreen> {
                       itemBuilder: (ctx, i) => _MobileCustomerCard(
                         customer: filteredList[i],
                         onEdit: () => _onAddOrEdit(existing: filteredList[i]),
-                        onDelete: () => _onDelete(filteredList[i]),
+                        onDelete: () => _onArchive(filteredList[i]),
                       ),
                     )
                   : SingleChildScrollView(
@@ -302,7 +309,7 @@ class _CustomersScreenState extends State<CustomersScreen> {
                       child: _DesktopCustomerTable(
                         customers: filteredList,
                         onEdit: (c) => _onAddOrEdit(existing: c),
-                        onDelete: (c) => _onDelete(c),
+                        onDelete: (c) => _onArchive(c),
                       ),
                     ),
             ),
@@ -340,7 +347,7 @@ class _DesktopCustomerTable extends StatelessWidget {
         ],
       ),
       child: DataTable(
-        headingRowColor: MaterialStateProperty.all(Colors.grey[50]),
+        headingRowColor: WidgetStateProperty.all(Colors.grey[50]),
         columns: const [
           DataColumn(
             label: Text(
@@ -452,9 +459,12 @@ class _DesktopCustomerTable extends StatelessWidget {
                       tooltip: "Edit",
                     ),
                     IconButton(
-                      icon: const Icon(Icons.delete_outline, color: Colors.red),
+                      icon: const Icon(
+                        Icons.archive_outlined,
+                        color: Colors.orange,
+                      ), // Changed Icon
                       onPressed: () => onDelete(c),
-                      tooltip: "Delete",
+                      tooltip: "Archive", // Changed Tooltip
                     ),
                   ],
                 ),
@@ -565,9 +575,9 @@ class _MobileCustomerCard extends StatelessWidget {
               ),
               TextButton.icon(
                 onPressed: onDelete,
-                icon: const Icon(Icons.delete, size: 16),
-                label: const Text("Delete"),
-                style: TextButton.styleFrom(foregroundColor: Colors.red),
+                icon: const Icon(Icons.archive, size: 16), // Changed Icon
+                label: const Text("Archive"), // Changed Text
+                style: TextButton.styleFrom(foregroundColor: Colors.orange),
               ),
             ],
           ),
@@ -663,17 +673,17 @@ class _CustomerDialogState extends State<_CustomerDialog> {
     final supabase = Supabase.instance.client;
 
     try {
-      // 2. DUPLICATE CHECKING LOGIC
+      // 2. DUPLICATE CHECKING LOGIC (With Active/Inactive check)
       Map<String, dynamic>? duplicate;
 
+      // Note: We SELECT 'is_active' to know if we can resurrect
       if (typeId == 1) {
         // --- B2B CHECK ---
-
-        // Check 1: Company Name (FIX: Added .limit(1) to prevent crash)
+        // Check 1: Company Name
         if (company.isNotEmpty) {
           final res = await supabase
               .from('customers')
-              .select('id, company_name')
+              .select('id, is_active, company_name') // Include is_active
               .ilike('company_name', company)
               .neq('id', widget.customer?.id ?? -1)
               .limit(1)
@@ -685,7 +695,7 @@ class _CustomerDialogState extends State<_CustomerDialog> {
         if (duplicate == null && phone.isNotEmpty) {
           final res = await supabase
               .from('customers')
-              .select('id, company_name')
+              .select('id, is_active, company_name') // Include is_active
               .eq('contact_number', phone)
               .neq('id', widget.customer?.id ?? -1)
               .limit(1)
@@ -694,11 +704,10 @@ class _CustomerDialogState extends State<_CustomerDialog> {
         }
       } else {
         // --- B2C CHECK ---
-
         // Check 1: Name Combination
         final nameRes = await supabase
             .from('customers')
-            .select('id, first_name, last_name')
+            .select('id, is_active, first_name, last_name') // Include is_active
             .eq('customer_type_id', 2)
             .ilike('first_name', first)
             .ilike('last_name', last)
@@ -712,7 +721,9 @@ class _CustomerDialogState extends State<_CustomerDialog> {
           // Check 2: Phone Match
           final phoneRes = await supabase
               .from('customers')
-              .select('id, first_name, last_name')
+              .select(
+                'id, is_active, first_name, last_name',
+              ) // Include is_active
               .eq('contact_number', phone)
               .neq('id', widget.customer?.id ?? -1)
               .limit(1)
@@ -721,63 +732,96 @@ class _CustomerDialogState extends State<_CustomerDialog> {
         }
       }
 
-      // 3. STOP IF DUPLICATE FOUND (FIX: VISIBLE ON MOBILE)
+      // 3. HANDLING DUPLICATES (Resurrection Logic)
       if (duplicate != null) {
-        if (mounted) {
-          // Replaced hidden SnackBar with visible AlertDialog
-          await showDialog(
-            context: context,
-            builder: (ctx) => AlertDialog(
-              title: const Row(
-                children: [
-                  Icon(Icons.warning_amber_rounded, color: Colors.orange),
-                  SizedBox(width: 8),
-                  Text('Duplicate Found'),
+        final bool isActive = duplicate['is_active'] ?? true;
+        final int duplicateId = duplicate['id'];
+
+        if (isActive) {
+          // CASE A: REAL DUPLICATE (Active User)
+          if (mounted) {
+            await showDialog(
+              context: context,
+              builder: (ctx) => AlertDialog(
+                title: const Row(
+                  children: [
+                    Icon(Icons.warning_amber_rounded, color: Colors.orange),
+                    SizedBox(width: 8),
+                    Text('Duplicate Found'),
+                  ],
+                ),
+                content: const Text(
+                  'A customer with this Name or Phone Number already exists and is active.',
+                ),
+                actions: [
+                  TextButton(
+                    onPressed: () => Navigator.pop(ctx),
+                    child: const Text('OK'),
+                  ),
                 ],
               ),
-              content: const Text(
-                'A customer with this Name or Phone Number already exists in the system.',
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.pop(ctx),
-                  child: const Text('OK'),
-                ),
-              ],
-            ),
-          );
-
+            );
+          }
           setState(() => _isSubmitting = false);
-          return; // Stop the save
+          return; // Stop.
+        } else {
+          // CASE B: RESURRECTION (Archived User)
+          bool restore = false;
+          if (mounted) {
+            restore =
+                await showDialog<bool>(
+                  context: context,
+                  builder: (ctx) => AlertDialog(
+                    title: const Text('Found in Archive'),
+                    content: const Text(
+                      'This customer exists but was archived. Would you like to restore their profile with these new details?',
+                    ),
+                    actions: [
+                      TextButton(
+                        onPressed: () => Navigator.pop(ctx, false),
+                        child: const Text('Cancel'),
+                      ),
+                      TextButton(
+                        onPressed: () => Navigator.pop(ctx, true),
+                        child: const Text('Restore Profile'),
+                      ),
+                    ],
+                  ),
+                ) ??
+                false;
+          }
+
+          if (!restore) {
+            setState(() => _isSubmitting = false);
+            return; // User cancelled
+          }
+
+          // Proceed to update the ARCHIVED record instead of inserting new
+          // We set widget.customer temporarily to null logic below handles updates if we had the ID,
+          // but here we have the duplicateId. We will execute the update explicitly here.
+
+          final data = _prepareData();
+          data['is_active'] = true; // REACTIVATE!
+
+          final response = await supabase
+              .from('customers')
+              .update(data)
+              .eq('id', duplicateId) // Update the old ghost record
+              .select('*, customer_types(type_name)')
+              .single();
+
+          if (mounted) Navigator.pop(context, Customer.fromMap(response));
+          return;
         }
       }
 
-      // 4. PREPARE FINAL DATA
-      final data = {
-        'customer_type_id': typeId,
-        'company_name': company.isEmpty ? null : company,
-        'first_name': first,
-        'middle_name': _middleCtrl.text.trim().isEmpty
-            ? null
-            : _middleCtrl.text.trim(),
-        'last_name': last,
-        'job_position': _jobCtrl.text.trim().isEmpty
-            ? null
-            : _jobCtrl.text.trim(),
-        'contact_number': phone,
-        'email': _emailCtrl.text.trim().isEmpty ? null : _emailCtrl.text.trim(),
-        'unit_building_house_no': _unitCtrl.text.trim(),
-        'street': _streetCtrl.text.trim(),
-        'subdivision_village': _villageCtrl.text.trim(),
-        'barangay': _brgyCtrl.text.trim(),
-        'city': _cityCtrl.text.trim(),
-        'landmark': _landmarkCtrl.text.trim().isEmpty
-            ? null
-            : _landmarkCtrl.text.trim(),
-      };
+      // 4. NORMAL INSERT / UPDATE (No Duplicates found)
+      final data = _prepareData();
+      // Ensure new records are active
+      data['is_active'] = true;
 
-      // 5. INSERT / UPDATE
       if (widget.customer == null) {
+        // Insert
         final response = await supabase
             .from('customers')
             .insert(data)
@@ -785,6 +829,7 @@ class _CustomerDialogState extends State<_CustomerDialog> {
             .single();
         if (mounted) Navigator.pop(context, Customer.fromMap(response));
       } else {
+        // Update existing
         final response = await supabase
             .from('customers')
             .update(data)
@@ -795,7 +840,6 @@ class _CustomerDialogState extends State<_CustomerDialog> {
       }
     } catch (e) {
       if (mounted) {
-        // Use Dialog for critical crashes too, just in case
         showDialog(
           context: context,
           builder: (ctx) => AlertDialog(
@@ -813,6 +857,34 @@ class _CustomerDialogState extends State<_CustomerDialog> {
     } finally {
       if (mounted) setState(() => _isSubmitting = false);
     }
+  }
+
+  // Helper to bundle form data
+  Map<String, dynamic> _prepareData() {
+    return {
+      'customer_type_id': _typeId,
+      'company_name': _companyCtrl.text.trim().isEmpty
+          ? null
+          : _companyCtrl.text.trim(),
+      'first_name': _firstCtrl.text.trim(),
+      'middle_name': _middleCtrl.text.trim().isEmpty
+          ? null
+          : _middleCtrl.text.trim(),
+      'last_name': _lastCtrl.text.trim(),
+      'job_position': _jobCtrl.text.trim().isEmpty
+          ? null
+          : _jobCtrl.text.trim(),
+      'contact_number': _phoneCtrl.text.trim(),
+      'email': _emailCtrl.text.trim().isEmpty ? null : _emailCtrl.text.trim(),
+      'unit_building_house_no': _unitCtrl.text.trim(),
+      'street': _streetCtrl.text.trim(),
+      'subdivision_village': _villageCtrl.text.trim(),
+      'barangay': _brgyCtrl.text.trim(),
+      'city': _cityCtrl.text.trim(),
+      'landmark': _landmarkCtrl.text.trim().isEmpty
+          ? null
+          : _landmarkCtrl.text.trim(),
+    };
   }
 
   @override
@@ -968,14 +1040,11 @@ class _CustomerDialogState extends State<_CustomerDialog> {
                         isRequired: true,
                       ),
                       keyboardType: TextInputType.phone,
-                      // FIX: Added Regex to allow digits only
                       inputFormatters: [
                         FilteringTextInputFormatter.allow(RegExp(r'[0-9+ \-]')),
                       ],
-                      // FIX: Validation for length
                       validator: (v) {
                         if (v == null || v.trim().isEmpty) return 'Required';
-                        // Remove non-digits to check length
                         final digits = v.replaceAll(RegExp(r'\D'), '');
                         if (digits.length < 7)
                           return 'Too short (min 7 digits)';
@@ -1081,17 +1150,12 @@ class _CustomerDialogState extends State<_CustomerDialog> {
     );
   }
 
-  // UPDATED: Standardized colors for all input labels
   InputDecoration _inputDeco(
     String label,
     IconData? icon, {
     bool isRequired = false,
   }) {
-    // FIX: Common style for both required and optional
-    const labelStyle = TextStyle(
-      color: Color(0xFF757575),
-      fontSize: 16,
-    ); // Grey 600
+    const labelStyle = TextStyle(color: Color(0xFF757575), fontSize: 16);
 
     return InputDecoration(
       label: isRequired
@@ -1110,12 +1174,9 @@ class _CustomerDialogState extends State<_CustomerDialog> {
                 ],
               ),
             )
-          : Text(
-              label,
-              style: labelStyle,
-            ), // Explicitly set style for optional too
+          : Text(label, style: labelStyle),
       prefixIcon: icon != null
-          ? Icon(icon, size: 20, color: const Color(0xFF9E9E9E)) // Grey 500
+          ? Icon(icon, size: 20, color: const Color(0xFF9E9E9E))
           : null,
       border: OutlineInputBorder(
         borderRadius: BorderRadius.circular(12),
@@ -1127,7 +1188,7 @@ class _CustomerDialogState extends State<_CustomerDialog> {
       ),
       contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
       filled: true,
-      fillColor: const Color(0xFFFAFAFA), // Very light grey (Grey 50)
+      fillColor: const Color(0xFFFAFAFA),
       floatingLabelBehavior: FloatingLabelBehavior.auto,
     );
   }
@@ -1219,7 +1280,6 @@ class Customer {
   });
 
   factory Customer.fromMap(Map<String, dynamic> map) {
-    // Handle the joined table data
     final typeData = map['customer_types'];
     final typeNameStr = typeData != null ? typeData['type_name'] : 'Unknown';
 
@@ -1243,7 +1303,6 @@ class Customer {
     );
   }
 
-  // Helper for Display Name (HCI: Shows Company for B2B, Name for B2C)
   String get displayName {
     if (typeName == 'B2B' && companyName != null && companyName!.isNotEmpty) {
       return companyName!;
@@ -1251,7 +1310,6 @@ class Customer {
     return "$firstName $lastName";
   }
 
-  // Helper for Contact Person (HCI: Shows name under company for B2B)
   String get contactPersonName => "$firstName $lastName";
 
   String get fullAddress {
