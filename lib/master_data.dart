@@ -17,7 +17,6 @@ class _MasterDataScreenState extends State<MasterDataScreen>
   @override
   void initState() {
     super.initState();
-    // Reduced to 3 Tabs: Brands, AC Types, and a combined "System References"
     _tabController = TabController(length: 3, vsync: this);
   }
 
@@ -56,8 +55,7 @@ class _MasterDataScreenState extends State<MasterDataScreen>
                   // Standard Tab Bar
                   TabBar(
                     controller: _tabController,
-                    isScrollable:
-                        false, // Fixed width looks cleaner for 3 items
+                    isScrollable: false,
                     labelColor: Colors.blue[700],
                     unselectedLabelColor: Colors.grey[600],
                     indicatorColor: Colors.blue[700],
@@ -98,7 +96,7 @@ class _MasterDataScreenState extends State<MasterDataScreen>
                     icon: Icons.ac_unit,
                     color: Colors.teal,
                   ),
-                  // 3. READ-ONLY: System References (Combined)
+                  // 3. READ-ONLY: System References
                   _SystemReferenceTab(),
                 ],
               ),
@@ -111,7 +109,7 @@ class _MasterDataScreenState extends State<MasterDataScreen>
 }
 
 // ==============================================================================
-// 1. EDITABLE TAB (For Brands & AC Types)
+// 1. EDITABLE TAB (For Brands & AC Types) - UPDATED FOR ARCHIVING
 // ==============================================================================
 
 class _EditableMasterTab extends StatefulWidget {
@@ -151,6 +149,7 @@ class _EditableMasterTabState extends State<_EditableMasterTab> {
       final res = await _supabase
           .from(widget.tableName)
           .select()
+          .eq('is_active', true) // <--- CHANGED: Only show active items
           .order(widget.nameField, ascending: true);
 
       if (mounted) {
@@ -185,7 +184,6 @@ class _EditableMasterTabState extends State<_EditableMasterTab> {
               TextFormField(
                 controller: controller,
                 autofocus: true,
-                // VALIDATION: Required & Trim check
                 validator: (v) {
                   if (v == null || v.trim().isEmpty) return 'Required';
                   return null;
@@ -235,6 +233,7 @@ class _EditableMasterTabState extends State<_EditableMasterTab> {
                 if (item == null) {
                   await _supabase.from(widget.tableName).insert({
                     widget.nameField: val,
+                    'is_active': true, // Ensure it's active on create
                   });
                 } else {
                   await _supabase
@@ -272,12 +271,15 @@ class _EditableMasterTabState extends State<_EditableMasterTab> {
     );
   }
 
+  // --- CHANGED: Now performs Soft Delete (Archive) ---
   Future<void> _delete(int id) async {
     final confirm = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text("Delete Item"),
-        content: const Text("Are you sure? This cannot be undone."),
+        title: const Text("Archive Item"),
+        content: Text(
+          "Are you sure you want to archive this ${widget.label}? Existing records using it will remain safe, but it won't appear in new lists.",
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
@@ -285,8 +287,8 @@ class _EditableMasterTabState extends State<_EditableMasterTab> {
           ),
           TextButton(
             onPressed: () => Navigator.pop(ctx, true),
-            style: TextButton.styleFrom(foregroundColor: Colors.red),
-            child: const Text("Delete"),
+            style: TextButton.styleFrom(foregroundColor: Colors.orange),
+            child: const Text("Archive"),
           ),
         ],
       ),
@@ -294,13 +296,27 @@ class _EditableMasterTabState extends State<_EditableMasterTab> {
 
     if (confirm == true) {
       try {
-        await _supabase.from(widget.tableName).delete().eq('id', id);
+        // Soft delete: Set is_active = false
+        await _supabase
+            .from(widget.tableName)
+            .update({'is_active': false})
+            .eq('id', id);
+
         _fetchData();
+
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text("${widget.label} archived successfully"),
+              behavior: SnackBarBehavior.floating,
+            ),
+          );
+        }
       } catch (e) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text("Cannot delete: Item might be in use."),
+            SnackBar(
+              content: Text("Error archiving: $e"),
               backgroundColor: Colors.red,
             ),
           );
@@ -406,7 +422,7 @@ class _EditableMasterTabState extends State<_EditableMasterTab> {
 }
 
 // ==============================================================================
-// 2. SYSTEM REFERENCE TAB (Combined Read-Only)
+// 2. SYSTEM REFERENCE TAB (Combined Read-Only) - UNCHANGED
 // ==============================================================================
 
 class _SystemReferenceTab extends StatelessWidget {
@@ -616,7 +632,7 @@ class _StaticExpansionTile extends StatelessWidget {
 }
 
 // ==============================================================================
-// SHARED WIDGETS (Cards/Tables)
+// SHARED WIDGETS (Cards/Tables) - UPDATED ICONS
 // ==============================================================================
 
 class _MobileCard extends StatelessWidget {
@@ -667,7 +683,8 @@ class _MobileCard extends StatelessWidget {
             onPressed: onEdit,
           ),
           IconButton(
-            icon: const Icon(Icons.delete, size: 18, color: Colors.red),
+            // Changed icon to Archive
+            icon: const Icon(Icons.archive, size: 18, color: Colors.orange),
             onPressed: onDelete,
           ),
         ],
@@ -758,12 +775,13 @@ class _DesktopTable extends StatelessWidget {
                             tooltip: "Edit",
                           ),
                           IconButton(
+                            // Changed icon to Archive
                             icon: const Icon(
-                              Icons.delete_outline,
-                              color: Colors.red,
+                              Icons.archive_outlined,
+                              color: Colors.orange,
                             ),
                             onPressed: () => onDelete(item['id']),
-                            tooltip: "Delete",
+                            tooltip: "Archive",
                           ),
                         ],
                       ),

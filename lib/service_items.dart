@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart'; // Added for input formatters
+import 'package:flutter/services.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'ui_app_shell.dart';
 import 'shared/widgets.dart'; // Assumes EmptyState, AnimatedCard, etc.
@@ -31,6 +31,7 @@ class _ServiceItemsScreenState extends State<ServiceItemsScreen> {
       final response = await _supabase
           .from('service_items')
           .select()
+          .eq('is_active', true) // <--- CHANGED: Only fetch active items
           .order('item_name', ascending: true);
 
       final List<ServiceItem> loaded = [];
@@ -84,8 +85,10 @@ class _ServiceItemsScreenState extends State<ServiceItemsScreen> {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Delete Item'),
-        content: Text('Are you sure you want to delete "${item.name}"?'),
+        title: const Text('Archive Item'), // Changed title
+        content: Text(
+          'Are you sure you want to archive "${item.name}"? It will be hidden from new selections.',
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
@@ -94,7 +97,7 @@ class _ServiceItemsScreenState extends State<ServiceItemsScreen> {
           TextButton(
             onPressed: () => Navigator.pop(context, true),
             style: TextButton.styleFrom(foregroundColor: Colors.red),
-            child: const Text('Delete'),
+            child: const Text('Archive'), // Changed button text
           ),
         ],
       ),
@@ -102,14 +105,20 @@ class _ServiceItemsScreenState extends State<ServiceItemsScreen> {
 
     if (confirmed == true) {
       try {
-        await _supabase.from('service_items').delete().eq('id', item.id);
+        // --- CHANGED: Soft Delete (Update is_active to false) ---
+        await _supabase
+            .from('service_items')
+            .update({'is_active': false})
+            .eq('id', item.id);
+
         setState(() {
           _items.removeWhere((i) => i.id == item.id);
         });
+
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
-              content: Text('Item deleted'),
+              content: Text('Item archived'),
               behavior: SnackBarBehavior.floating,
             ),
           );
@@ -118,7 +127,7 @@ class _ServiceItemsScreenState extends State<ServiceItemsScreen> {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text('Delete failed: $e'),
+              content: Text('Archive failed: $e'),
               backgroundColor: Colors.red,
             ),
           );
@@ -131,7 +140,6 @@ class _ServiceItemsScreenState extends State<ServiceItemsScreen> {
     var filtered = _items;
 
     if (_filterType != 'All') {
-      // Normalize casing just in case
       filtered = filtered
           .where((i) => i.type.toLowerCase() == _filterType.toLowerCase())
           .toList();
@@ -410,9 +418,12 @@ class _DesktopItemTable extends StatelessWidget {
                       tooltip: "Edit",
                     ),
                     IconButton(
-                      icon: const Icon(Icons.delete_outline, color: Colors.red),
+                      icon: const Icon(
+                        Icons.archive_outlined,
+                        color: Colors.orange,
+                      ), // Changed icon to archive
                       onPressed: () => onDelete(i),
-                      tooltip: "Delete",
+                      tooltip: "Archive",
                     ),
                   ],
                 ),
@@ -502,12 +513,15 @@ class _MobileItemCard extends StatelessWidget {
               const SizedBox(width: 8),
               TextButton.icon(
                 onPressed: onDelete,
-                icon: const Icon(Icons.delete, size: 16),
+                icon: const Icon(
+                  Icons.archive,
+                  size: 16,
+                ), // Changed to archive icon
                 label: const Text(
-                  'Delete',
-                  style: TextStyle(color: Colors.red),
+                  'Archive',
+                  style: TextStyle(color: Colors.orange),
                 ),
-                style: TextButton.styleFrom(foregroundColor: Colors.red),
+                style: TextButton.styleFrom(foregroundColor: Colors.orange),
               ),
             ],
           ),
@@ -548,13 +562,13 @@ class _ServiceItemDialogState extends State<_ServiceItemDialog> {
     if (!_formKey.currentState!.validate()) return;
     setState(() => _isSubmitting = true);
 
-    // FIX: Clean inputs to avoid faulty data
     final price = double.tryParse(_priceCtrl.text.trim()) ?? 0.0;
 
     final data = {
       'item_name': _nameCtrl.text.trim(),
       'item_type': _itemType,
       'price': price,
+      'is_active': true, // Ensure new items are active by default
     };
 
     try {
@@ -671,7 +685,6 @@ class _ServiceItemDialogState extends State<_ServiceItemDialog> {
                       keyboardType: const TextInputType.numberWithOptions(
                         decimal: true,
                       ),
-                      // FIX: Strict input formatting for money
                       inputFormatters: [
                         FilteringTextInputFormatter.allow(
                           RegExp(r'^\d*\.?\d{0,2}'),
@@ -725,16 +738,12 @@ class _ServiceItemDialogState extends State<_ServiceItemDialog> {
     );
   }
 
-  // FIX: Consistent Input Decoration with Red Asterisk support
   InputDecoration _inputDeco(
     String label,
     IconData? icon, {
     bool isRequired = false,
   }) {
-    const labelStyle = TextStyle(
-      color: Color(0xFF757575),
-      fontSize: 16,
-    ); // Grey 600
+    const labelStyle = TextStyle(color: Color(0xFF757575), fontSize: 16);
 
     return InputDecoration(
       label: isRequired
@@ -755,7 +764,7 @@ class _ServiceItemDialogState extends State<_ServiceItemDialog> {
             )
           : Text(label, style: labelStyle),
       prefixIcon: icon != null
-          ? Icon(icon, size: 20, color: const Color(0xFF9E9E9E)) // Grey 500
+          ? Icon(icon, size: 20, color: const Color(0xFF9E9E9E))
           : null,
       border: OutlineInputBorder(
         borderRadius: BorderRadius.circular(12),
@@ -767,7 +776,7 @@ class _ServiceItemDialogState extends State<_ServiceItemDialog> {
       ),
       contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
       filled: true,
-      fillColor: const Color(0xFFFAFAFA), // Very light grey
+      fillColor: const Color(0xFFFAFAFA),
       floatingLabelBehavior: FloatingLabelBehavior.auto,
     );
   }
@@ -779,12 +788,14 @@ class ServiceItem {
   final String name;
   final String type;
   final double price;
+  final bool isActive; // Added to model
 
   ServiceItem({
     required this.id,
     required this.name,
     required this.type,
     required this.price,
+    this.isActive = true,
   });
 
   factory ServiceItem.fromMap(Map<String, dynamic> map) {
@@ -793,6 +804,7 @@ class ServiceItem {
       name: map['item_name'] ?? 'Unknown Item',
       type: map['item_type'] ?? 'Service',
       price: (map['price'] as num?)?.toDouble() ?? 0.0,
+      isActive: map['is_active'] ?? true,
     );
   }
 }

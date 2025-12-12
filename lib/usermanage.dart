@@ -27,10 +27,11 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
   Future<void> _fetchData() async {
     setState(() => _isLoading = true);
     try {
-      // 1. Fetch Users with Role Names
+      // 1. Fetch Users with Role Names (Only Active Users)
       final usersRes = await _supabase
           .from('app_users')
           .select('*, roles(role_name)')
+          .eq('is_active', true) // <--- CHANGED: Only active users
           .order('full_name', ascending: true);
 
       // 2. Fetch Roles for Dropdown
@@ -94,13 +95,14 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
     }
   }
 
+  // --- CHANGED: Soft Delete (Deactivate) ---
   Future<void> _onDelete(AppUser user) async {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Revoke Access'),
+        title: const Text('Deactivate User'), // Changed Title
         content: Text(
-          'Are you sure you want to remove ${user.fullName}? Their access profile will be deleted.',
+          'Are you sure you want to deactivate ${user.fullName}? They will no longer be able to access the system, but their work history will be preserved.',
         ),
         actions: [
           TextButton(
@@ -110,7 +112,7 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
           TextButton(
             onPressed: () => Navigator.pop(context, true),
             style: TextButton.styleFrom(foregroundColor: Colors.red),
-            child: const Text('Revoke'),
+            child: const Text('Deactivate'), // Changed Button Text
           ),
         ],
       ),
@@ -118,14 +120,20 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
 
     if (confirmed == true) {
       try {
-        await _supabase.from('app_users').delete().eq('id', user.id);
+        // Perform Soft Delete
+        await _supabase
+            .from('app_users')
+            .update({'is_active': false}) // <--- Update to false
+            .eq('id', user.id);
+
         setState(() {
           _users.removeWhere((u) => u.id == user.id);
         });
+
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
-              content: Text('Access revoked'),
+              content: Text('User deactivated'),
               behavior: SnackBarBehavior.floating,
             ),
           );
@@ -134,7 +142,7 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text('Delete failed: $e'),
+              content: Text('Deactivation failed: $e'),
               backgroundColor: Colors.red,
             ),
           );
@@ -363,9 +371,12 @@ class _DesktopUserTable extends StatelessWidget {
                       tooltip: "Edit Role",
                     ),
                     IconButton(
-                      icon: const Icon(Icons.delete_outline, color: Colors.red),
+                      icon: const Icon(
+                        Icons.person_off_outlined,
+                        color: Colors.red,
+                      ), // Changed Icon
                       onPressed: () => onDelete(u),
-                      tooltip: "Revoke Access",
+                      tooltip: "Deactivate User",
                     ),
                   ],
                 ),
@@ -452,7 +463,10 @@ class _MobileUserCard extends StatelessWidget {
               const PopupMenuItem(value: 'edit', child: Text('Edit Role')),
               const PopupMenuItem(
                 value: 'delete',
-                child: Text('Revoke', style: TextStyle(color: Colors.red)),
+                child: Text(
+                  'Deactivate',
+                  style: TextStyle(color: Colors.red),
+                ), // Changed Text
               ),
             ],
           ),
@@ -546,14 +560,18 @@ class _UserDialogState extends State<_UserDialog> {
       'full_name': _nameCtrl.text.trim(),
       'email': _emailCtrl.text.trim(),
       'role_id': _selectedRoleId,
+      'is_active': true, // <--- Ensure new users are active by default
     };
 
     try {
       if (widget.user == null) {
-        // Create Profile (This provisions the user for access control)
+        // Create Profile
         await Supabase.instance.client.from('app_users').insert(data);
       } else {
         // Update Profile
+        // We remove 'is_active' from update so we don't accidentally reactivate a deactivated user just by editing their name
+        data.remove('is_active');
+
         await Supabase.instance.client
             .from('app_users')
             .update(data)
@@ -639,7 +657,6 @@ class _UserDialogState extends State<_UserDialog> {
                         Icons.email_outlined,
                         isRequired: true,
                       ),
-                      // Email is usually locked after creation to maintain identity link
                       enabled: widget.user == null,
                       validator: (v) {
                         if (v == null || v.trim().isEmpty) return 'Required';
@@ -667,7 +684,6 @@ class _UserDialogState extends State<_UserDialog> {
                       onChanged: (v) => setState(() => _selectedRoleId = v),
                     ),
 
-                    // Explicit instruction on how to complete the process
                     if (widget.user == null) ...[
                       const SizedBox(height: 16),
                       Container(
@@ -798,6 +814,7 @@ class AppUser {
   final String? email;
   final int roleId;
   final String roleName;
+  final bool isActive;
 
   AppUser({
     required this.id,
@@ -805,6 +822,7 @@ class AppUser {
     this.email,
     required this.roleId,
     required this.roleName,
+    this.isActive = true,
   });
 
   factory AppUser.fromMap(Map<String, dynamic> map) {
@@ -815,6 +833,7 @@ class AppUser {
       email: map['email'],
       roleId: map['role_id'] ?? 0,
       roleName: roleData != null ? roleData['role_name'] : 'User',
+      isActive: map['is_active'] ?? true,
     );
   }
 
