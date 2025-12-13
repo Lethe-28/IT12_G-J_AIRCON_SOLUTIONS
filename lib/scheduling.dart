@@ -311,7 +311,8 @@ class _SchedulingScreenState extends State<SchedulingScreen> {
           child: Container(
             color: Colors.white,
             padding: const EdgeInsets.all(24),
-            child: _buildCalendarGrid(),
+            // CHANGED: Wrapped in SingleChildScrollView to prevent bottom overflow
+            child: SingleChildScrollView(child: _buildCalendarGrid()),
           ),
         ),
         const VerticalDivider(width: 1),
@@ -345,7 +346,7 @@ class _SchedulingScreenState extends State<SchedulingScreen> {
                           ),
                         ],
                       ),
-                      // Add Button for specific day [cite: 87]
+                      // Add Button for specific day
                       IconButton(
                         onPressed: () => _onAddOrEdit(),
                         icon: const Icon(
@@ -361,15 +362,14 @@ class _SchedulingScreenState extends State<SchedulingScreen> {
                 const Divider(height: 1),
                 Expanded(
                   child: jobsForDay.isEmpty
-                      ? _buildEmptyStatePrompt() //
+                      ? _buildEmptyStatePrompt()
                       : ListView.separated(
                           padding: const EdgeInsets.all(16),
                           itemCount: jobsForDay.length,
                           separatorBuilder: (ctx, i) =>
                               const SizedBox(height: 12),
-                          itemBuilder: (ctx, i) => _JobCard(
-                            order: jobsForDay[i],
-                          ), // Use existing card
+                          itemBuilder: (ctx, i) =>
+                              _JobCard(order: jobsForDay[i]),
                         ),
                 ),
               ],

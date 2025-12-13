@@ -362,7 +362,7 @@ class _DesktopSidebarHeader extends StatelessWidget {
     return Padding(
       padding: EdgeInsets.symmetric(
         horizontal: isCollapsed ? 12 : 20,
-        vertical: 20,
+        vertical: 16,
       ),
       child: Row(
         mainAxisAlignment: isCollapsed
