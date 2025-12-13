@@ -311,7 +311,7 @@ class _SchedulingScreenState extends State<SchedulingScreen> {
           child: Container(
             color: Colors.white,
             padding: const EdgeInsets.all(24),
-            // CHANGED: Wrapped in SingleChildScrollView to prevent bottom overflow
+            // Wrapped in SingleChildScrollView to fix the yellow overflow tape
             child: SingleChildScrollView(child: _buildCalendarGrid()),
           ),
         ),
@@ -368,8 +368,11 @@ class _SchedulingScreenState extends State<SchedulingScreen> {
                           itemCount: jobsForDay.length,
                           separatorBuilder: (ctx, i) =>
                               const SizedBox(height: 12),
-                          itemBuilder: (ctx, i) =>
-                              _JobCard(order: jobsForDay[i]),
+                          // FIX: Added GestureDetector to restore click functionality
+                          itemBuilder: (ctx, i) => GestureDetector(
+                            onTap: () => _showJobDetails(jobsForDay[i]),
+                            child: _JobCard(order: jobsForDay[i]),
+                          ),
                         ),
                 ),
               ],
@@ -413,7 +416,11 @@ class _SchedulingScreenState extends State<SchedulingScreen> {
                     physics: const NeverScrollableScrollPhysics(),
                     itemCount: jobsForDay.length,
                     separatorBuilder: (ctx, i) => const SizedBox(height: 12),
-                    itemBuilder: (ctx, i) => _JobCard(order: jobsForDay[i]),
+                    // FIX: Added GestureDetector here too
+                    itemBuilder: (ctx, i) => GestureDetector(
+                      onTap: () => _showJobDetails(jobsForDay[i]),
+                      child: _JobCard(order: jobsForDay[i]),
+                    ),
                   ),
               ],
             ),
