@@ -1818,27 +1818,25 @@ class _ActionButton extends StatelessWidget {
 
 class _JobOrderDialog extends StatefulWidget {
   final DateTime? initialDate;
-  final JobOrder? existingJob; // ADDED: Enable editing
+  final JobOrder? existingJob;
 
-  const _JobOrderDialog({this.initialDate, this.existingJob});
+  const _JobOrderDialog({super.key, this.initialDate, this.existingJob});
   @override
   State<_JobOrderDialog> createState() => _JobOrderDialogState();
 }
 
 class _JobOrderDialogState extends State<_JobOrderDialog> {
-  // Steps: 0=CustomerType, 1=ServiceType, 2=Details
+  // Steps: 0=CustomerType, 1=ServiceType, 2=Client&Asset, 3=Schedule
   int _currentStep = 0;
   bool _isSubmitting = false;
   final _supabase = Supabase.instance.client;
   final _formKey = GlobalKey<FormState>();
 
-  // --- Controllers & Variables ---
-
-  // Data State
-  String _customerType = 'Residential'; // Default
+  // --- Data & Controllers ---
+  String _customerType = 'Residential';
   String _jobTypeName = 'Installation';
   int? _jobTypeId;
-  bool _isNewClient = true; // Default to New for quicker entry flow
+  bool _isNewClient = true;
 
   // Search/Dropdown Options
   List<Map<String, dynamic>> _existingClients = [];
@@ -1852,21 +1850,20 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
   final List<int> _selectedAirconIds = [];
   final List<int> _selectedTechnicianIds = [];
 
-  // --- "One Bar" Inputs (New) ---
+  // --- ONE BAR INPUTS ---
   final _fullNameController = TextEditingController();
-  final _addressController = TextEditingController();
-
-  // Contact Info
+  final _addressController =
+      TextEditingController(); // Maps to address_complete
   final _phoneController = TextEditingController();
   final _emailController = TextEditingController();
 
   // Unit Details
-  final _customerDisplayController =
-      TextEditingController(); // For search display
+  final _customerDisplayController = TextEditingController();
   String _selectedBrandName = '';
   int? _selectedAirconTypeId;
   final _unitRemarkController = TextEditingController();
-  // New Aircon Fields
+
+  // NEW AIRCON FIELDS
   final _hpController = TextEditingController();
   bool _isInverter = false;
 
@@ -1876,9 +1873,9 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
   TimeOfDay _scheduleTime = const TimeOfDay(hour: 9, minute: 0);
   final _notesController = TextEditingController();
 
-  // --- VALIDATORS ---
+  // --- VALIDATORS (Restored) ---
   String? _validatePhone(String? value) {
-    if (value == null || value.isEmpty) return 'Required';
+    if (value == null || value.trim().isEmpty) return 'Required';
     final trimmed = value.trim();
     // Regex: Matches 09xxxxxxxxx OR 7-12 digit landlines
     if (!RegExp(r'^(09\d{9}|\d{7,12})$').hasMatch(trimmed)) return 'Invalid #';
@@ -1938,12 +1935,13 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
     return false;
   }
 
+  // --- INIT ---
   @override
   void initState() {
     super.initState();
     if (widget.existingJob != null) {
-      // If editing, we skip the "Type" steps and go straight to details
-      _currentStep = 2;
+      // Edit Mode: Skip to final step
+      _currentStep = 3;
       _jobTypeName = widget.existingJob!.jobType;
       _scheduleDate = widget.existingJob!.startDateTime;
       _scheduleTime = TimeOfDay.fromDateTime(widget.existingJob!.startDateTime);
@@ -1951,21 +1949,17 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
       _selectedClientId = widget.existingJob!.customerId;
       _externalRefController.text = widget.existingJob!.displayId;
       _isNewClient = false;
-
-      // Determine Customer Type based on data
       _customerType = widget.existingJob!.isCorporate
           ? 'Commercial'
           : 'Residential';
     } else {
       _scheduleDate = widget.initialDate ?? DateTime.now();
     }
-
     _fetchInitialData();
   }
 
   Future<void> _fetchInitialData() async {
-    // 1. Fetch Master Data
-    // Added address_complete to selection
+    // Fetch active data including the new address_complete column
     final customers = await _supabase
         .from('customers')
         .select(
@@ -1981,41 +1975,6 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
         .select()
         .order('first_name');
 
-    // 2. Prepare Variables for Edit Mode
-    List<int> existingLinkedAircons = [];
-    List<int> existingLinkedTechs = [];
-    List<Map<String, dynamic>> loadedClientAircons = [];
-
-    if (widget.existingJob != null) {
-      final linkedAcRes = await _supabase
-          .from('job_order_aircons')
-          .select('aircon_id')
-          .eq('job_order_id', widget.existingJob!.dbId);
-      existingLinkedAircons = List<int>.from(
-        linkedAcRes.map((e) => e['aircon_id']),
-      );
-
-      final linkedTechRes = await _supabase
-          .from('job_order_technicians')
-          .select('technician_id')
-          .eq('job_order_id', widget.existingJob!.dbId);
-      existingLinkedTechs = List<int>.from(
-        linkedTechRes.map((e) => e['technician_id']),
-      );
-
-      final int? custId = widget.existingJob?.customerId;
-      if (custId != null) {
-        // Fetch specific aircon columns including new HP/Inverter
-        final units = await _supabase
-            .from('aircons')
-            .select(
-              'id, remarks, horse_power, is_inverter, brands(brand_name), aircon_types(type_name)',
-            )
-            .eq('customer_id', custId);
-        loadedClientAircons = List<Map<String, dynamic>>.from(units);
-      }
-    }
-
     if (mounted) {
       setState(() {
         _existingClients = List<Map<String, dynamic>>.from(customers);
@@ -2029,46 +1988,6 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
             orElse: () => types.first,
           );
           _jobTypeId = installType['id'];
-        } else {
-          // --- EDIT MODE RESTORATION ---
-          if (_selectedClientId != null) {
-            final cust = _existingClients.firstWhere(
-              (c) => c['id'] == _selectedClientId,
-              orElse: () => {},
-            );
-            if (cust.isNotEmpty) {
-              // Pre-fill One Bar inputs for display
-              if (cust['company_name'] != null &&
-                  cust['company_name'].toString().isNotEmpty) {
-                _fullNameController.text = cust['company_name'];
-                _customerDisplayController.text = cust['company_name'];
-              } else {
-                _fullNameController.text =
-                    '${cust['first_name']} ${cust['last_name']}';
-                _customerDisplayController.text =
-                    '${cust['first_name']} ${cust['last_name']}';
-              }
-
-              // Restore Address
-              if (cust['address_complete'] != null) {
-                _addressController.text = cust['address_complete'];
-              } else {
-                // Fallback for old data
-                _addressController.text =
-                    "${cust['unit_building_house_no'] ?? ''} ${cust['street'] ?? ''} ${cust['barangay'] ?? ''} ${cust['city'] ?? ''}"
-                        .trim();
-              }
-            }
-          }
-
-          if (loadedClientAircons.isNotEmpty) {
-            _clientAircons = loadedClientAircons;
-          }
-
-          _selectedAirconIds.clear();
-          _selectedAirconIds.addAll(existingLinkedAircons);
-          _selectedTechnicianIds.clear();
-          _selectedTechnicianIds.addAll(existingLinkedTechs);
         }
 
         if (_airconTypes.isNotEmpty) {
@@ -2229,38 +2148,14 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
     );
   }
 
-  // --- SUBMISSION LOGIC (Smart Parse) ---
+  // --- SUBMIT LOGIC (One Bar Parse) ---
   Future<void> _submit() async {
-    // 1. Validation
-    if (!_isNewClient && _selectedClientId == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text("Please select a customer"),
-          backgroundColor: Colors.red,
-        ),
-      );
-      return;
-    }
-    if (_isNewClient) {
-      if (_fullNameController.text.trim().isEmpty ||
-          _addressController.text.trim().isEmpty ||
-          _phoneController.text.trim().isEmpty) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text("Name, Address, and Phone are required"),
-            backgroundColor: Colors.red,
-          ),
-        );
-        return;
-      }
-    }
-
     setState(() => _isSubmitting = true);
 
     try {
       int? finalCustomerId = _selectedClientId;
 
-      // 2. CREATE CUSTOMER (Parsing One Bar inputs)
+      // 1. CREATE CUSTOMER (Parsing "One Bar" Name)
       if (_isNewClient) {
         String firstName = '-';
         String lastName = '-';
@@ -2270,18 +2165,18 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
 
         if (_customerType == 'Commercial') {
           companyName = fullName;
-          firstName =
-              "Contact"; // Default placeholders for DB structure constraints
+          // Placeholder names to satisfy DB if needed
+          firstName = "Contact";
           lastName = "Person";
         } else {
-          // Naive Name Splitter for Residential
+          // Logic: Split by space. First word = First Name, Rest = Last Name
           List<String> parts = fullName.split(' ');
           if (parts.isNotEmpty) {
             firstName = parts.first;
             if (parts.length > 1) {
               lastName = parts.sublist(1).join(' ');
             } else {
-              lastName = '.'; // Placeholder if single name
+              lastName = '.';
             }
           }
         }
@@ -2291,15 +2186,14 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
           'last_name': lastName,
           'company_name': companyName,
           'address_complete': _addressController.text
-              .trim(), // Saving One Bar Address
+              .trim(), // Saving to the new column
           'contact_number': _phoneController.text.trim(),
           'email': _emailController.text.trim().isEmpty
               ? null
               : _emailController.text.trim(),
-          'customer_type_id': _customerType == 'Commercial' ? 1 : 2,
-          // Legacy fields can be left null or derived if needed
-          'city': '',
-          'barangay': '',
+          'customer_type_id': _customerType == 'Commercial'
+              ? 1
+              : 2, // 1=Corp, 2=Residential
         };
 
         final custRes = await _supabase
@@ -2310,8 +2204,7 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
         finalCustomerId = custRes['id'] as int;
       }
 
-      // 3. CREATE AIRCON (If New Client & Info Provided)
-      // Check if user entered brand info
+      // 2. CREATE AIRCON (If New Client)
       if (_isNewClient && _selectedBrandName.trim().isNotEmpty) {
         final brandName = _selectedBrandName.trim();
         int brandId;
@@ -2339,8 +2232,8 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
           'remarks': _unitRemarkController.text.trim().isEmpty
               ? 'Main Unit'
               : _unitRemarkController.text.trim(),
-          'horse_power': _hpController.text.trim(), // New
-          'is_inverter': _isInverter, // New
+          'horse_power': _hpController.text.trim(), // New Column
+          'is_inverter': _isInverter, // New Column
         };
 
         final newAircon = await _supabase
@@ -2351,7 +2244,7 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
         _selectedAirconIds.add(newAircon['id']);
       }
 
-      // 4. CREATE JOB ORDER
+      // 3. CREATE JOB ORDER
       final typeRes = await _supabase
           .from('job_types')
           .select('id')
@@ -2369,16 +2262,11 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
         _scheduleTime.minute,
       );
 
-      // Reference Number Logic
+      // Reference No Logic
       String finalJoNumber = _externalRefController.text.trim();
       if (finalJoNumber.isEmpty) {
-        if (widget.existingJob != null) {
-          finalJoNumber = widget.existingJob!.displayId;
-        } else {
-          // Format: JO-TIMESTAMP (Last 5 digits)
-          finalJoNumber =
-              'JO-${DateTime.now().millisecondsSinceEpoch.toString().substring(8)}';
-        }
+        finalJoNumber =
+            'JO-${DateTime.now().millisecondsSinceEpoch.toString().substring(8)}';
       }
 
       final jobData = {
@@ -2393,14 +2281,13 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
       };
 
       int newJoId;
-
       if (widget.existingJob != null) {
         await _supabase
             .from('job_orders')
             .update(jobData)
             .eq('id', widget.existingJob!.dbId);
         newJoId = widget.existingJob!.dbId;
-        // Clean slate for links
+        // Clean old links to prevent duplicates
         await _supabase
             .from('job_order_aircons')
             .delete()
@@ -2419,7 +2306,7 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
         newJoId = joRes['id'] as int;
       }
 
-      // 5. LINK ASSETS & TECHS
+      // 4. LINK ASSETS & TECHS
       for (int airconId in _selectedAirconIds) {
         await _supabase.from('job_order_aircons').insert({
           'job_order_id': newJoId,
@@ -2433,14 +2320,6 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
           'role': 'Technician',
         });
       }
-
-      // 6. LOG & CLOSE
-      await ActivityLogger.log(
-        type: widget.existingJob != null ? 'Update' : 'Create',
-        details: widget.existingJob != null
-            ? 'Updated Job $finalJoNumber'
-            : 'Created Job $finalJoNumber',
-      );
 
       if (mounted) {
         Navigator.pop(context, true);
@@ -2463,6 +2342,7 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
 
   @override
   Widget build(BuildContext context) {
+    // Dynamic sizing for desktop/mobile
     return LayoutBuilder(
       builder: (context, constraints) {
         return Dialog(
@@ -2474,8 +2354,7 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
           ),
           child: Container(
             width: constraints.maxWidth < 600 ? double.infinity : 600,
-            height:
-                constraints.maxHeight * 0.90, // Slightly taller for new fields
+            height: constraints.maxHeight * 0.90,
             color: Colors.white,
             child: Column(
               children: [
@@ -2496,11 +2375,7 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
                         ),
                       Expanded(
                         child: Text(
-                          _currentStep == 0
-                              ? "Customer Type"
-                              : _currentStep == 1
-                              ? "Service Type"
-                              : "Job Details",
+                          _getStepTitle(),
                           textAlign: TextAlign.center,
                           style: const TextStyle(
                             fontSize: 18,
@@ -2516,7 +2391,7 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
                   ),
                 ),
 
-                // --- CONTENT ---
+                // --- CONTENT AREA ---
                 Expanded(
                   child: Padding(
                     padding: const EdgeInsets.all(24),
@@ -2531,29 +2406,7 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
                     width: double.infinity,
                     height: 50,
                     child: ElevatedButton(
-                      onPressed: _isSubmitting
-                          ? null
-                          : () {
-                              if (_currentStep == 0) {
-                                setState(() => _currentStep++);
-                              } else if (_currentStep == 1) {
-                                // Skip validation if simply choosing Service Type
-                                setState(() => _currentStep++);
-                              } else {
-                                // Final Step: Submit
-                                if (_isNewClient &&
-                                    !_formKey.currentState!.validate()) {
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                    const SnackBar(
-                                      content: Text("Please check fields"),
-                                      backgroundColor: Colors.red,
-                                    ),
-                                  );
-                                } else {
-                                  _submit();
-                                }
-                              }
-                            },
+                      onPressed: _isSubmitting ? null : _handleNextButton,
                       style: ElevatedButton.styleFrom(
                         backgroundColor: const Color(0xFF2563EB),
                         shape: RoundedRectangleBorder(
@@ -2563,7 +2416,7 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
                       child: _isSubmitting
                           ? const CircularProgressIndicator(color: Colors.white)
                           : Text(
-                              _currentStep == 2
+                              _currentStep == 3
                                   ? (widget.existingJob != null
                                         ? 'Update Job'
                                         : 'Create Job')
@@ -2584,10 +2437,60 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
     );
   }
 
+  String _getStepTitle() {
+    switch (_currentStep) {
+      case 0:
+        return "Customer Type";
+      case 1:
+        return "Service Type";
+      case 2:
+        return "Client Info & Asset";
+      case 3:
+        return "Schedule & Techs";
+      default:
+        return "";
+    }
+  }
+
+  void _handleNextButton() {
+    // 1. Validation Logic
+    if (_currentStep == 2) {
+      if (_isNewClient) {
+        if (!_formKey.currentState!.validate()) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text("Please fill in required fields (*)."),
+              backgroundColor: Colors.red,
+            ),
+          );
+          return;
+        }
+      } else {
+        if (_selectedClientId == null) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text("Please select a customer."),
+              backgroundColor: Colors.red,
+            ),
+          );
+          return;
+        }
+      }
+    }
+
+    // 2. Navigation Logic
+    if (_currentStep < 3) {
+      setState(() => _currentStep++);
+    } else {
+      _submit();
+    }
+  }
+
   Widget _buildCurrentStep() {
     if (_currentStep == 0) return _stepCustomerType();
     if (_currentStep == 1) return _stepServiceType();
-    return _stepDetails();
+    if (_currentStep == 2) return _stepClientAndAsset();
+    return _stepSchedule();
   }
 
   // --- STEP 0: CUSTOMER TYPE ---
@@ -2655,15 +2558,14 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
     );
   }
 
-  // --- STEP 2: DETAILS (Consolidated) ---
-  Widget _stepDetails() {
+  // --- STEP 2: CLIENT & ASSET (Restored Form) ---
+  Widget _stepClientAndAsset() {
     final isEditing = widget.existingJob != null;
 
     return SingleChildScrollView(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // 1. Existing vs New Toggle (Only show if not editing)
           if (!isEditing) ...[
             Container(
               padding: const EdgeInsets.all(4),
@@ -2675,16 +2577,16 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
                 children: [
                   Expanded(
                     child: _ToggleOption(
-                      label: "Existing Client",
-                      isSelected: !_isNewClient,
-                      onTap: () => setState(() => _isNewClient = false),
+                      label: "New Entry",
+                      isSelected: _isNewClient,
+                      onTap: () => setState(() => _isNewClient = true),
                     ),
                   ),
                   Expanded(
                     child: _ToggleOption(
-                      label: "New Entry",
-                      isSelected: _isNewClient,
-                      onTap: () => setState(() => _isNewClient = true),
+                      label: "Existing Client",
+                      isSelected: !_isNewClient,
+                      onTap: () => setState(() => _isNewClient = false),
                     ),
                   ),
                 ],
@@ -2693,14 +2595,13 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
             const SizedBox(height: 20),
           ],
 
-          // 2. CLIENT SELECTION / ENTRY
           if (!_isNewClient) ...[
+            // --- EXISTING CLIENT SEARCH ---
             const Text(
               "Select Customer",
               style: TextStyle(fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 8),
-            // Existing Client Search
             Autocomplete<Map<String, dynamic>>(
               optionsBuilder: (v) {
                 if (v.text.isEmpty)
@@ -2721,54 +2622,35 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
                 });
               },
               fieldViewBuilder: (ctx, ctrl, focus, onSub) {
-                // If editing, use the display controller which is locked
                 return TextField(
                   controller: isEditing ? _customerDisplayController : ctrl,
                   focusNode: focus,
                   readOnly: isEditing,
                   decoration: InputDecoration(
                     hintText: "Search name...",
-                    prefixIcon: isEditing
-                        ? const Icon(Icons.lock)
-                        : const Icon(Icons.search),
+                    prefixIcon: const Icon(Icons.search),
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(12),
                     ),
                     filled: true,
-                    fillColor: isEditing ? Colors.grey[100] : Colors.white,
+                    fillColor: Colors.white,
                   ),
                 );
               },
             ),
-
-            // Unit Selection for Existing
             if (_selectedClientId != null) ...[
               const SizedBox(height: 20),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  const Text(
-                    "Select Units",
-                    style: TextStyle(fontWeight: FontWeight.bold),
-                  ),
-                  TextButton.icon(
-                    onPressed: _addNewUnitDialog,
-                    icon: const Icon(Icons.add, size: 16),
-                    label: const Text("Add Unit"),
-                  ),
-                ],
+              const Text(
+                "Select Units",
+                style: TextStyle(fontWeight: FontWeight.bold),
               ),
+              const SizedBox(height: 8),
               if (_clientAircons.isNotEmpty)
                 ..._clientAircons.map((unit) {
                   final brand = unit['brands']?['brand_name'] ?? 'Generic';
                   final type = unit['aircon_types']?['type_name'] ?? 'Unit';
-                  final hp = unit['horse_power'] != null
-                      ? "${unit['horse_power']}HP"
-                      : "";
-                  final inv = unit['is_inverter'] == true ? "Inverter" : "";
-
                   return CheckboxListTile(
-                    title: Text("$brand $type $hp $inv".trim()),
+                    title: Text("$brand $type"),
                     subtitle: Text(unit['remarks'] ?? ''),
                     value: _selectedAirconIds.contains(unit['id']),
                     onChanged: (v) {
@@ -2782,108 +2664,69 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
                   );
                 })
               else
-                const Padding(
-                  padding: EdgeInsets.all(8.0),
-                  child: Text(
-                    "No units found.",
-                    style: TextStyle(color: Colors.grey),
-                  ),
+                const Text(
+                  "No units found.",
+                  style: TextStyle(color: Colors.grey),
                 ),
             ],
           ] else ...[
-            // NEW CLIENT FORM ("One Bar" inputs)
+            // --- NEW CLIENT FORM ("One Bar" Input + Red Asterisks) ---
             Form(
               key: _formKey,
               child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text(
-                    "Client Information",
-                    style: TextStyle(
-                      fontWeight: FontWeight.bold,
-                      color: Colors.blue,
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-
-                  // ONE BAR NAME
-                  TextFormField(
+                  _SimpleInput(
                     controller: _fullNameController,
-                    decoration: InputDecoration(
-                      labelText: _customerType == 'Residential'
-                          ? "Full Name"
-                          : "Company Name / Contact Person",
-                      hintText: "e.g. Juan Dela Cruz",
-                      prefixIcon: const Icon(Icons.person_outline),
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                    ),
-                    validator: (v) => v!.isEmpty ? "Required" : null,
+                    hint: _customerType == 'Residential'
+                        ? "Full Name (e.g. Juan Cruz)"
+                        : "Company Name / Contact Person",
+                    icon: Icons.person_outline,
+                    isRequired: true, // Shows Red *
                   ),
                   const SizedBox(height: 12),
-
                   // ONE BAR ADDRESS
-                  TextFormField(
+                  _SimpleInput(
                     controller: _addressController,
-                    maxLines: 2,
-                    decoration: InputDecoration(
-                      labelText: "Complete Address",
-                      hintText: "Unit, Street, Barangay, City, Landmark...",
-                      prefixIcon: const Icon(Icons.location_on_outlined),
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                    ),
-                    validator: (v) => v!.isEmpty ? "Required" : null,
+                    hint: "Complete Address (Unit, Street, Brgy, City)",
+                    icon: Icons.location_on_outlined,
+                    isRequired: true, // Shows Red *
                   ),
                   const SizedBox(height: 12),
-
-                  // CONTACT
                   Row(
                     children: [
                       Expanded(
-                        child: TextFormField(
+                        child: _SimpleInput(
                           controller: _phoneController,
-                          keyboardType: TextInputType.phone,
-                          decoration: InputDecoration(
-                            labelText: "Phone Number",
-                            prefixIcon: const Icon(Icons.phone),
-                            border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                          ),
+                          hint: "Phone",
+                          icon: Icons.phone,
+                          isRequired: true,
                           validator: _validatePhone,
                         ),
                       ),
                       const SizedBox(width: 12),
                       Expanded(
-                        child: TextFormField(
+                        child: _SimpleInput(
                           controller: _emailController,
-                          keyboardType: TextInputType.emailAddress,
-                          decoration: InputDecoration(
-                            labelText: "Email (Optional)",
-                            prefixIcon: const Icon(Icons.email_outlined),
-                            border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                          ),
+                          hint: "Email (Opt)",
+                          icon: Icons.email_outlined,
                         ),
                       ),
                     ],
                   ),
-
                   const SizedBox(height: 24),
-                  const Text(
-                    "First Unit Details",
-                    style: TextStyle(
-                      fontWeight: FontWeight.bold,
-                      color: Colors.blue,
+
+                  // --- NEW AIRCON DETAILS ---
+                  const Align(
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      "First Unit Details",
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        color: Colors.blue,
+                      ),
                     ),
                   ),
                   const SizedBox(height: 12),
-
-                  // BRAND & TYPE ROW
                   Row(
                     children: [
                       Expanded(
@@ -2902,13 +2745,16 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
                                 c.addListener(
                                   () => _selectedBrandName = c.text,
                                 );
+                                // Using _SimpleInput inside Autocomplete
                                 return TextFormField(
                                   controller: c,
                                   focusNode: f,
-                                  decoration: InputDecoration(
+                                  decoration: const InputDecoration(
                                     labelText: "Brand",
                                     border: OutlineInputBorder(
-                                      borderRadius: BorderRadius.circular(12),
+                                      borderRadius: BorderRadius.all(
+                                        Radius.circular(12),
+                                      ),
                                     ),
                                   ),
                                 );
@@ -2921,10 +2767,12 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
                       Expanded(
                         child: DropdownButtonFormField<int>(
                           value: _selectedAirconTypeId,
-                          decoration: InputDecoration(
+                          decoration: const InputDecoration(
                             labelText: "Type",
                             border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(12),
+                              borderRadius: BorderRadius.all(
+                                Radius.circular(12),
+                              ),
                             ),
                           ),
                           items: _airconTypes
@@ -2942,20 +2790,13 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
                     ],
                   ),
                   const SizedBox(height: 12),
-
-                  // HP & INVERTER ROW (NEW)
+                  // NEW HP & INVERTER
                   Row(
                     children: [
                       Expanded(
-                        child: TextFormField(
+                        child: _SimpleInput(
                           controller: _hpController,
-                          decoration: InputDecoration(
-                            labelText: "Horsepower",
-                            hintText: "e.g. 1.5 HP",
-                            border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                          ),
+                          hint: "HP (e.g. 1.5)",
                         ),
                       ),
                       const SizedBox(width: 12),
@@ -2978,43 +2819,35 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
                     ],
                   ),
                   const SizedBox(height: 12),
-
-                  TextFormField(
+                  _SimpleInput(
                     controller: _unitRemarkController,
-                    decoration: InputDecoration(
-                      labelText: "Location / Notes",
-                      hintText: "e.g. Master Bedroom",
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                    ),
+                    hint: "Location (e.g. Master Bedroom)",
                   ),
                 ],
               ),
             ),
           ],
+        ],
+      ),
+    );
+  }
 
-          const SizedBox(height: 24),
-          const Divider(),
-          const SizedBox(height: 24),
-
-          // 3. SCHEDULE & REF
+  // --- STEP 3: SCHEDULE & TECHS ---
+  Widget _stepSchedule() {
+    return SingleChildScrollView(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
           const Text(
-            "Schedule & Reference",
+            "Schedule",
             style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
           ),
           const SizedBox(height: 12),
 
-          TextField(
+          _SimpleInput(
             controller: _externalRefController,
-            decoration: InputDecoration(
-              labelText: "Reference No. (Optional)",
-              hintText: "Auto-generates if blank",
-              prefixIcon: const Icon(Icons.tag),
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
-              ),
-            ),
+            hint: "Ref No. (Optional)",
+            icon: Icons.tag,
           ),
           const SizedBox(height: 12),
 
@@ -3055,10 +2888,7 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
                       context: context,
                       initialTime: _scheduleTime,
                     );
-                    if (t != null) {
-                      // Simple conflict check logic here if needed
-                      setState(() => _scheduleTime = t);
-                    }
+                    if (t != null) setState(() => _scheduleTime = t);
                   },
                 ),
               ),
@@ -3067,7 +2897,7 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
 
           const SizedBox(height: 24),
           const Text(
-            "Technicians",
+            "Assign Team",
             style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
           ),
           const SizedBox(height: 8),
@@ -3210,7 +3040,7 @@ class _ToggleOption extends StatelessWidget {
   }
 }
 
-// UPDATED: Now uses TextFormField for Validation
+// --- HELPER: Simple Input with Red Asterisk Logic ---
 class _SimpleInput extends StatelessWidget {
   final TextEditingController controller;
   final IconData? icon;
@@ -3237,15 +3067,14 @@ class _SimpleInput extends StatelessWidget {
       keyboardType: keyboardType,
       textCapitalization: textCapitalization,
       validator: (value) {
-        if (isRequired && (value == null || value.isEmpty)) {
+        if (isRequired && (value == null || value.trim().isEmpty)) {
           return '$hint is required';
         }
-        if (validator != null) {
-          return validator!(value);
-        }
+        if (validator != null) return validator!(value);
         return null;
       },
       decoration: InputDecoration(
+        // The RichText Label creates the Red Asterisk effect
         label: RichText(
           text: TextSpan(
             text: hint,
