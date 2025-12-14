@@ -741,39 +741,77 @@ class _JobBillingManagerState extends State<_JobBillingManager>
     }
   }
 
-  // NEW: Cancel Logic (Soft Delete)
+  // NEW: Cancel Logic with Reason
   Future<void> _cancelJob() async {
-    final confirm = await showConfirmDialog(
+    // 1. Prompt for Reason
+    final reasonController = TextEditingController();
+    final confirm = await showDialog<bool>(
       context: context,
-      title: "Cancel Job?",
-      message:
-          "This will remove the job from the active schedule and move it to the Archive.",
-      confirmLabel: "Yes, Cancel Job",
-      isDestructive: true, // Makes the button red to indicate importance
+      builder: (ctx) => AlertDialog(
+        title: const Text("Cancel Job"),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text("Please provide a reason for cancellation:"),
+            const SizedBox(height: 12),
+            TextField(
+              controller: reasonController,
+              decoration: const InputDecoration(
+                labelText: "Reason",
+                hintText: "e.g., Client cancelled, Weather issue",
+                border: OutlineInputBorder(),
+              ),
+              maxLines: 2,
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text("Keep Job"),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+            onPressed: () {
+              if (reasonController.text.trim().isEmpty) {
+                // Force user to enter something
+                ScaffoldMessenger.of(ctx).showSnackBar(
+                  const SnackBar(content: Text("Reason is required.")),
+                );
+                return;
+              }
+              Navigator.pop(ctx, true);
+            },
+            child: const Text("Confirm Cancel"),
+          ),
+        ],
+      ),
     );
 
     if (confirm == true) {
       try {
+        // Append reason to existing notes
+        final oldNotes = widget.job.notes ?? "";
+        final newNotes = "$oldNotes\n[CANCELLED]: ${reasonController.text}"
+            .trim();
+
         await _supabase
             .from('job_orders')
-            .update({
-              'status': 'Cancelled',
-              // We don't delete data, just tag it.
-              // You could also add a 'cancellation_reason' column later if needed.
-            })
+            .update({'status': 'Cancelled', 'notes': newNotes})
             .eq('id', widget.job.dbId);
 
         // LOG IT!
         await ActivityLogger.log(
           type: 'Cancel',
-          details: 'Cancelled Job ${widget.job.displayId}',
+          details:
+              'Cancelled Job ${widget.job.displayId}. Reason: ${reasonController.text}',
         );
 
         if (mounted) {
           Navigator.pop(context); // Close the details dialog
           widget.onJobUpdated(); // Refresh the main screen
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text("Job moved to Cancelled Archive")),
+            const SnackBar(content: Text("Job Cancelled and Reason Logged.")),
           );
         }
       } catch (e) {
@@ -1566,26 +1604,55 @@ class _JobBillingManagerState extends State<_JobBillingManager>
                 ),
             ],
           )
-        // 2. NEW: CANCELLED VIEW (Grey Lock)
+        // 2. NEW: CANCELLED VIEW (Grey Lock + Admin Delete Option)
         else if (widget.job.status == 'Cancelled')
-          const SizedBox(
-            width: double.infinity,
-            child: Card(
-              color: Color(0xFFF3F4F6), // Grey
-              elevation: 0,
-              child: Padding(
-                padding: EdgeInsets.all(16.0),
-                child: Center(
-                  child: Text(
-                    "This job is cancelled.",
-                    style: TextStyle(
-                      color: Colors.grey,
-                      fontWeight: FontWeight.bold,
+          Column(
+            children: [
+              const SizedBox(
+                width: double.infinity,
+                child: Card(
+                  color: Color(0xFFF3F4F6), // Grey
+                  elevation: 0,
+                  child: Padding(
+                    padding: EdgeInsets.all(16.0),
+                    child: Center(
+                      child: Column(
+                        children: [
+                          Icon(Icons.cancel, color: Colors.grey, size: 32),
+                          SizedBox(height: 8),
+                          Text(
+                            "This job is cancelled.",
+                            style: TextStyle(
+                              color: Colors.grey,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          Text(
+                            "Check notes for reason.",
+                            style: TextStyle(fontSize: 12, color: Colors.grey),
+                          ),
+                        ],
+                      ),
                     ),
                   ),
                 ),
               ),
-            ),
+              const SizedBox(height: 12),
+
+              // Only show DELETE if user is Admin (Prevent accidental deletion of history)
+              if (AppState.currentRole == UserRole.admin)
+                SizedBox(
+                  width: double.infinity,
+                  child: TextButton.icon(
+                    onPressed: _deleteJob, // Uses existing delete logic
+                    icon: const Icon(Icons.delete_forever, size: 18),
+                    label: const Text("Permanently Delete Record (Admin)"),
+                    style: TextButton.styleFrom(
+                      foregroundColor: Colors.red[300],
+                    ),
+                  ),
+                ),
+            ],
           )
         // 3. ACTIVE VIEW (Action Buttons)
         else
