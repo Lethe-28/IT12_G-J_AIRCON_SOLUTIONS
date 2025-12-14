@@ -2270,7 +2270,7 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
             if (parts.length > 1) {
               lastName = parts.sublist(1).join(' ');
             } else {
-              lastName = '.';
+              lastName = '';
             }
           }
         }
@@ -2580,7 +2580,7 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
             if (parts.length > 1) {
               lastName = parts.sublist(1).join(' ');
             } else {
-              lastName = '.';
+              lastName = '';
             }
           }
         }
