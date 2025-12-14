@@ -2187,7 +2187,8 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
           .select(
             'id, remarks, horse_power, is_inverter, brands(brand_name), aircon_types(type_name)',
           )
-          .eq('customer_id', _selectedClientId!);
+          .eq('customer_id', _selectedClientId!)
+          .eq('is_active', true);
 
       _clientAircons = List<Map<String, dynamic>>.from(clientUnits);
 
@@ -2240,7 +2241,8 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
         .select(
           'id, remarks, horse_power, is_inverter, brands(brand_name), aircon_types(type_name)',
         )
-        .eq('customer_id', clientId);
+        .eq('customer_id', clientId)
+        .eq('is_active', true); // UPDATED: Show only active units
 
     if (mounted) {
       setState(() {
@@ -2252,34 +2254,65 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
 
   // --- UNIT MANAGEMENT (Edit/Delete) ---
 
-  Future<void> _deleteUnit(int unitId) async {
+  // REPLACES _deleteUnit
+  Future<void> _handleRemoveUnit(int unitId) async {
+    // 1. CHECK USAGE: Has this unit ever been used in a job?
+    final usageCount = await _supabase
+        .from('job_order_aircons')
+        .count(CountOption.exact)
+        .eq('aircon_id', unitId);
+
+    // 2. DECIDE ACTION
+    final bool isUsed = usageCount != null && usageCount > 0;
+
+    // 3. PREPARE DIALOG CONTENT
+    final title = isUsed ? "Archive Unit?" : "Delete Unit?";
+    final message = isUsed
+        ? "This unit is linked to $usageCount past jobs. To preserve history, it will be deactivated (hidden) rather than deleted."
+        : "This unit has no history. It will be permanently deleted.";
+    final confirmBtn = isUsed ? "Archive" : "Delete Forever";
+
+    // 4. ASK CONFIRMATION
     final confirm = await showConfirmDialog(
       context: context,
-      title: "Delete Unit?",
-      message:
-          "Are you sure you want to delete this unit? This cannot be undone.",
-      confirmLabel: "Delete",
+      title: title,
+      message: message,
+      confirmLabel: confirmBtn,
       isDestructive: true,
     );
 
     if (confirm == true) {
       try {
-        await _supabase.from('aircons').delete().eq('id', unitId);
+        if (isUsed) {
+          // SCENARIO A: Soft Delete (Set is_active = false)
+          await _supabase
+              .from('aircons')
+              .update({'is_active': false}) // UPDATED to match your DB
+              .eq('id', unitId);
+
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text("Unit deactivated and hidden.")),
+            );
+          }
+        } else {
+          // SCENARIO B: Hard Delete (Clean up typo)
+          await _supabase.from('aircons').delete().eq('id', unitId);
+
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text("Unit permanently deleted.")),
+            );
+          }
+        }
+
+        // Refresh the list immediately
+        if (_selectedClientId != null) _fetchClientAircons(_selectedClientId!);
+      } catch (e) {
         if (mounted) {
           ScaffoldMessenger.of(
             context,
-          ).showSnackBar(const SnackBar(content: Text("Unit deleted.")));
-          // Refresh the list
-          if (_selectedClientId != null)
-            _fetchClientAircons(_selectedClientId!);
-        }
-      } catch (e) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text("Cannot delete: Unit is linked to past jobs."),
-            ),
-          );
+          ).showSnackBar(SnackBar(content: Text("Error removing unit: $e")));
         }
       }
     }
@@ -3218,8 +3251,9 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
                     "Select Units",
                     style: TextStyle(fontWeight: FontWeight.bold),
                   ),
-                  // "Add Unit" Button (Small Header Version)
-                  if (AppState.currentRole == UserRole.admin)
+                  // UPDATED: Allow Admin OR Manager to ADD
+                  if (AppState.currentRole == UserRole.admin ||
+                      AppState.currentRole == UserRole.serviceManager)
                     TextButton.icon(
                       onPressed: _addNewUnitDialog,
                       icon: const Icon(Icons.add, size: 16),
@@ -3316,11 +3350,18 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
                             ),
                             isThreeLine:
                                 true, // Allows for taller rows with multiple lines of text
-                            // ADMIN ACTIONS (Edit/Delete)
-                            trailing: AppState.currentRole == UserRole.admin
+                            // UPDATED LOGIC:
+                            // 1. Managers AND Admins can EDIT (Fix typos).
+                            // 2. DELETE is removed (Moved to Data Management).
+                            // UPDATED: Check for 'serviceManager'
+                            trailing:
+                                (AppState.currentRole == UserRole.admin ||
+                                    AppState.currentRole ==
+                                        UserRole.serviceManager)
                                 ? Row(
                                     mainAxisSize: MainAxisSize.min,
                                     children: [
+                                      // EDIT
                                       IconButton(
                                         icon: const Icon(
                                           Icons.edit,
@@ -3330,15 +3371,17 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
                                         onPressed: () => _editUnitDialog(unit),
                                         tooltip: "Edit Unit",
                                       ),
+                                      // SMART REMOVE
                                       IconButton(
                                         icon: const Icon(
-                                          Icons.delete,
+                                          Icons.delete_outline,
                                           size: 18,
                                           color: Colors.red,
                                         ),
+                                        // Call the new smart handler
                                         onPressed: () =>
-                                            _deleteUnit(unit['id']),
-                                        tooltip: "Delete Unit",
+                                            _handleRemoveUnit(unit['id']),
+                                        tooltip: "Remove Unit",
                                       ),
                                     ],
                                   )
