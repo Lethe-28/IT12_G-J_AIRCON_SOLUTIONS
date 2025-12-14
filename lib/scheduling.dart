@@ -2143,8 +2143,8 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
     super.initState();
     if (widget.existingJob != null) {
       // EDIT MODE
-      // FIX: Start at Step 2 (Client Info) so we see the customer details first
-      _currentStep = 2;
+      // UPDATED: Start at Step 1 (Service Type) instead of Step 0 or 2.
+      _currentStep = 1;
 
       _jobTypeName = widget.existingJob!.jobType;
       _scheduleDate = widget.existingJob!.startDateTime;
@@ -2876,7 +2876,7 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
                   ),
                   child: Row(
                     children: [
-                      if (_currentStep > 0)
+                      if (_currentStep > (widget.existingJob != null ? 1 : 0))
                         IconButton(
                           icon: const Icon(Icons.arrow_back),
                           onPressed: () => setState(() => _currentStep--),
