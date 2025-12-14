@@ -873,21 +873,24 @@ class _JobBillingManagerState extends State<_JobBillingManager>
             .from('job_order_technicians')
             .select('technicians(first_name, last_name)')
             .eq('job_order_id', jobId),
-        // 4: Aircons
+        // 4: Aircons (UPDATED QUERY)
         _supabase
             .from('job_order_aircons')
             .select(
-              'aircons(remarks, brands(brand_name), aircon_types(type_name))',
+              // FIX: Added horse_power and is_inverter to the select
+              'aircons(remarks, horse_power, is_inverter, brands(brand_name), aircon_types(type_name))',
             )
             .eq('job_order_id', jobId),
       ]);
 
+      // ... (Rest of variable parsing remains same) ...
       final items = List<Map<String, dynamic>>.from(results[0] as List);
       final payments = List<Map<String, dynamic>>.from(results[1] as List);
       final catalog = List<Map<String, dynamic>>.from(results[2] as List);
       final techRes = List<Map<String, dynamic>>.from(results[3] as List);
       final acRes = List<Map<String, dynamic>>.from(results[4] as List);
 
+      // ... (Calculations remain same) ...
       double total = 0;
       for (var i in items) total += (i['actual_price'] * i['quantity']);
 
@@ -902,6 +905,7 @@ class _JobBillingManagerState extends State<_JobBillingManager>
         }
       }
 
+      // --- UPDATED UNIT FORMATTING LOGIC ---
       final List<String> loadedUnits = [];
       for (var row in acRes) {
         final a = row['aircons'];
@@ -909,11 +913,26 @@ class _JobBillingManagerState extends State<_JobBillingManager>
           final brand = a['brands']?['brand_name'] ?? 'Unknown Brand';
           final type = a['aircon_types']?['type_name'] ?? 'Unit';
           final remark = a['remarks'] ?? '';
-          loadedUnits.add(
-            "$brand $type${remark.isNotEmpty ? ' ($remark)' : ''}",
-          );
+
+          // 1. Build Tech Specs
+          final hp =
+              a['horse_power'] != null && a['horse_power'].toString().isNotEmpty
+              ? "${a['horse_power']} HP"
+              : "";
+          final inverter = (a['is_inverter'] == true) ? "Inverter" : "";
+
+          final specs = [hp, inverter].where((s) => s.isNotEmpty).join(' • ');
+
+          // 2. Combine into one clean line
+          // Format: "Samsung Split Type • 1.5 HP • Inverter (Master Bedroom)"
+          String fullText = "$brand $type";
+          if (specs.isNotEmpty) fullText += " • $specs";
+          if (remark.isNotEmpty) fullText += " ($remark)";
+
+          loadedUnits.add(fullText);
         }
       }
+      // -------------------------------------
 
       if (mounted) {
         setState(() {
@@ -926,14 +945,12 @@ class _JobBillingManagerState extends State<_JobBillingManager>
         });
       }
     } catch (e) {
+      // ... (Error handling remains same) ...
       debugPrint('Error loading details: $e');
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text("Network Error: Could not load full details."),
-            backgroundColor: Colors.red,
-          ),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text("Error loading details: $e")));
       }
     } finally {
       if (mounted) setState(() => _isLoading = false);
