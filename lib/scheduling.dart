@@ -346,16 +346,16 @@ class _SchedulingScreenState extends State<SchedulingScreen> {
                           ),
                         ],
                       ),
-                      // Add Button for specific day
-                      IconButton(
-                        onPressed: () => _onAddOrEdit(),
-                        icon: const Icon(
-                          Icons.add_circle,
-                          color: AppTheme.primary,
-                          size: 32,
-                        ),
-                        tooltip: "Add Schedule for this day",
-                      ),
+                      // // Add Button for specific day
+                      // IconButton(
+                      //   onPressed: () => _onAddOrEdit(),
+                      //   icon: const Icon(
+                      //     Icons.add_circle,
+                      //     color: AppTheme.primary,
+                      //     size: 32,
+                      //   ),
+                      //   tooltip: "Add Schedule for this day",
+                      // ),
                     ],
                   ),
                 ),
