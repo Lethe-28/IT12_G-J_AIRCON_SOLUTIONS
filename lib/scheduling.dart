@@ -2084,9 +2084,9 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
           _jobTypeId = installType['id'];
         }
 
-        if (_airconTypes.isNotEmpty) {
-          _selectedAirconTypeId = _airconTypes.first['id'];
-        }
+        // if (_airconTypes.isNotEmpty) {
+        //   _selectedAirconTypeId = _airconTypes.first['id'];
+        // }
       });
     }
   }
@@ -2911,8 +2911,10 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
                     ),
                   ),
                   const SizedBox(height: 12),
+                  // Brand & Type Row
                   Row(
                     children: [
+                      // --- BRAND INPUT (Fixed Color) ---
                       Expanded(
                         child: LayoutBuilder(
                           builder: (ctx, constr) {
@@ -2932,17 +2934,19 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
                                 return TextFormField(
                                   controller: c,
                                   focusNode: f,
-                                  decoration: const InputDecoration(
-                                    labelText:
-                                        "Brand", // Removed the Red Asterisk RichText
+                                  decoration: InputDecoration(
+                                    labelText: "Brand",
+                                    hintText: "Search...",
+                                    // FIX: Force white background to match other fields
                                     filled: true,
                                     fillColor: Colors.white,
+                                    labelStyle: TextStyle(
+                                      color: Colors.grey[600],
+                                    ), // Consistent grey label
                                     border: OutlineInputBorder(
-                                      borderRadius: BorderRadius.all(
-                                        Radius.circular(12),
-                                      ),
+                                      borderRadius: BorderRadius.circular(12),
                                     ),
-                                    contentPadding: EdgeInsets.symmetric(
+                                    contentPadding: const EdgeInsets.symmetric(
                                       horizontal: 16,
                                       vertical: 14,
                                     ),
@@ -2953,17 +2957,25 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
                           },
                         ),
                       ),
+
                       const SizedBox(width: 12),
+
+                      // --- TYPE DROPDOWN (Fixed Default) ---
                       Expanded(
                         child: DropdownButtonFormField<int>(
-                          value: _selectedAirconTypeId,
+                          value:
+                              _selectedAirconTypeId, // This is now NULL initially
+                          hint: const Text(
+                            "Select Type",
+                          ), // Shows this when null
                           decoration: InputDecoration(
                             labelText: "Type",
+                            labelStyle: TextStyle(color: Colors.grey[600]),
+                            filled: true,
+                            fillColor: Colors.white,
                             border: OutlineInputBorder(
                               borderRadius: BorderRadius.circular(12),
                             ),
-                            filled: true,
-                            fillColor: Colors.white,
                             contentPadding: const EdgeInsets.symmetric(
                               horizontal: 16,
                               vertical: 14,
