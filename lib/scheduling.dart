@@ -2167,7 +2167,7 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
     final customers = await _supabase
         .from('customers')
         .select(
-          'id, first_name, last_name, company_name, city, barangay, address_complete',
+          'id, first_name, last_name, company_name, city, barangay, address_complete, customer_type_id',
         )
         .order('last_name', ascending: true);
 
@@ -3200,48 +3200,107 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
               style: TextStyle(fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 8),
-            Autocomplete<Map<String, dynamic>>(
-              optionsBuilder: (v) {
-                if (v.text.isEmpty)
-                  return const Iterable<Map<String, dynamic>>.empty();
-                return _existingClients.where((c) {
-                  final name =
-                      c['company_name'] ??
-                      '${c['first_name']} ${c['last_name']}';
-                  return name.toLowerCase().contains(v.text.toLowerCase());
-                });
-              },
-              displayStringForOption: (c) =>
-                  c['company_name'] ?? '${c['first_name']} ${c['last_name']}',
-              onSelected: (selection) {
-                if (isEditing) return; // Prevent changing if locked
-                setState(() {
-                  _selectedClientId = selection['id'];
-                  _fetchClientAircons(_selectedClientId!);
-                });
-              },
-              fieldViewBuilder: (ctx, ctrl, focus, onSub) {
-                return TextField(
-                  controller: isEditing ? _customerDisplayController : ctrl,
-                  focusNode: focus,
-                  readOnly: isEditing, // LOCK IT
-                  decoration: InputDecoration(
-                    hintText: isEditing ? "" : "Search name...",
-                    prefixIcon: const Icon(Icons.search),
-                    // VISUAL LOCK INDICATOR
-                    suffixIcon: isEditing
-                        ? const Icon(Icons.lock, color: Colors.grey, size: 16)
-                        : null,
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
+            if (isEditing)
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 14,
+                ),
+                decoration: BoxDecoration(
+                  color: Colors.grey[50], // Light grey background
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: Colors.grey.shade300),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.person, color: Colors.blueGrey),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            "CUSTOMER (LOCKED)",
+                            style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.grey,
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            // Display the actual name from the job object
+                            widget.existingJob?.clientName ?? "Unknown Client",
+                            style: const TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.black87,
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
-                    filled: true,
-                    // GREY OUT IF LOCKED
-                    fillColor: isEditing ? Colors.grey[200] : Colors.white,
-                  ),
-                );
-              },
-            ),
+                    const Icon(Icons.lock_outline, color: Colors.grey),
+                  ],
+                ),
+              )
+            else
+              Autocomplete<Map<String, dynamic>>(
+                optionsBuilder: (v) {
+                  // Determine which ID we are looking for based on Step 0 selection
+                  final targetTypeId = _customerType == 'Commercial' ? 1 : 2;
+
+                  if (v.text.isEmpty)
+                    return const Iterable<Map<String, dynamic>>.empty();
+                  return _existingClients.where((c) {
+                    // 1. Check if name matches search text
+                    final name =
+                        c['company_name'] ??
+                        '${c['first_name']} ${c['last_name']}';
+                    final matchesName = name.toLowerCase().contains(
+                      v.text.toLowerCase(),
+                    );
+
+                    // 2. Check if Type matches the selected Customer Type
+                    final typeId = c['customer_type_id'];
+                    final matchesType = typeId == targetTypeId;
+
+                    // Return TRUE only if BOTH match
+                    return matchesName && matchesType;
+                  });
+                },
+                displayStringForOption: (c) =>
+                    c['company_name'] ?? '${c['first_name']} ${c['last_name']}',
+                onSelected: (selection) {
+                  if (isEditing) return; // Prevent changing if locked
+                  setState(() {
+                    _selectedClientId = selection['id'];
+                    _fetchClientAircons(_selectedClientId!);
+                  });
+                },
+                fieldViewBuilder: (ctx, ctrl, focus, onSub) {
+                  return TextField(
+                    controller: isEditing ? _customerDisplayController : ctrl,
+                    focusNode: focus,
+                    readOnly: isEditing, // LOCK IT
+                    decoration: InputDecoration(
+                      hintText: isEditing ? "" : "Search name...",
+                      prefixIcon: const Icon(Icons.search),
+                      // VISUAL LOCK INDICATOR
+                      suffixIcon: isEditing
+                          ? const Icon(Icons.lock, color: Colors.grey, size: 16)
+                          : null,
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      filled: true,
+                      // GREY OUT IF LOCKED
+                      fillColor: isEditing ? Colors.grey[200] : Colors.white,
+                    ),
+                  );
+                },
+              ),
             if (_selectedClientId != null) ...[
               const SizedBox(height: 24),
               Row(
