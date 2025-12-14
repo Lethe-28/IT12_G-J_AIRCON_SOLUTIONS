@@ -1396,39 +1396,47 @@ class _JobBillingManagerState extends State<_JobBillingManager>
                           else
                             DropdownButton<String>(
                               // Ensure current status is valid, else fallback to Pending
+                              // 1. Add 'Cancelled' and 'Completed' to the check so it doesn't default to Pending
                               value:
                                   [
                                     'Pending',
                                     'In Progress',
                                     'On Hold',
+                                    'Cancelled',
+                                    'Completed',
                                   ].contains(_currentStatus)
                                   ? _currentStatus
                                   : 'Pending',
-                              underline: Container(
-                                height: 1,
-                                color: Colors.blue,
-                              ),
-                              style: const TextStyle(
-                                fontSize: 12,
-                                fontWeight: FontWeight.bold,
-                                color: Colors.blue,
-                              ),
+
+                              // 2. Add 'Cancelled' to the list of options
+                              items:
+                                  [
+                                        'Pending',
+                                        'In Progress',
+                                        'On Hold',
+                                        'Cancelled',
+                                      ]
+                                      .map(
+                                        (s) => DropdownMenuItem(
+                                          value: s,
+                                          child: Text(s),
+                                        ),
+                                      )
+                                      .toList(),
+                              onChanged: (v) =>
+                                  v != null ? _updateStatus(v) : null,
+
+                              // Styling
+                              underline: Container(),
                               icon: const Icon(
                                 Icons.arrow_drop_down,
                                 color: Colors.blue,
-                                size: 18,
                               ),
-                              onChanged: (newValue) {
-                                if (newValue != null) _updateStatus(newValue);
-                              },
-                              items: ['Pending', 'In Progress', 'On Hold'].map((
-                                String status,
-                              ) {
-                                return DropdownMenuItem<String>(
-                                  value: status,
-                                  child: Text(status),
-                                );
-                              }).toList(),
+                              style: TextStyle(
+                                color: Colors.blue,
+                                fontWeight: FontWeight.bold,
+                                fontSize: 14,
+                              ),
                             ),
                         ],
                       ),
