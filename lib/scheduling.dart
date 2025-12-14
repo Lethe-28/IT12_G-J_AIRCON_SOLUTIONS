@@ -2245,6 +2245,48 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
   // --- SUBMIT LOGIC (One Bar Parse) ---
   // --- SUBMIT LOGIC (With Duplicate Check) ---
   Future<void> _submit() async {
+    final hasConflict = await _checkScheduleConflict(
+      _scheduleDate,
+      _scheduleTime,
+    );
+
+    if (hasConflict) {
+      if (!mounted) return;
+
+      // Show Warning Dialog
+      final proceed = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Row(
+            children: [
+              Icon(Icons.warning_amber_rounded, color: Colors.orange),
+              SizedBox(width: 8),
+              Text("Double Booking Warning"),
+            ],
+          ),
+          content: Text(
+            "Another job is already scheduled near ${_scheduleTime.format(context)} on this date.\n\nAre you sure you want to proceed?",
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false), // Cancel
+              child: const Text("Cancel"),
+            ),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(backgroundColor: Colors.orange),
+              onPressed: () => Navigator.pop(ctx, true), // Proceed
+              child: const Text("Proceed Anyway"),
+            ),
+          ],
+        ),
+      );
+
+      // If user clicked Cancel or clicked outside, STOP the submission.
+      if (proceed != true) return;
+    }
+    // -------------------------------------
+
+    setState(() => _isSubmitting = true);
     setState(() => _isSubmitting = true);
 
     try {
