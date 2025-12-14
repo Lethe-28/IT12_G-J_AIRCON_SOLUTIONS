@@ -2126,8 +2126,10 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
   void initState() {
     super.initState();
     if (widget.existingJob != null) {
-      // Edit Mode: Skip to final step
-      _currentStep = 3;
+      // EDIT MODE
+      // FIX: Start at Step 2 (Client Info) so we see the customer details first
+      _currentStep = 2;
+
       _jobTypeName = widget.existingJob!.jobType;
       _scheduleDate = widget.existingJob!.startDateTime;
       _scheduleTime = TimeOfDay.fromDateTime(widget.existingJob!.startDateTime);
@@ -2145,7 +2147,7 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
   }
 
   Future<void> _fetchInitialData() async {
-    // Fetch active data including the new address_complete column
+    // 1. Fetch Standard Dropdown Options
     final customers = await _supabase
         .from('customers')
         .select(
@@ -2161,6 +2163,41 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
         .select()
         .order('first_name');
 
+    // 2. PRE-LOAD EXISTING JOB DATA (The Fix)
+    if (widget.existingJob != null && _selectedClientId != null) {
+      // A. Load the client's aircon list so the checkboxes appear
+      final clientUnits = await _supabase
+          .from('aircons')
+          .select(
+            'id, remarks, horse_power, is_inverter, brands(brand_name), aircon_types(type_name)',
+          )
+          .eq('customer_id', _selectedClientId!);
+
+      _clientAircons = List<Map<String, dynamic>>.from(clientUnits);
+
+      // B. Load which specific Aircons are assigned to THIS job
+      final assignedAircons = await _supabase
+          .from('job_order_aircons')
+          .select('aircon_id')
+          .eq('job_order_id', widget.existingJob!.dbId);
+
+      _selectedAirconIds.clear();
+      for (var row in assignedAircons) {
+        _selectedAirconIds.add(row['aircon_id'] as int);
+      }
+
+      // C. Load which Technicians are assigned
+      final assignedTechs = await _supabase
+          .from('job_order_technicians')
+          .select('technician_id')
+          .eq('job_order_id', widget.existingJob!.dbId);
+
+      _selectedTechnicianIds.clear();
+      for (var row in assignedTechs) {
+        _selectedTechnicianIds.add(row['technician_id'] as int);
+      }
+    }
+
     if (mounted) {
       setState(() {
         _existingClients = List<Map<String, dynamic>>.from(customers);
@@ -2175,10 +2212,6 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
           );
           _jobTypeId = installType['id'];
         }
-
-        // if (_airconTypes.isNotEmpty) {
-        //   _selectedAirconTypeId = _airconTypes.first['id'];
-        // }
       });
     }
   }
@@ -2199,6 +2232,201 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
         _selectedAirconIds.clear();
       });
     }
+  }
+
+  // --- UNIT MANAGEMENT (Edit/Delete) ---
+
+  Future<void> _deleteUnit(int unitId) async {
+    final confirm = await showConfirmDialog(
+      context: context,
+      title: "Delete Unit?",
+      message:
+          "Are you sure you want to delete this unit? This cannot be undone.",
+      confirmLabel: "Delete",
+      isDestructive: true,
+    );
+
+    if (confirm == true) {
+      try {
+        await _supabase.from('aircons').delete().eq('id', unitId);
+        if (mounted) {
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(const SnackBar(content: Text("Unit deleted.")));
+          // Refresh the list
+          if (_selectedClientId != null)
+            _fetchClientAircons(_selectedClientId!);
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text("Cannot delete: Unit is linked to past jobs."),
+            ),
+          );
+        }
+      }
+    }
+  }
+
+  void _editUnitDialog(Map<String, dynamic> unit) {
+    // Pre-fill controllers
+    final hpCtrl = TextEditingController(
+      text: unit['horse_power']?.toString() ?? '',
+    );
+    final remarkCtrl = TextEditingController(text: unit['remarks'] ?? '');
+    String brandName = unit['brands']?['brand_name'] ?? '';
+    int? typeId = unit['aircon_types'] != null
+        ? (unit['aircon_types']['id'] as int?)
+        : null; // Note: You might need to adjust based on your join structure, easier to just rely on the ID if you have it, or fetch it.
+    // Ideally your fetchClientAircons should select aircon_type_id directly to make this easier:
+    // Update fetchClientAircons select to include 'aircon_type_id'
+    // For now assuming we can map it or just letting user re-select if null.
+
+    // Quick fix: Let's assume the user re-selects type if the join is complex,
+    // or try to match the name.
+    // Better: Ensure _fetchClientAircons selects 'aircon_type_id'
+
+    bool inverterVal = unit['is_inverter'] ?? false;
+
+    // We need to fetch the type ID from the name if not present,
+    // but let's try to grab it from the _airconTypes list if possible
+    if (typeId == null && unit['aircon_types'] != null) {
+      final typeName = unit['aircon_types']['type_name'];
+      final match = _airconTypes.firstWhere(
+        (t) => t['type_name'] == typeName,
+        orElse: () => {},
+      );
+      if (match.isNotEmpty) typeId = match['id'];
+    }
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text("Edit Unit Details"),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Autocomplete<String>(
+                initialValue: TextEditingValue(text: brandName),
+                optionsBuilder: (v) => v.text == ''
+                    ? const Iterable<String>.empty()
+                    : _brandOptions.where(
+                        (o) => o.toLowerCase().contains(v.text.toLowerCase()),
+                      ),
+                onSelected: (s) => brandName = s,
+                fieldViewBuilder: (ctx, c, f, o) {
+                  c.addListener(() => brandName = c.text);
+                  return TextField(
+                    controller: c,
+                    focusNode: f,
+                    decoration: const InputDecoration(
+                      labelText: "Brand",
+                      border: OutlineInputBorder(),
+                    ),
+                  );
+                },
+              ),
+              const SizedBox(height: 12),
+              DropdownButtonFormField<int>(
+                value: typeId,
+                decoration: const InputDecoration(
+                  labelText: "Type",
+                  border: OutlineInputBorder(),
+                ),
+                items: _airconTypes
+                    .map(
+                      (t) => DropdownMenuItem(
+                        value: t['id'] as int,
+                        child: Text(t['type_name']),
+                      ),
+                    )
+                    .toList(),
+                onChanged: (v) => typeId = v,
+              ),
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  Expanded(
+                    child: TextField(
+                      controller: hpCtrl,
+                      decoration: const InputDecoration(
+                        labelText: "HP",
+                        border: OutlineInputBorder(),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: StatefulBuilder(
+                      builder: (context, setCheck) => CheckboxListTile(
+                        title: const Text("Inverter"),
+                        value: inverterVal,
+                        onChanged: (v) =>
+                            setCheck(() => inverterVal = v ?? false),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: remarkCtrl,
+                decoration: const InputDecoration(
+                  labelText: "Location/Remarks",
+                  border: OutlineInputBorder(),
+                ),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text("Cancel"),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              // SAVE LOGIC
+              int brandId;
+              final bCheck = await _supabase
+                  .from('brands')
+                  .select('id')
+                  .ilike('brand_name', brandName.trim())
+                  .maybeSingle();
+              if (bCheck != null) {
+                brandId = bCheck['id'];
+              } else {
+                final newB = await _supabase
+                    .from('brands')
+                    .insert({'brand_name': brandName.trim()})
+                    .select('id')
+                    .single();
+                brandId = newB['id'];
+              }
+
+              await _supabase
+                  .from('aircons')
+                  .update({
+                    'brand_id': brandId,
+                    'aircon_type_id': typeId ?? 1,
+                    'remarks': remarkCtrl.text,
+                    'horse_power': hpCtrl.text,
+                    'is_inverter': inverterVal,
+                  })
+                  .eq('id', unit['id']);
+
+              if (mounted) {
+                Navigator.pop(context);
+                _fetchClientAircons(_selectedClientId!); // Refresh list
+              }
+            },
+            child: const Text("Update Unit"),
+          ),
+        ],
+      ),
+    );
   }
 
   // Used for adding EXTRA units to existing clients
@@ -2885,7 +3113,9 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          // 1. CUSTOMER SELECTION
           if (!isEditing) ...[
+            // SHOW TOGGLE ONLY IF NEW JOB
             Container(
               padding: const EdgeInsets.all(4),
               decoration: BoxDecoration(
@@ -2914,10 +3144,10 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
             const SizedBox(height: 20),
           ],
 
-          if (!_isNewClient) ...[
-            // --- EXISTING CLIENT SEARCH ---
+          if (!_isNewClient || isEditing) ...[
+            // --- EXISTING CLIENT SEARCH (LOCKED IF EDITING) ---
             const Text(
-              "Select Customer",
+              "Customer",
               style: TextStyle(fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 8),
@@ -2935,6 +3165,7 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
               displayStringForOption: (c) =>
                   c['company_name'] ?? '${c['first_name']} ${c['last_name']}',
               onSelected: (selection) {
+                if (isEditing) return; // Prevent changing if locked
                 setState(() {
                   _selectedClientId = selection['id'];
                   _fetchClientAircons(_selectedClientId!);
@@ -2944,48 +3175,165 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
                 return TextField(
                   controller: isEditing ? _customerDisplayController : ctrl,
                   focusNode: focus,
-                  readOnly: isEditing,
+                  readOnly: isEditing, // LOCK IT
                   decoration: InputDecoration(
-                    hintText: "Search name...",
+                    hintText: isEditing ? "" : "Search name...",
                     prefixIcon: const Icon(Icons.search),
+                    // VISUAL LOCK INDICATOR
+                    suffixIcon: isEditing
+                        ? const Icon(Icons.lock, color: Colors.grey, size: 16)
+                        : null,
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(12),
                     ),
                     filled: true,
+                    // GREY OUT IF LOCKED
                     fillColor: isEditing ? Colors.grey[200] : Colors.white,
                   ),
                 );
               },
             ),
             if (_selectedClientId != null) ...[
-              const SizedBox(height: 20),
-              const Text(
-                "Select Units",
-                style: TextStyle(fontWeight: FontWeight.bold),
+              const SizedBox(height: 24),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text(
+                    "Select Units",
+                    style: TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                  // "Add Unit" Button (Small Header Version)
+                  if (AppState.currentRole == UserRole.admin)
+                    TextButton.icon(
+                      onPressed: _addNewUnitDialog,
+                      icon: const Icon(Icons.add, size: 16),
+                      label: const Text("New Unit"),
+                      style: TextButton.styleFrom(
+                        visualDensity: VisualDensity.compact,
+                      ),
+                    ),
+                ],
               ),
               const SizedBox(height: 8),
               if (_clientAircons.isNotEmpty)
-                ..._clientAircons.map((unit) {
-                  final brand = unit['brands']?['brand_name'] ?? 'Generic';
-                  final type = unit['aircon_types']?['type_name'] ?? 'Unit';
-                  return CheckboxListTile(
-                    title: Text("$brand $type"),
-                    subtitle: Text(unit['remarks'] ?? ''),
-                    value: _selectedAirconIds.contains(unit['id']),
-                    onChanged: (v) {
-                      setState(() {
-                        if (v == true)
-                          _selectedAirconIds.add(unit['id']);
-                        else
-                          _selectedAirconIds.remove(unit['id']);
-                      });
-                    },
-                  );
-                })
+                Container(
+                  decoration: BoxDecoration(
+                    border: Border.all(color: Colors.grey.shade300),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Column(
+                    children: _clientAircons.map((unit) {
+                      final brand = unit['brands']?['brand_name'] ?? 'Generic';
+                      final type = unit['aircon_types']?['type_name'] ?? 'Unit';
+                      final remarks = unit['remarks'] ?? '';
+                      final isSelected = _selectedAirconIds.contains(
+                        unit['id'],
+                      );
+
+                      return Column(
+                        children: [
+                          ListTile(
+                            contentPadding: const EdgeInsets.symmetric(
+                              horizontal: 12,
+                            ),
+                            // Checkbox on Left
+                            leading: Checkbox(
+                              value: isSelected,
+                              onChanged: (v) {
+                                setState(() {
+                                  if (v == true)
+                                    _selectedAirconIds.add(unit['id']);
+                                  else
+                                    _selectedAirconIds.remove(unit['id']);
+                                });
+                              },
+                            ),
+                            // Unit Info
+                            title: Text(
+                              "$brand $type",
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w600,
+                                fontSize: 14,
+                              ),
+                            ),
+                            subtitle: remarks.isNotEmpty
+                                ? Text(
+                                    remarks,
+                                    style: const TextStyle(fontSize: 12),
+                                  )
+                                : null,
+                            // ADMIN ACTIONS (Edit/Delete)
+                            trailing: AppState.currentRole == UserRole.admin
+                                ? Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      IconButton(
+                                        icon: const Icon(
+                                          Icons.edit,
+                                          size: 18,
+                                          color: Colors.blue,
+                                        ),
+                                        onPressed: () => _editUnitDialog(unit),
+                                        tooltip: "Edit Unit",
+                                      ),
+                                      IconButton(
+                                        icon: const Icon(
+                                          Icons.delete,
+                                          size: 18,
+                                          color: Colors.red,
+                                        ),
+                                        onPressed: () =>
+                                            _deleteUnit(unit['id']),
+                                        tooltip: "Delete Unit",
+                                      ),
+                                    ],
+                                  )
+                                : null,
+                          ),
+                          if (unit != _clientAircons.last)
+                            const Divider(height: 1, indent: 16, endIndent: 16),
+                        ],
+                      );
+                    }).toList(),
+                  ),
+                )
               else
-                const Text(
-                  "No units found.",
-                  style: TextStyle(color: Colors.grey),
+                Center(
+                  child: Padding(
+                    padding: const EdgeInsets.all(16.0),
+                    child: Column(
+                      children: [
+                        const Text(
+                          "No units found for this client.",
+                          style: TextStyle(color: Colors.grey),
+                        ),
+                        const SizedBox(height: 8),
+                        OutlinedButton.icon(
+                          onPressed: _addNewUnitDialog,
+                          icon: const Icon(Icons.add),
+                          label: const Text("Add First Unit"),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+
+              // Extra "Add Unit" Button at bottom for convenience
+              if (_clientAircons.isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.only(top: 12),
+                  child: SizedBox(
+                    width: double.infinity,
+                    child: OutlinedButton.icon(
+                      onPressed: _addNewUnitDialog,
+                      icon: const Icon(Icons.add),
+                      label: const Text("Add Another Unit"),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: Colors.grey[700],
+                        side: BorderSide(color: Colors.grey.shade300),
+                      ),
+                    ),
+                  ),
                 ),
             ],
           ] else ...[
