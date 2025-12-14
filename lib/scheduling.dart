@@ -1393,6 +1393,7 @@ class _JobBillingManagerState extends State<_JobBillingManager>
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       // Status Changer Row
+                      // Status Changer Row
                       Row(
                         children: [
                           Text(
@@ -1401,7 +1402,7 @@ class _JobBillingManagerState extends State<_JobBillingManager>
                           ),
                           const SizedBox(width: 12),
 
-                          // LOGIC: If 'Completed', show locked badge. Else show Dropdown.
+                          // 1. COMPLETED BADGE (Existing)
                           if (_currentStatus == 'Completed')
                             Container(
                               padding: const EdgeInsets.symmetric(
@@ -1431,36 +1432,59 @@ class _JobBillingManagerState extends State<_JobBillingManager>
                                 ],
                               ),
                             )
+                          // 2. NEW: CANCELLED BADGE (Fixes the bypass)
+                          else if (_currentStatus == 'Cancelled')
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 8,
+                                vertical: 2,
+                              ),
+                              decoration: BoxDecoration(
+                                color: Colors.grey.withOpacity(0.2),
+                                borderRadius: BorderRadius.circular(4),
+                              ),
+                              child: const Row(
+                                children: [
+                                  Icon(
+                                    Icons.block,
+                                    size: 12,
+                                    color: Colors.grey,
+                                  ), // Block icon for Cancelled
+                                  SizedBox(width: 4),
+                                  Text(
+                                    "CANCELLED",
+                                    style: TextStyle(
+                                      color: Colors.grey,
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 11,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            )
+                          // 3. DROPDOWN (For Active States Only)
                           else
                             DropdownButton<String>(
-                              // Ensure current status is valid, else fallback to Pending
-                              // 1. Add 'Cancelled' and 'Completed' to the check so it doesn't default to Pending
+                              // Logic: Only allow active states.
                               value:
                                   [
                                     'Pending',
                                     'In Progress',
                                     'On Hold',
-                                    'Cancelled',
-                                    'Completed',
                                   ].contains(_currentStatus)
                                   ? _currentStatus
                                   : 'Pending',
 
-                              // 2. Add 'Cancelled' to the list of options
-                              items:
-                                  [
-                                        'Pending',
-                                        'In Progress',
-                                        'On Hold',
-                                        'Cancelled',
-                                      ]
-                                      .map(
-                                        (s) => DropdownMenuItem(
-                                          value: s,
-                                          child: Text(s),
-                                        ),
-                                      )
-                                      .toList(),
+                              // FIX: Removed 'Cancelled' from this list
+                              items: ['Pending', 'In Progress', 'On Hold']
+                                  .map(
+                                    (s) => DropdownMenuItem(
+                                      value: s,
+                                      child: Text(s),
+                                    ),
+                                  )
+                                  .toList(),
+
                               onChanged: (v) =>
                                   v != null ? _updateStatus(v) : null,
 
@@ -1470,7 +1494,7 @@ class _JobBillingManagerState extends State<_JobBillingManager>
                                 Icons.arrow_drop_down,
                                 color: Colors.blue,
                               ),
-                              style: TextStyle(
+                              style: const TextStyle(
                                 color: Colors.blue,
                                 fontWeight: FontWeight.bold,
                                 fontSize: 14,
@@ -1687,12 +1711,13 @@ class _JobBillingManagerState extends State<_JobBillingManager>
                 onTap: _cancelJob,
               ),
 
-              _ActionButton(
-                icon: Icons.delete,
-                label: "Delete Job",
-                color: Colors.red,
-                onTap: _deleteJob,
-              ),
+              if (AppState.currentRole == UserRole.admin)
+                _ActionButton(
+                  icon: Icons.delete,
+                  label: "Delete Job",
+                  color: Colors.red,
+                  onTap: _deleteJob,
+                ),
               _ActionButton(
                 icon: Icons.check_circle,
                 label: "Complete Job",
