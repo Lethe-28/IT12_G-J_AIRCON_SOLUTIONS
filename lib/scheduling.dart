@@ -3087,6 +3087,7 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
                   },
                 ),
               ),
+              // ... inside the Row ...
               const SizedBox(width: 12),
               Expanded(
                 child: ListTile(
@@ -3102,7 +3103,58 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
                       context: context,
                       initialTime: _scheduleTime,
                     );
-                    if (t != null) setState(() => _scheduleTime = t);
+
+                    if (t != null) {
+                      // --- RESTORED: CONFLICT CHECK ---
+                      // 1. Check database for overlapping jobs
+                      final hasConflict = await _checkScheduleConflict(
+                        _scheduleDate,
+                        t,
+                      );
+
+                      if (hasConflict) {
+                        if (!mounted) return;
+                        // 2. Show Warning Dialog
+                        final proceed = await showDialog<bool>(
+                          context: context,
+                          builder: (ctx) => AlertDialog(
+                            title: const Row(
+                              children: [
+                                Icon(
+                                  Icons.warning_amber_rounded,
+                                  color: Colors.orange,
+                                ),
+                                SizedBox(width: 8),
+                                Text("Double Booking Warning"),
+                              ],
+                            ),
+                            content: Text(
+                              "Another job is already scheduled near ${t.format(context)}.\n\nDo you want to proceed anyway?",
+                            ),
+                            actions: [
+                              TextButton(
+                                onPressed: () => Navigator.pop(ctx, false),
+                                child: const Text("Choose Different Time"),
+                              ),
+                              ElevatedButton(
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: Colors.orange,
+                                ),
+                                onPressed: () => Navigator.pop(ctx, true),
+                                child: const Text("Keep This Time"),
+                              ),
+                            ],
+                          ),
+                        );
+
+                        // If user clicked "Choose Different Time" or dismissed, stop here.
+                        if (proceed != true) return;
+                      }
+                      // -------------------------------
+
+                      // 3. Set Time (Only if no conflict or user overrode it)
+                      setState(() => _scheduleTime = t);
+                    }
                   },
                 ),
               ),
