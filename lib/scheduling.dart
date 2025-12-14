@@ -560,8 +560,11 @@ class _SchedulingScreenState extends State<SchedulingScreen> {
             final jobs = _getJobsForDay(currentDay);
             final hasJobs = jobs.isNotEmpty;
             // [cite: 129] Logic to change color if ALL jobs are completed
-            final allCompleted =
-                hasJobs && jobs.every((j) => j.status == 'Completed');
+            final isResolved =
+                hasJobs &&
+                jobs.every(
+                  (j) => j.status == 'Completed' || j.status == 'Cancelled',
+                );
 
             return GestureDetector(
               onTap: () => setState(() => _selectedDate = currentDay),
@@ -597,11 +600,7 @@ class _SchedulingScreenState extends State<SchedulingScreen> {
                         height: 6,
                         decoration: BoxDecoration(
                           shape: BoxShape.circle,
-                          color: isSelected
-                              ? Colors.white
-                              : (allCompleted
-                                    ? Colors.green
-                                    : AppTheme.warning),
+                          color: isResolved ? Colors.green : AppTheme.warning,
                         ),
                       ),
                     ],
