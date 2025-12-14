@@ -368,10 +368,10 @@ class _SchedulingScreenState extends State<SchedulingScreen> {
                           itemCount: jobsForDay.length,
                           separatorBuilder: (ctx, i) =>
                               const SizedBox(height: 12),
-                          // FIX: Added GestureDetector to restore click functionality
-                          itemBuilder: (ctx, i) => GestureDetector(
+                          // FIX: Pass onTap directly to _JobCard
+                          itemBuilder: (ctx, i) => _JobCard(
+                            order: jobsForDay[i],
                             onTap: () => _showJobDetails(jobsForDay[i]),
-                            child: _JobCard(order: jobsForDay[i]),
                           ),
                         ),
                 ),
@@ -414,12 +414,13 @@ class _SchedulingScreenState extends State<SchedulingScreen> {
                   ListView.separated(
                     shrinkWrap: true,
                     physics: const NeverScrollableScrollPhysics(),
-                    itemCount: jobsForDay.length,
+                    itemCount: jobsForDay
+                        .length, // Or displayJobs.length depending on your variable
                     separatorBuilder: (ctx, i) => const SizedBox(height: 12),
-                    // FIX: Added GestureDetector here too
-                    itemBuilder: (ctx, i) => GestureDetector(
+                    // FIX: Remove GestureDetector and pass onTap directly to _JobCard
+                    itemBuilder: (ctx, i) => _JobCard(
+                      order: jobsForDay[i],
                       onTap: () => _showJobDetails(jobsForDay[i]),
-                      child: _JobCard(order: jobsForDay[i]),
                     ),
                   ),
               ],
@@ -3110,7 +3111,9 @@ class _SimpleInput extends StatelessWidget {
 
 class _JobCard extends StatelessWidget {
   final JobOrder order;
-  const _JobCard({required this.order});
+  final VoidCallback onTap; // Don't forget this if you added it earlier
+
+  const _JobCard({required this.order, required this.onTap});
 
   @override
   Widget build(BuildContext context) {
@@ -3127,160 +3130,213 @@ class _JobCard extends StatelessWidget {
       dateText += " at $timeText";
     }
 
+    // --- NEW: Color Logic ---
+    Color statusColor;
+    Color bgColor;
+
+    switch (order.status) {
+      case 'Completed':
+        statusColor = Colors.blue; // Requested: Blue
+        bgColor = Colors.blue[50]!;
+        break;
+      case 'Cancelled':
+        statusColor = Colors.grey; // Requested: Grey
+        bgColor = Colors.grey[200]!;
+        break;
+      case 'In Progress':
+        statusColor = Colors.green; // Requested: Green
+        bgColor = Colors.green[50]!;
+        break;
+      case 'On Hold':
+        statusColor = Colors.orange; // Requested: Orange
+        bgColor = Colors.orange[50]!;
+        break;
+      default: // Pending
+        statusColor =
+            Colors.amber[900]!; // Requested: Yellow (Amber for readability)
+        bgColor = Colors.amber[100]!;
+    }
+    // -------------------------
+
     // 2. Visuals
     final bool isCorp = order.isCorporate;
     final Color typeColor = isCorp ? AppTheme.primary : Colors.teal;
+    final bool isCancelled = order.status == 'Cancelled';
 
-    return Container(
-      decoration: BoxDecoration(
-        color: AppTheme.surface,
-        borderRadius: AppTheme.borderRadius,
-        boxShadow: AppTheme.shadow,
-        border: Border.all(color: AppTheme.borderColor),
-      ),
-      child: ClipRRect(
-        borderRadius: AppTheme.borderRadius,
-        child: Container(
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            color: AppTheme.surface,
-            border: Border(left: BorderSide(color: typeColor, width: 4)),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // ROW 1: Client Name, JO#, and Status
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Expanded(
-                    child: Row(
-                      children: [
-                        // 1. Client Name (Flexible to handle long names)
-                        Flexible(
-                          child: Text(
-                            order.clientName,
-                            style: const TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.bold,
-                              color: Colors.black87,
+    return GestureDetector(
+      // Ensure this wrapper is here for clicking
+      onTap: onTap,
+      child: Container(
+        decoration: BoxDecoration(
+          color: AppTheme.surface,
+          borderRadius: AppTheme.borderRadius,
+          // Remove shadow if cancelled for visual distinction
+          boxShadow: isCancelled ? [] : AppTheme.shadow,
+          border: Border.all(color: AppTheme.borderColor),
+        ),
+        child: ClipRRect(
+          borderRadius: AppTheme.borderRadius,
+          child: Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: AppTheme.surface,
+              // Use grey border if cancelled, else type color
+              border: Border(
+                left: BorderSide(
+                  color: isCancelled ? Colors.grey : typeColor,
+                  width: 4,
+                ),
+              ),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // ROW 1: Client Name, JO#, and Status
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Expanded(
+                      child: Row(
+                        children: [
+                          // 1. Client Name
+                          Flexible(
+                            child: Text(
+                              order.clientName,
+                              style: TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.bold,
+                                // Strike-through if cancelled
+                                decoration: isCancelled
+                                    ? TextDecoration.lineThrough
+                                    : null,
+                                color: isCancelled
+                                    ? Colors.grey
+                                    : Colors.black87,
+                              ),
+                              overflow: TextOverflow.ellipsis,
                             ),
-                            overflow: TextOverflow.ellipsis,
                           ),
-                        ),
-                        // 2. The ID (Subtitle Style)
-                        const SizedBox(width: 8),
-                        Text(
-                          order.displayId, // e.g., "JO-1024"
-                          style: TextStyle(
-                            fontSize: 13,
-                            color: Colors.grey[600],
-                            fontWeight: FontWeight.w500,
+                          // 2. The ID
+                          const SizedBox(width: 8),
+                          Text(
+                            order.displayId,
+                            style: TextStyle(
+                              fontSize: 13,
+                              color: Colors.grey[600],
+                              fontWeight: FontWeight.w500,
+                            ),
                           ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+
+                    // 3. Status Badge (UPDATED TO USE NEW COLORS)
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 4,
+                      ),
+                      decoration: BoxDecoration(
+                        color: bgColor, // Use the dynamic background color
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Text(
+                        order.status,
+                        style: TextStyle(
+                          fontSize: 10,
+                          color: statusColor, // Use the dynamic text color
+                          fontWeight: FontWeight.bold,
                         ),
+                      ),
+                    ),
+                  ],
+                ),
+
+                const SizedBox(height: 4),
+
+                // ROW 2: Job Type
+                Text(
+                  order.jobType,
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                    color: isCancelled ? Colors.grey : typeColor,
+                  ),
+                ),
+
+                // ROW 3: Action Tags
+                if (!isCancelled &&
+                    (order.isUnbilled ||
+                        order.isUnpaid ||
+                        order.hasNoTechs ||
+                        order.hasNoUnits))
+                  Padding(
+                    padding: const EdgeInsets.only(top: 8),
+                    child: Wrap(
+                      spacing: 8,
+                      runSpacing: 4,
+                      children: [
+                        if (order.isUnbilled)
+                          const _StatusTag(
+                            label: "Unbilled",
+                            color: Colors.red,
+                          ),
+
+                        if (order.isUnpaid)
+                          const _StatusTag(
+                            label: "Unpaid",
+                            color: Colors.orange,
+                          ),
+
+                        if (order.hasNoTechs)
+                          const _StatusTag(
+                            label: "No Tech",
+                            color: Colors.purple,
+                          ),
+
+                        if (order.hasNoUnits)
+                          const _StatusTag(
+                            label: "No Unit",
+                            color: Colors.blueGrey,
+                          ),
                       ],
                     ),
                   ),
-                  const SizedBox(width: 8),
 
-                  // 3. Status Badge
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 8,
-                      vertical: 4,
-                    ),
-                    decoration: BoxDecoration(
-                      color: AppTheme.warning.withOpacity(0.1),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: Text(
-                      order.status,
-                      style: const TextStyle(
-                        fontSize: 10,
-                        color: Colors.deepOrange,
-                        fontWeight: FontWeight.bold,
+                const SizedBox(height: 8),
+                const Divider(height: 1),
+                const SizedBox(height: 8),
+
+                // ROW 4: Location & Date
+                Row(
+                  children: [
+                    const Icon(Icons.location_on, size: 14, color: Colors.grey),
+                    const SizedBox(width: 4),
+                    Expanded(
+                      child: Text(
+                        order.location,
+                        style: AppTheme.caption,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
                       ),
                     ),
-                  ),
-                ],
-              ),
-
-              const SizedBox(height: 4),
-
-              // ROW 2: Job Type (Subtitle)
-              Text(
-                order.jobType,
-                style: TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w600,
-                  color: typeColor,
+                  ],
                 ),
-              ),
-
-              // ROW 3: Action Tags (Unbilled/Unpaid/Ops Issues)
-              if (order.isUnbilled ||
-                  order.isUnpaid ||
-                  order.hasNoTechs ||
-                  order.hasNoUnits)
-                Padding(
-                  padding: const EdgeInsets.only(top: 8),
-                  child: Wrap(
-                    spacing: 8,
-                    runSpacing: 4,
-                    children: [
-                      if (order.isUnbilled)
-                        const _StatusTag(label: "Unbilled", color: Colors.red),
-
-                      if (order.isUnpaid)
-                        const _StatusTag(label: "Unpaid", color: Colors.orange),
-
-                      if (order.hasNoTechs)
-                        const _StatusTag(
-                          label: "No Tech",
-                          color: Colors.purple,
-                        ),
-
-                      if (order.hasNoUnits)
-                        const _StatusTag(
-                          label: "No Unit",
-                          color: Colors.blueGrey,
-                        ),
-                    ],
-                  ),
-                ),
-
-              const SizedBox(height: 8),
-              const Divider(height: 1),
-              const SizedBox(height: 8),
-
-              // ROW 4: Location & Date
-              Row(
-                children: [
-                  const Icon(Icons.location_on, size: 14, color: Colors.grey),
-                  const SizedBox(width: 4),
-                  Expanded(
-                    child: Text(
-                      order.location,
-                      style: AppTheme.caption,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
+                const SizedBox(height: 4),
+                Row(
+                  children: [
+                    const Icon(
+                      Icons.calendar_today,
+                      size: 14,
+                      color: Colors.grey,
                     ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 4),
-              Row(
-                children: [
-                  const Icon(
-                    Icons.calendar_today,
-                    size: 14,
-                    color: Colors.grey,
-                  ),
-                  const SizedBox(width: 4),
-                  Text(dateText, style: AppTheme.caption),
-                ],
-              ),
-            ],
+                    const SizedBox(width: 4),
+                    Text(dateText, style: AppTheme.caption),
+                  ],
+                ),
+              ],
+            ),
           ),
         ),
       ),
