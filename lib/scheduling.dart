@@ -3230,11 +3230,26 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
                         unit['id'],
                       );
 
+                      // --- NEW: Format Tech Details ---
+                      final hp = unit['horse_power'] != null
+                          ? "${unit['horse_power']} HP"
+                          : "";
+                      final inverter = (unit['is_inverter'] == true)
+                          ? "Inverter"
+                          : "Non-Inverter";
+                      // result: "1.5 HP • Inverter"
+                      final techSpecs = [
+                        hp,
+                        inverter,
+                      ].where((s) => s.isNotEmpty).join(' • ');
+                      // --------------------------------
+
                       return Column(
                         children: [
                           ListTile(
                             contentPadding: const EdgeInsets.symmetric(
                               horizontal: 12,
+                              vertical: 4,
                             ),
                             // Checkbox on Left
                             leading: Checkbox(
@@ -3252,16 +3267,39 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
                             title: Text(
                               "$brand $type",
                               style: const TextStyle(
-                                fontWeight: FontWeight.w600,
+                                fontWeight: FontWeight.w700,
                                 fontSize: 14,
                               ),
                             ),
-                            subtitle: remarks.isNotEmpty
-                                ? Text(
+                            subtitle: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                // Tech Specs (Blue-Grey for visibility)
+                                if (techSpecs.isNotEmpty)
+                                  Padding(
+                                    padding: const EdgeInsets.only(top: 2),
+                                    child: Text(
+                                      techSpecs,
+                                      style: TextStyle(
+                                        fontSize: 12,
+                                        color: Colors.blueGrey[700],
+                                        fontWeight: FontWeight.w500,
+                                      ),
+                                    ),
+                                  ),
+                                // Location/Remarks (Lighter Grey)
+                                if (remarks.isNotEmpty)
+                                  Text(
                                     remarks,
-                                    style: const TextStyle(fontSize: 12),
-                                  )
-                                : null,
+                                    style: const TextStyle(
+                                      fontSize: 12,
+                                      color: Colors.grey,
+                                    ),
+                                  ),
+                              ],
+                            ),
+                            isThreeLine:
+                                true, // Allows for taller rows with multiple lines of text
                             // ADMIN ACTIONS (Edit/Delete)
                             trailing: AppState.currentRole == UserRole.admin
                                 ? Row(
