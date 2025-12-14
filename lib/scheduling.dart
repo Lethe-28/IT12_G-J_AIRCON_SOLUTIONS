@@ -741,6 +741,51 @@ class _JobBillingManagerState extends State<_JobBillingManager>
     }
   }
 
+  // NEW: Cancel Logic (Soft Delete)
+  Future<void> _cancelJob() async {
+    final confirm = await showConfirmDialog(
+      context: context,
+      title: "Cancel Job?",
+      message:
+          "This will remove the job from the active schedule and move it to the Archive.",
+      confirmLabel: "Yes, Cancel Job",
+      isDestructive: true, // Makes the button red to indicate importance
+    );
+
+    if (confirm == true) {
+      try {
+        await _supabase
+            .from('job_orders')
+            .update({
+              'status': 'Cancelled',
+              // We don't delete data, just tag it.
+              // You could also add a 'cancellation_reason' column later if needed.
+            })
+            .eq('id', widget.job.dbId);
+
+        // LOG IT!
+        await ActivityLogger.log(
+          type: 'Cancel',
+          details: 'Cancelled Job ${widget.job.displayId}',
+        );
+
+        if (mounted) {
+          Navigator.pop(context); // Close the details dialog
+          widget.onJobUpdated(); // Refresh the main screen
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text("Job moved to Cancelled Archive")),
+          );
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(SnackBar(content: Text("Error: $e")));
+        }
+      }
+    }
+  }
+
   // 3. Admin Re-open Logic
   Future<void> _reopenJob() async {
     final confirm = await showConfirmDialog(
@@ -1472,9 +1517,10 @@ class _JobBillingManagerState extends State<_JobBillingManager>
           style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
         ),
         const SizedBox(height: 12),
-        // DYNAMIC ACTIONS BASED ON STATUS
+        // --- START OF LOGIC CHANGE ---
+
+        // 1. COMPLETED VIEW (Green Lock)
         if (widget.job.status == 'Completed')
-          // LOCKED VIEW
           Column(
             children: [
               const SizedBox(
@@ -1497,7 +1543,6 @@ class _JobBillingManagerState extends State<_JobBillingManager>
                 ),
               ),
               const SizedBox(height: 12),
-              // Re-open Button (Admin Only)
               if (AppState.currentRole == UserRole.admin)
                 SizedBox(
                   width: double.infinity,
@@ -1512,44 +1557,77 @@ class _JobBillingManagerState extends State<_JobBillingManager>
                   ),
                 ),
             ],
+          )
+        // 2. NEW: CANCELLED VIEW (Grey Lock)
+        else if (widget.job.status == 'Cancelled')
+          const SizedBox(
+            width: double.infinity,
+            child: Card(
+              color: Color(0xFFF3F4F6), // Grey
+              elevation: 0,
+              child: Padding(
+                padding: EdgeInsets.all(16.0),
+                child: Center(
+                  child: Text(
+                    "This job is cancelled.",
+                    style: TextStyle(
+                      color: Colors.grey,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          )
+        // 3. ACTIVE VIEW (Action Buttons)
+        else
+          Wrap(
+            spacing: 12,
+            runSpacing: 12,
+            children: [
+              _ActionButton(
+                icon: Icons.edit,
+                label: "Edit Details",
+                color: Colors.blue,
+                onTap: widget.onEditRequest,
+              ),
+              _ActionButton(
+                icon: Icons.calendar_month,
+                label: "Reschedule",
+                color: Colors.orange,
+                onTap: _onReschedule,
+              ),
+              _ActionButton(
+                icon: Icons.update,
+                label: "Extend Job",
+                color: Colors.purple,
+                onTap: _onExtend,
+              ),
+
+              // NEW CANCEL BUTTON HERE
+              _ActionButton(
+                icon: Icons.cancel_presentation,
+                label: "Cancel Job",
+                color: Colors.blueGrey,
+                onTap: _cancelJob,
+              ),
+
+              _ActionButton(
+                icon: Icons.delete,
+                label: "Delete Job",
+                color: Colors.red,
+                onTap: _deleteJob,
+              ),
+              _ActionButton(
+                icon: Icons.check_circle,
+                label: "Complete Job",
+                color: Colors.green,
+                onTap: _completeJob,
+              ),
+            ],
           ),
-        Wrap(
-          spacing: 12,
-          runSpacing: 12,
-          children: [
-            _ActionButton(
-              icon: Icons.edit,
-              label: "Edit Details",
-              color: Colors.blue,
-              onTap: widget.onEditRequest,
-            ),
-            _ActionButton(
-              icon: Icons.calendar_month,
-              label: "Reschedule",
-              color: Colors.orange,
-              onTap: _onReschedule,
-            ),
-            _ActionButton(
-              icon: Icons.update,
-              label: "Extend Job",
-              color: Colors.purple,
-              onTap: _onExtend,
-            ),
-            _ActionButton(
-              icon: Icons.delete,
-              label: "Delete Job",
-              color: Colors.red,
-              onTap: _deleteJob,
-            ),
-            // COMPLETE BUTTON (New)
-            _ActionButton(
-              icon: Icons.check_circle,
-              label: "Complete Job",
-              color: Colors.green,
-              onTap: _completeJob,
-            ),
-          ],
-        ),
+
+        // --- END OF LOGIC CHANGE ---
       ],
     );
   }
