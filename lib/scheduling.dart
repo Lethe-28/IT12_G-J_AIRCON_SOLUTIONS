@@ -1703,7 +1703,7 @@ class _JobBillingManagerState extends State<_JobBillingManager>
               _ActionButton(
                 icon: Icons.edit,
                 label: "Edit Details",
-                color: Colors.blue,
+                color: Colors.teal,
                 onTap: widget.onEditRequest,
               ),
               _ActionButton(
@@ -1737,7 +1737,7 @@ class _JobBillingManagerState extends State<_JobBillingManager>
               _ActionButton(
                 icon: Icons.check_circle,
                 label: "Complete Job",
-                color: Colors.green,
+                color: Colors.blue,
                 onTap: _completeJob,
               ),
             ],
