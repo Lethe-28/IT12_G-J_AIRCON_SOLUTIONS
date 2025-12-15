@@ -597,143 +597,157 @@ class _ServiceItemDialogState extends State<_ServiceItemDialog> {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      constraints: BoxConstraints(
-        maxHeight: MediaQuery.of(context).size.height * 0.9,
-      ),
-      decoration: const BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min, // Hug content
-        children: [
-          // Header
-          Container(
-            padding: const EdgeInsets.all(20),
-            decoration: const BoxDecoration(
-              border: Border(bottom: BorderSide(color: Color(0xFFE2E8F0))),
-            ),
-            child: Row(
-              children: [
-                const Icon(Icons.inventory_2, color: Colors.teal),
-                const SizedBox(width: 12),
-                Text(
-                  widget.item == null ? 'Add Item' : 'Edit Item',
-                  style: const TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-                const Spacer(),
-                IconButton(
-                  onPressed: () => Navigator.pop(context),
-                  icon: const Icon(Icons.close),
-                ),
-              ],
-            ),
-          ),
+    final isMobile = MediaQuery.of(context).size.width < 600;
+    // 1. KEYBOARD HEIGHT
+    final bottomPadding = MediaQuery.of(context).viewInsets.bottom;
 
-          // Form
-          Flexible(
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.all(24),
-              child: Form(
-                key: _formKey,
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    TextFormField(
-                      controller: _nameCtrl,
-                      decoration: _inputDeco(
-                        'Item Name',
-                        Icons.label_outline,
-                        isRequired: true,
-                      ),
-                      validator: (v) =>
-                          v == null || v.trim().isEmpty ? 'Required' : null,
+    return Padding(
+      // 2. PUSH UP
+      padding: EdgeInsets.only(bottom: bottomPadding),
+      child: Container(
+        constraints: BoxConstraints(
+          maxHeight: MediaQuery.of(context).size.height * 0.9,
+        ),
+        decoration: const BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min, // Shrink to fit
+          children: [
+            // --- HEADER ---
+            Container(
+              padding: EdgeInsets.all(isMobile ? 16 : 20),
+              decoration: const BoxDecoration(
+                border: Border(bottom: BorderSide(color: Color(0xFFE2E8F0))),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.inventory_2, color: Colors.teal),
+                  const SizedBox(width: 12),
+                  Text(
+                    widget.item == null ? 'Add Item' : 'Edit Item',
+                    style: const TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
                     ),
-                    const SizedBox(height: 16),
-                    DropdownButtonFormField<String>(
-                      value: _itemType,
-                      decoration: _inputDeco(
-                        'Item Type',
-                        Icons.category,
-                        isRequired: true,
-                      ),
-                      items: const [
-                        DropdownMenuItem(
-                          value: 'Service',
-                          child: Text('Service (Labor)'),
+                  ),
+                  const Spacer(),
+                  IconButton(
+                    onPressed: () => Navigator.pop(context),
+                    icon: const Icon(Icons.close),
+                  ),
+                ],
+              ),
+            ),
+
+            // --- SCROLLABLE FORM ---
+            Expanded(
+              child: SingleChildScrollView(
+                padding: EdgeInsets.all(isMobile ? 16 : 24),
+                child: Form(
+                  key: _formKey,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      TextFormField(
+                        controller: _nameCtrl,
+                        decoration: _inputDeco(
+                          'Item Name',
+                          Icons.label_outline,
+                          isRequired: true,
                         ),
-                        DropdownMenuItem(
-                          value: 'Material',
-                          child: Text('Material (Parts)'),
-                        ),
-                      ],
-                      onChanged: (v) =>
-                          setState(() => _itemType = v ?? 'Service'),
-                    ),
-                    const SizedBox(height: 16),
-                    TextFormField(
-                      controller: _priceCtrl,
-                      decoration: _inputDeco(
-                        'Price (₱)',
-                        Icons.attach_money,
-                        isRequired: true,
+                        validator: (v) =>
+                            v == null || v.trim().isEmpty ? 'Required' : null,
                       ),
-                      keyboardType: const TextInputType.numberWithOptions(
-                        decimal: true,
-                      ),
-                      inputFormatters: [
-                        FilteringTextInputFormatter.allow(
-                          RegExp(r'^\d*\.?\d{0,2}'),
+                      const SizedBox(height: 16),
+                      DropdownButtonFormField<String>(
+                        value: _itemType,
+                        decoration: _inputDeco(
+                          'Item Type',
+                          Icons.category,
+                          isRequired: true,
                         ),
-                      ],
-                      validator: (v) {
-                        if (v == null || v.isEmpty) return 'Required';
-                        if (double.tryParse(v) == null) return 'Invalid number';
-                        return null;
-                      },
-                    ),
-                  ],
+                        items: const [
+                          DropdownMenuItem(
+                            value: 'Service',
+                            child: Text('Service (Labor)'),
+                          ),
+                          DropdownMenuItem(
+                            value: 'Material',
+                            child: Text('Material (Parts)'),
+                          ),
+                          DropdownMenuItem(
+                            value: 'Custom',
+                            child: Text('Custom Item'), // <--- ADDED THIS
+                          ),
+                        ],
+                        onChanged: (v) =>
+                            setState(() => _itemType = v ?? 'Service'),
+                      ),
+                      const SizedBox(height: 16),
+                      TextFormField(
+                        controller: _priceCtrl,
+                        decoration: _inputDeco(
+                          'Price (₱)',
+                          Icons.attach_money,
+                          isRequired: true,
+                        ),
+                        keyboardType: const TextInputType.numberWithOptions(
+                          decimal: true,
+                        ),
+                        inputFormatters: [
+                          FilteringTextInputFormatter.allow(
+                            RegExp(r'^\d*\.?\d{0,2}'),
+                          ),
+                        ],
+                        validator: (v) {
+                          if (v == null || v.isEmpty) return 'Required';
+                          if (double.tryParse(v) == null)
+                            return 'Invalid number';
+                          return null;
+                        },
+                      ),
+                    ],
+                  ),
                 ),
               ),
             ),
-          ),
 
-          // Footer
-          Container(
-            padding: const EdgeInsets.all(24),
-            decoration: const BoxDecoration(
-              border: Border(top: BorderSide(color: Color(0xFFE2E8F0))),
-            ),
-            child: SizedBox(
-              width: double.infinity,
-              child: ElevatedButton(
-                onPressed: _isSubmitting ? null : _submit,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.teal,
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(vertical: 16),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
+            // --- FOOTER ---
+            Container(
+              padding: EdgeInsets.all(isMobile ? 16 : 24),
+              decoration: const BoxDecoration(
+                color: Colors.white,
+                border: Border(top: BorderSide(color: Color(0xFFE2E8F0))),
+              ),
+              child: SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  onPressed: _isSubmitting ? null : _submit,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.teal,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 16),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
                   ),
+                  child: _isSubmitting
+                      ? const SizedBox(
+                          height: 20,
+                          width: 20,
+                          child: CircularProgressIndicator(
+                            color: Colors.white,
+                            strokeWidth: 2,
+                          ),
+                        )
+                      : Text(widget.item == null ? 'Save Item' : 'Update Item'),
                 ),
-                child: _isSubmitting
-                    ? const SizedBox(
-                        height: 20,
-                        width: 20,
-                        child: CircularProgressIndicator(
-                          color: Colors.white,
-                          strokeWidth: 2,
-                        ),
-                      )
-                    : Text(widget.item == null ? 'Save Item' : 'Update Item'),
               ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
