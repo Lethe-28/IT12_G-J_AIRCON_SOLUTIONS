@@ -1090,17 +1090,100 @@ class _JobBillingManagerState extends State<_JobBillingManager>
     );
   }
 
+  // Conflict Checker (Same as the one in the main Wizard)
+  Future<bool> _checkScheduleConflict(DateTime proposedDate) async {
+    // 1. Define the range (Check the whole day)
+    final startOfDay = DateTime(
+      proposedDate.year,
+      proposedDate.month,
+      proposedDate.day,
+    );
+    final endOfDay = startOfDay.add(const Duration(hours: 23, minutes: 59));
+
+    // 2. Fetch active jobs for that day
+    final res = await _supabase
+        .from('job_orders')
+        .select('id, date_scheduled')
+        .gte('date_scheduled', startOfDay.toUtc().toIso8601String())
+        .lte('date_scheduled', endOfDay.toUtc().toIso8601String())
+        .neq('status', 'Completed')
+        .neq('status', 'Cancelled');
+
+    // 3. Analyze for overlap with our default 9:00 AM slot
+    // We assume the follow-up is at 9:00 AM.
+    final myTime = DateTime(
+      proposedDate.year,
+      proposedDate.month,
+      proposedDate.day,
+      9,
+      0,
+    );
+
+    for (var job in res) {
+      final jobDate = DateTime.parse(job['date_scheduled']).toLocal();
+
+      // Calculate difference in minutes
+      final diff = jobDate.difference(myTime).inMinutes.abs();
+
+      // CONFLICT THRESHOLD: 120 minutes (2 hours)
+      // If another job is within 2 hours of 9:00 AM (7am - 11am), flag it.
+      if (diff < 120) {
+        return true; // Conflict found
+      }
+    }
+    return false; // No conflict
+  }
+
   Future<void> _createFollowUpJob(int monthsToAdd) async {
-    try {
-      // 1. Calculate Target Date
-      final nextDate = DateTime(
-        widget.job.startDateTime.year,
-        widget.job.startDateTime.month + monthsToAdd,
-        widget.job.startDateTime.day,
-        9,
-        0, // Default to 9:00 AM
+    // 1. Calculate Target Date (Defaulting to 9:00 AM)
+    final nextDate = DateTime(
+      widget.job.startDateTime.year,
+      widget.job.startDateTime.month + monthsToAdd,
+      widget.job.startDateTime.day,
+      9,
+      0,
+    );
+
+    // --- NEW: CONFLICT CHECK ---
+    final hasConflict = await _checkScheduleConflict(nextDate);
+
+    if (hasConflict) {
+      // Pause execution to ask user
+      if (!mounted) return;
+
+      final proceed = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Row(
+            children: [
+              Icon(Icons.warning_amber_rounded, color: Colors.orange),
+              SizedBox(width: 8),
+              Text("Future Schedule Conflict"),
+            ],
+          ),
+          content: Text(
+            "Warning: You already have a job scheduled near 9:00 AM on ${nextDate.month}/${nextDate.day}.\n\nDo you want to double-book this slot anyway?",
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false), // Cancel
+              child: const Text("Cancel"),
+            ),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(backgroundColor: Colors.orange),
+              onPressed: () => Navigator.pop(ctx, true), // Proceed
+              child: const Text("Book Anyway"),
+            ),
+          ],
+        ),
       );
 
+      // If they said NO, stop everything.
+      if (proceed != true) return;
+    }
+    // ---------------------------
+
+    try {
       // 2. Get 'Maintenance' Type ID
       final typeRes = await _supabase
           .from('job_types')
@@ -1116,7 +1199,7 @@ class _JobBillingManagerState extends State<_JobBillingManager>
                 .eq('job_type_name', widget.job.jobType)
                 .single())['id'];
 
-      // --- 3. GENERATE ID (Exact Logic from Wizard) ---
+      // 3. GENERATE ID (Exact Logic from Wizard)
       const months = [
         'JAN',
         'FEB',
@@ -1137,12 +1220,10 @@ class _JobBillingManagerState extends State<_JobBillingManager>
 
       String basePattern = "$monthStr$dayStr$yearStr";
 
-      // Prefix Logic: If NOT corporate (Residential), add GJ-
       if (!widget.job.isCorporate) {
         basePattern = "GJ-$basePattern";
       }
 
-      // Check Duplicates in DB
       String finalJoNumber = basePattern;
 
       final existingJos = await _supabase
@@ -1155,7 +1236,6 @@ class _JobBillingManagerState extends State<_JobBillingManager>
       );
 
       if (existingList.contains(basePattern)) {
-        // Find next letter (A, B, C...)
         String suffix = "A";
         bool found = false;
 
@@ -1174,7 +1254,6 @@ class _JobBillingManagerState extends State<_JobBillingManager>
           finalJoNumber = "$basePattern-${DateTime.now().millisecond}";
         }
       }
-      // ------------------------------------------------
 
       // 4. Insert Job
       final res = await _supabase
@@ -1193,7 +1272,7 @@ class _JobBillingManagerState extends State<_JobBillingManager>
 
       final newJobId = res['id'];
 
-      // 5. COPY AIRCONS (Using the IDs we saved in _fetchBillingData)
+      // 5. COPY AIRCONS
       if (_linkedAirconIds.isNotEmpty) {
         final List<Map<String, dynamic>> links = _linkedAirconIds
             .map((acId) => {'job_order_id': newJobId, 'aircon_id': acId})
