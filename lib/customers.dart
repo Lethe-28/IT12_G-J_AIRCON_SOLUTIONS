@@ -890,262 +890,269 @@ class _CustomerDialogState extends State<_CustomerDialog> {
   @override
   Widget build(BuildContext context) {
     final isB2B = _typeId == 1;
+    final isMobile = MediaQuery.of(context).size.width < 600;
+    // 1. GET KEYBOARD HEIGHT
+    final bottomPadding = MediaQuery.of(context).viewInsets.bottom;
 
-    return Container(
-      constraints: BoxConstraints(
-        maxHeight: MediaQuery.of(context).size.height * 0.9,
-      ),
-      decoration: const BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      child: Column(
-        children: [
-          // Header
-          Container(
-            padding: const EdgeInsets.all(20),
-            decoration: const BoxDecoration(
-              border: Border(bottom: BorderSide(color: Color(0xFFE2E8F0))),
-            ),
-            child: Row(
-              children: [
-                const Icon(Icons.person_add, color: Colors.blue),
-                const SizedBox(width: 12),
-                Text(
-                  widget.customer == null ? 'Add Customer' : 'Edit Customer',
-                  style: const TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
+    return Padding(
+      // 2. APPLY KEYBOARD PADDING TO THE BOTTOM SHEET
+      padding: EdgeInsets.only(bottom: bottomPadding),
+      child: Container(
+        constraints: BoxConstraints(
+          // Limit height to 90% of screen to keep it looking like a sheet
+          maxHeight: MediaQuery.of(context).size.height * 0.9,
+        ),
+        decoration: const BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min, // Shrink to fit content if small
+          children: [
+            // --- HEADER (Fixed) ---
+            Container(
+              padding: EdgeInsets.all(isMobile ? 16 : 20),
+              decoration: const BoxDecoration(
+                border: Border(bottom: BorderSide(color: Color(0xFFE2E8F0))),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.person_add, color: Colors.blue),
+                  const SizedBox(width: 12),
+                  Text(
+                    widget.customer == null ? 'Add Customer' : 'Edit Customer',
+                    style: const TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                    ),
                   ),
-                ),
-                const Spacer(),
-                IconButton(
-                  onPressed: () => Navigator.pop(context),
-                  icon: const Icon(Icons.close),
-                ),
-              ],
+                  const Spacer(),
+                  IconButton(
+                    onPressed: () => Navigator.pop(context),
+                    icon: const Icon(Icons.close),
+                  ),
+                ],
+              ),
             ),
-          ),
 
-          // Form
-          Expanded(
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.all(24),
-              child: Form(
-                key: _formKey,
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    // Type Selector
-                    Row(
-                      children: [
-                        Expanded(
-                          child: _TypeSelectionCard(
-                            title: 'Corporate (B2B)',
-                            icon: Icons.business,
-                            isSelected: isB2B,
-                            onTap: () => setState(() => _typeId = 1),
+            // --- SCROLLABLE CONTENT (Flexible) ---
+            Expanded(
+              child: SingleChildScrollView(
+                // Use tighter padding on mobile
+                padding: EdgeInsets.all(isMobile ? 16 : 24),
+                child: Form(
+                  key: _formKey,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      // Type Selector
+                      Row(
+                        children: [
+                          Expanded(
+                            child: _TypeSelectionCard(
+                              title: 'Corporate (B2B)',
+                              icon: Icons.business,
+                              isSelected: isB2B,
+                              onTap: () => setState(() => _typeId = 1),
+                            ),
                           ),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: _TypeSelectionCard(
-                            title: 'Individual (B2C)',
-                            icon: Icons.person,
-                            isSelected: !isB2B,
-                            onTap: () => setState(() => _typeId = 2),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: _TypeSelectionCard(
+                              title: 'Individual (B2C)',
+                              icon: Icons.person,
+                              isSelected: !isB2B,
+                              onTap: () => setState(() => _typeId = 2),
+                            ),
                           ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 24),
-
-                    // Basic Info
-                    const Text(
-                      'Basic Information',
-                      style: TextStyle(
-                        fontWeight: FontWeight.bold,
-                        fontSize: 16,
+                        ],
                       ),
-                    ),
-                    const SizedBox(height: 16),
+                      const SizedBox(height: 24),
 
-                    if (isB2B) ...[
+                      const Text(
+                        'Basic Information',
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 16,
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+
+                      if (isB2B) ...[
+                        TextFormField(
+                          controller: _companyCtrl,
+                          decoration: _inputDeco(
+                            'Company Name',
+                            Icons.domain,
+                            isRequired: true,
+                          ),
+                          validator: (v) => (!isB2B)
+                              ? null
+                              : (v == null || v.trim().isEmpty
+                                    ? 'Required'
+                                    : null),
+                        ),
+                        const SizedBox(height: 12),
+                      ],
+
+                      Row(
+                        children: [
+                          Expanded(
+                            child: TextFormField(
+                              controller: _firstCtrl,
+                              decoration: _inputDeco(
+                                'First Name',
+                                Icons.person_outline,
+                                isRequired: true,
+                              ),
+                              validator: (v) => v == null || v.trim().isEmpty
+                                  ? 'Required'
+                                  : null,
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: TextFormField(
+                              controller: _lastCtrl,
+                              decoration: _inputDeco(
+                                'Last Name',
+                                null,
+                                isRequired: true,
+                              ),
+                              validator: (v) => v == null || v.trim().isEmpty
+                                  ? 'Required'
+                                  : null,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+
+                      if (isB2B) ...[
+                        TextFormField(
+                          controller: _jobCtrl,
+                          decoration: _inputDeco(
+                            'Job Position',
+                            Icons.badge_outlined,
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                      ],
+
                       TextFormField(
-                        controller: _companyCtrl,
+                        controller: _phoneCtrl,
                         decoration: _inputDeco(
-                          'Company Name',
-                          Icons.domain,
+                          'Phone Number',
+                          Icons.phone,
                           isRequired: true,
                         ),
-                        validator: (v) {
-                          if (!isB2B) return null;
-                          if (v == null || v.trim().isEmpty)
-                            return 'Company Name is required for B2B';
-                          return null;
-                        },
+                        keyboardType: TextInputType.phone,
+                        validator: (v) =>
+                            v == null || v.trim().isEmpty ? 'Required' : null,
                       ),
-                      const SizedBox(height: 12),
-                    ],
 
-                    Row(
-                      children: [
-                        Expanded(
-                          child: TextFormField(
-                            controller: _firstCtrl,
-                            decoration: _inputDeco(
-                              'First Name',
-                              Icons.person_outline,
-                              isRequired: true,
-                            ),
-                            validator: (v) => v == null || v.trim().isEmpty
-                                ? 'Required'
-                                : null,
-                          ),
+                      const SizedBox(height: 24),
+                      const Text(
+                        'Address',
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 16,
                         ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: TextFormField(
-                            controller: _lastCtrl,
-                            decoration: _inputDeco(
-                              'Last Name',
-                              null,
-                              isRequired: true,
-                            ),
-                            validator: (v) => v == null || v.trim().isEmpty
-                                ? 'Required'
-                                : null,
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 12),
+                      ),
+                      const SizedBox(height: 16),
 
-                    if (isB2B) ...[
                       TextFormField(
-                        controller: _jobCtrl,
-                        decoration: _inputDeco(
-                          'Job Position',
-                          Icons.badge_outlined,
-                        ),
+                        controller: _unitCtrl,
+                        decoration: _inputDeco('Unit / House #', null),
                       ),
                       const SizedBox(height: 12),
+                      TextFormField(
+                        controller: _streetCtrl,
+                        decoration: _inputDeco('Street Name', null),
+                      ),
+                      const SizedBox(height: 12),
+
+                      // On mobile, stack these vertically if needed, but row is usually fine
+                      Row(
+                        children: [
+                          Expanded(
+                            child: TextFormField(
+                              controller: _brgyCtrl,
+                              decoration: _inputDeco(
+                                'Barangay',
+                                null,
+                                isRequired: true,
+                              ),
+                              validator: (v) => v == null || v.trim().isEmpty
+                                  ? 'Required'
+                                  : null,
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: TextFormField(
+                              controller: _cityCtrl,
+                              decoration: _inputDeco(
+                                'City',
+                                Icons.location_city,
+                                isRequired: true,
+                              ),
+                              validator: (v) => v == null || v.trim().isEmpty
+                                  ? 'Required'
+                                  : null,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      TextFormField(
+                        controller: _landmarkCtrl,
+                        decoration: _inputDeco('Landmark', Icons.flag),
+                      ),
                     ],
-
-                    TextFormField(
-                      controller: _phoneCtrl,
-                      decoration: _inputDeco(
-                        'Phone Number',
-                        Icons.phone,
-                        isRequired: true,
-                      ),
-                      keyboardType: TextInputType.phone,
-                      inputFormatters: [
-                        FilteringTextInputFormatter.allow(RegExp(r'[0-9+ \-]')),
-                      ],
-                      validator: (v) {
-                        if (v == null || v.trim().isEmpty) return 'Required';
-                        final digits = v.replaceAll(RegExp(r'\D'), '');
-                        if (digits.length < 7)
-                          return 'Too short (min 7 digits)';
-                        if (digits.length > 15) return 'Too long';
-                        return null;
-                      },
-                    ),
-
-                    const SizedBox(height: 24),
-                    const Text(
-                      'Address',
-                      style: TextStyle(
-                        fontWeight: FontWeight.bold,
-                        fontSize: 16,
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-
-                    TextFormField(
-                      controller: _unitCtrl,
-                      decoration: _inputDeco('Unit / House #', null),
-                    ),
-                    const SizedBox(height: 12),
-                    TextFormField(
-                      controller: _streetCtrl,
-                      decoration: _inputDeco('Street Name', null),
-                    ),
-                    const SizedBox(height: 12),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: TextFormField(
-                            controller: _brgyCtrl,
-                            decoration: _inputDeco(
-                              'Barangay',
-                              null,
-                              isRequired: true,
-                            ),
-                            validator: (v) => v == null || v.trim().isEmpty
-                                ? 'Required'
-                                : null,
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: TextFormField(
-                            controller: _cityCtrl,
-                            decoration: _inputDeco(
-                              'City',
-                              Icons.location_city,
-                              isRequired: true,
-                            ),
-                            validator: (v) => v == null || v.trim().isEmpty
-                                ? 'Required'
-                                : null,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
-
-          // Footer Action
-          Container(
-            padding: const EdgeInsets.all(24),
-            decoration: const BoxDecoration(
-              border: Border(top: BorderSide(color: Color(0xFFE2E8F0))),
-            ),
-            child: SizedBox(
-              width: double.infinity,
-              child: ElevatedButton(
-                onPressed: _isSubmitting ? null : _submit,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.blue,
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(vertical: 16),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
                   ),
                 ),
-                child: _isSubmitting
-                    ? const SizedBox(
-                        height: 20,
-                        width: 20,
-                        child: CircularProgressIndicator(
-                          color: Colors.white,
-                          strokeWidth: 2,
-                        ),
-                      )
-                    : Text(
-                        widget.customer == null
-                            ? 'Save Customer'
-                            : 'Update Customer',
-                      ),
               ),
             ),
-          ),
-        ],
+
+            // --- FOOTER (Fixed above keyboard) ---
+            Container(
+              padding: EdgeInsets.all(isMobile ? 16 : 24),
+              decoration: const BoxDecoration(
+                color: Colors.white,
+                border: Border(top: BorderSide(color: Color(0xFFE2E8F0))),
+              ),
+              child: SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  onPressed: _isSubmitting ? null : _submit,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.blue,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 16),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                  child: _isSubmitting
+                      ? const SizedBox(
+                          height: 20,
+                          width: 20,
+                          child: CircularProgressIndicator(
+                            color: Colors.white,
+                            strokeWidth: 2,
+                          ),
+                        )
+                      : Text(
+                          widget.customer == null
+                              ? 'Save Customer'
+                              : 'Update Customer',
+                        ),
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
