@@ -83,10 +83,151 @@ class _SchedulingScreenState extends State<SchedulingScreen> {
   String _searchQuery = '';
   bool _isSearchActive = false;
 
+  // inside _SchedulingScreenState class
+  bool _showActionItems = false; // Toggle between Calendar and Action List
+  bool _sortOldestFirst = true; // For the Action List sorting
+
+  // inside _SchedulingScreenState class
+
+  // Get all jobs that need attention
+  List<JobOrder> _getActionableJobs() {
+    final list = _orders
+        .where(
+          (o) =>
+              // 1. Wrap all the "OR" flags in parentheses
+              (o.isUnbilled || o.isUnpaid || o.hasNoTechs || o.hasNoUnits) &&
+              // 2. The AND now applies to the entire group above
+              o.status != 'Cancelled',
+        )
+        .toList();
+
+    list.sort((a, b) {
+      int comparison = a.startDateTime.compareTo(b.startDateTime);
+      return _sortOldestFirst ? comparison : -comparison;
+    });
+
+    return list;
+  }
+
+  // inside _SchedulingScreenState class
+
+  // The Yellow/Back Banner
+  Widget _buildActionBanner(int count) {
+    if (count == 0 && !_showActionItems) return const SizedBox.shrink();
+
+    return GestureDetector(
+      onTap: () {
+        setState(() {
+          _showActionItems = !_showActionItems;
+        });
+      },
+      child: AnimatedContainer(
+        duration: AppTheme.animationDuration,
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(
+          vertical: 12, // Slightly tighter vertical padding
+          horizontal: 24,
+        ),
+        decoration: BoxDecoration(
+          color: _showActionItems
+              ? AppTheme.surface
+              : AppTheme.warning.withOpacity(0.1),
+          border: Border(
+            bottom: BorderSide(
+              color: _showActionItems
+                  ? AppTheme.borderColor
+                  : AppTheme.warning.withOpacity(0.3),
+            ),
+          ),
+        ),
+        child: Row(
+          children: [
+            Icon(
+              _showActionItems ? Icons.arrow_back : Icons.warning_amber_rounded,
+              color: _showActionItems ? AppTheme.textPrimary : AppTheme.warning,
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                _showActionItems
+                    ? "Back to Calendar"
+                    : "$count Jobs require attention",
+                style: TextStyle(
+                  fontWeight: FontWeight.bold,
+                  color: _showActionItems
+                      ? AppTheme.textPrimary
+                      : AppTheme.warning,
+                  fontSize: 15,
+                ),
+              ),
+            ),
+            // "View All" link if collapsed
+            if (!_showActionItems)
+              const Text(
+                "View All",
+                style: TextStyle(
+                  fontWeight: FontWeight.bold,
+                  color: AppTheme.primary,
+                  decoration: TextDecoration.underline,
+                ),
+              )
+            // Sorting Controls if Expanded
+            else
+              Row(
+                children: [
+                  Text(
+                    "$count Items",
+                    style: const TextStyle(color: Colors.grey, fontSize: 12),
+                  ),
+                  const SizedBox(width: 12),
+                  OutlinedButton.icon(
+                    onPressed: () =>
+                        setState(() => _sortOldestFirst = !_sortOldestFirst),
+                    icon: Icon(
+                      _sortOldestFirst
+                          ? Icons.arrow_upward
+                          : Icons.arrow_downward,
+                      size: 14,
+                    ),
+                    label: Text(
+                      _sortOldestFirst ? "Oldest" : "Newest",
+                      style: const TextStyle(fontSize: 12),
+                    ),
+                    style: OutlinedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 4,
+                      ),
+                      minimumSize: const Size(0, 32),
+                    ),
+                  ),
+                ],
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // The Full Page List of Action Items
+  Widget _buildActionItemsList(List<JobOrder> actionableJobs) {
+    if (actionableJobs.isEmpty) {
+      return const Center(child: Text("Great job! No pending actions."));
+    }
+
+    return ListView.separated(
+      padding: const EdgeInsets.all(20),
+      itemCount: actionableJobs.length,
+      separatorBuilder: (ctx, i) => const SizedBox(height: 12),
+      itemBuilder: (ctx, i) => _JobCard(
+        order: actionableJobs[i],
+        onTap: () => _showJobDetails(actionableJobs[i]),
+      ),
+    );
+  }
+
   DateTime _focusedDate = DateTime.now();
   DateTime _selectedDate = DateTime.now();
-  bool _sortOldestFirst = true;
-  late bool _showActionItems;
 
   @override
   void initState() {
@@ -273,10 +414,56 @@ class _SchedulingScreenState extends State<SchedulingScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final isMobile =
-        MediaQuery.of(context).size.width <
-        900; // Adjusted breakpoint for Split View
-    final calendarJobs = _getJobsForDay(_selectedDate);
+    final isMobile = MediaQuery.of(context).size.width < 900;
+
+    // 1. Calculate Actions (Yellow Banner Data)
+    final actionableJobs = _getActionableJobs();
+    final actionableCount = actionableJobs.length;
+
+    // 2. Decide what content to show in the Expanded area
+    Widget content;
+
+    if (_searchQuery.isNotEmpty) {
+      // MODE A: SEARCH (Overrides everything)
+      final searchResults = _orders.where((job) {
+        // 1. Create searchable "tags" for the flags
+        final String tags = [
+          if (job.isUnbilled) "unbilled",
+          if (job.isUnpaid) "unpaid",
+          if (job.hasNoTechs) "no tech", // matches "no tech" search
+          if (job.hasNoUnits) "no unit", // matches "no unit" search
+        ].join(" ");
+
+        // 2. Check all text fields (Names, IDs, Locations, Status, AND Job Type)
+        return job.clientName.toLowerCase().contains(_searchQuery) ||
+            job.displayId.toLowerCase().contains(_searchQuery) ||
+            job.location.toLowerCase().contains(_searchQuery) ||
+            job.status.toLowerCase().contains(_searchQuery) ||
+            job.jobType.toLowerCase().contains(
+              _searchQuery,
+            ) || // <--- NEW: Search by "Repair", "Installation", etc.
+            tags.contains(_searchQuery); // <--- NEW: Search by tags
+      }).toList();
+
+      content = ListView.separated(
+        padding: const EdgeInsets.all(20),
+        itemCount: searchResults.length,
+        separatorBuilder: (ctx, i) => const SizedBox(height: 12),
+        itemBuilder: (ctx, i) => _JobCard(
+          order: searchResults[i],
+          onTap: () => _showJobDetails(searchResults[i]),
+        ),
+      );
+    } else if (_showActionItems) {
+      // MODE B: ACTION LIST (The "Separate Page" for warnings)
+      content = _buildActionItemsList(actionableJobs);
+    } else {
+      // MODE C: CALENDAR (Your existing split view)
+      final calendarJobs = _getJobsForDay(_selectedDate);
+      content = isMobile
+          ? _buildMobileLayout(calendarJobs)
+          : _buildDesktopLayout(calendarJobs);
+    }
 
     return AppShell(
       selectedIndex: 1,
@@ -288,11 +475,14 @@ class _SchedulingScreenState extends State<SchedulingScreen> {
             children: [
               _buildHeader(isMobile),
               const Divider(height: 1),
-              Expanded(
-                child: isMobile
-                    ? _buildMobileLayout(calendarJobs)
-                    : _buildDesktopLayout(calendarJobs), // NEW: Split Layout
-              ),
+
+              // THE WARNING BANNER
+              // We place it here so it pushes the calendar down.
+              // It hides automatically if searching or count is 0.
+              if (_searchQuery.isEmpty) _buildActionBanner(actionableCount),
+
+              // MAIN CONTENT (Swaps between Calendar and List)
+              Expanded(child: content),
             ],
           ),
         ),
@@ -458,6 +648,49 @@ class _SchedulingScreenState extends State<SchedulingScreen> {
   }
 
   Widget _buildHeader(bool isMobile) {
+    // 1. MOBILE SEARCH VIEW (When user clicks search icon)
+    if (isMobile && _isSearchActive) {
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        color: Colors.white,
+        child: Row(
+          children: [
+            Expanded(
+              child: TextField(
+                controller: _searchController,
+                autofocus: true,
+                decoration: InputDecoration(
+                  hintText: "Search name, JO#, location...",
+                  prefixIcon: const Icon(Icons.search, color: Colors.grey),
+                  filled: true,
+                  fillColor: Colors.grey[100],
+                  contentPadding: const EdgeInsets.symmetric(
+                    vertical: 0,
+                    horizontal: 16,
+                  ),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: BorderSide.none,
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(width: 8),
+            TextButton(
+              onPressed: () {
+                setState(() {
+                  _isSearchActive = false;
+                  _searchController.clear();
+                });
+              },
+              child: const Text("Cancel"),
+            ),
+          ],
+        ),
+      );
+    }
+
+    // 2. STANDARD HEADER (Default View)
     return Container(
       padding: EdgeInsets.symmetric(
         horizontal: isMobile ? 16 : 32,
@@ -467,40 +700,91 @@ class _SchedulingScreenState extends State<SchedulingScreen> {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
+          // Left: Month Navigation
           Row(
             children: [
               IconButton(
                 icon: const Icon(Icons.chevron_left),
                 onPressed: () => _changeMonth(-1),
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(),
               ),
+              const SizedBox(width: 8),
               Text(
                 "${_monthName(_focusedDate.month)} ${_focusedDate.year}",
-                style: const TextStyle(
-                  fontSize: 20,
+                style: TextStyle(
+                  fontSize: isMobile ? 18 : 20,
                   fontWeight: FontWeight.w800,
-                  color: Color(0xFF1E293B),
+                  color: const Color(0xFF1E293B),
                 ),
               ),
+              const SizedBox(width: 8),
               IconButton(
                 icon: const Icon(Icons.chevron_right),
                 onPressed: () => _changeMonth(1),
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(),
               ),
             ],
           ),
-          ElevatedButton.icon(
-            onPressed: () => _onAddOrEdit(),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFF2563EB),
-              foregroundColor: Colors.white,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
+
+          // Right: Search Bar & Add Button
+          Row(
+            children: [
+              // Search Input
+              if (!isMobile)
+                Container(
+                  width: 220,
+                  height: 40,
+                  margin: const EdgeInsets.only(right: 12),
+                  child: TextField(
+                    controller: _searchController,
+                    decoration: InputDecoration(
+                      hintText: "Search...",
+                      prefixIcon: const Icon(
+                        Icons.search,
+                        size: 20,
+                        color: Colors.grey,
+                      ),
+                      filled: true,
+                      fillColor: Colors.grey[100],
+                      contentPadding: const EdgeInsets.symmetric(vertical: 0),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        borderSide: BorderSide.none,
+                      ),
+                    ),
+                  ),
+                )
+              else
+                IconButton(
+                  icon: const Icon(Icons.search),
+                  onPressed: () => setState(() => _isSearchActive = true),
+                ),
+
+              const SizedBox(width: 8),
+
+              // Add Job Button
+              ElevatedButton.icon(
+                onPressed: () => _onAddOrEdit(),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF2563EB),
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 12,
+                  ),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+                icon: const Icon(Icons.add, size: 18),
+                label: Text(
+                  isMobile ? 'Add' : 'Add Job',
+                  style: const TextStyle(fontWeight: FontWeight.w700),
+                ),
               ),
-            ),
-            icon: const Icon(Icons.add, size: 18),
-            label: const Text(
-              'Add Job',
-              style: TextStyle(fontWeight: FontWeight.w700),
-            ),
+            ],
           ),
         ],
       ),
