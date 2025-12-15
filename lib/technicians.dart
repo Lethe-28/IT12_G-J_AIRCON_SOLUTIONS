@@ -650,161 +650,175 @@ class _TechnicianDialogState extends State<_TechnicianDialog> {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      constraints: BoxConstraints(
-        maxHeight: MediaQuery.of(context).size.height * 0.9,
-      ),
-      decoration: const BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      child: Column(
-        children: [
-          // Header
-          Container(
-            padding: const EdgeInsets.all(20),
-            decoration: const BoxDecoration(
-              border: Border(bottom: BorderSide(color: Color(0xFFE2E8F0))),
-            ),
-            child: Row(
-              children: [
-                const Icon(Icons.engineering, color: Colors.orange),
-                const SizedBox(width: 12),
-                Text(
-                  widget.technician == null
-                      ? 'Add Technician'
-                      : 'Edit Technician',
-                  style: const TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-                const Spacer(),
-                IconButton(
-                  onPressed: () => Navigator.pop(context),
-                  icon: const Icon(Icons.close),
-                ),
-              ],
-            ),
-          ),
+    final isMobile = MediaQuery.of(context).size.width < 600;
+    // 1. GET KEYBOARD HEIGHT
+    final bottomPadding = MediaQuery.of(context).viewInsets.bottom;
 
-          // Form
-          Expanded(
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.all(24),
-              child: Form(
-                key: _formKey,
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text(
-                      'Basic Information',
-                      style: TextStyle(
-                        fontWeight: FontWeight.bold,
-                        fontSize: 16,
-                      ),
+    return Padding(
+      // 2. APPLY PADDING TO PUSH UP
+      padding: EdgeInsets.only(bottom: bottomPadding),
+      child: Container(
+        constraints: BoxConstraints(
+          // Limit height to 90%
+          maxHeight: MediaQuery.of(context).size.height * 0.9,
+        ),
+        decoration: const BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min, // Shrink to fit
+          children: [
+            // --- HEADER ---
+            Container(
+              padding: EdgeInsets.all(isMobile ? 16 : 20),
+              decoration: const BoxDecoration(
+                border: Border(bottom: BorderSide(color: Color(0xFFE2E8F0))),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.engineering, color: Colors.orange),
+                  const SizedBox(width: 12),
+                  Text(
+                    widget.technician == null
+                        ? 'Add Technician'
+                        : 'Edit Technician',
+                    style: const TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
                     ),
-                    const SizedBox(height: 16),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: TextFormField(
-                            controller: _firstCtrl,
-                            decoration: _inputDeco(
-                              'First Name',
-                              Icons.person_outline,
-                              isRequired: true,
+                  ),
+                  const Spacer(),
+                  IconButton(
+                    onPressed: () => Navigator.pop(context),
+                    icon: const Icon(Icons.close),
+                  ),
+                ],
+              ),
+            ),
+
+            // --- SCROLLABLE FORM ---
+            Expanded(
+              child: SingleChildScrollView(
+                padding: EdgeInsets.all(isMobile ? 16 : 24),
+                child: Form(
+                  key: _formKey,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'Basic Information',
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 16,
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+
+                      // Row for First / Middle
+                      Row(
+                        children: [
+                          Expanded(
+                            child: TextFormField(
+                              controller: _firstCtrl,
+                              decoration: _inputDeco(
+                                'First Name',
+                                Icons.person_outline,
+                                isRequired: true,
+                              ),
+                              validator: (v) => v == null || v.trim().isEmpty
+                                  ? 'Required'
+                                  : null,
                             ),
-                            validator: (v) => v == null || v.trim().isEmpty
-                                ? 'Required'
-                                : null,
                           ),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: TextFormField(
-                            controller: _middleCtrl,
-                            decoration: _inputDeco('Middle', null),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: TextFormField(
+                              controller: _middleCtrl,
+                              decoration: _inputDeco('Middle', null),
+                            ),
                           ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 12),
-                    TextFormField(
-                      controller: _lastCtrl,
-                      decoration: _inputDeco(
-                        'Last Name',
-                        null,
-                        isRequired: true,
+                        ],
                       ),
-                      validator: (v) =>
-                          v == null || v.trim().isEmpty ? 'Required' : null,
-                    ),
-                    const SizedBox(height: 12),
-                    TextFormField(
-                      controller: _contactCtrl,
-                      decoration: _inputDeco(
-                        'Contact Number',
-                        Icons.phone,
-                        isRequired: true,
-                      ),
-                      keyboardType: TextInputType.phone,
-                      // FIX: Strict formatters (Digits, space, dash, plus only)
-                      inputFormatters: [
-                        FilteringTextInputFormatter.allow(RegExp(r'[0-9+ \-]')),
-                      ],
-                      // FIX: Strict length validation
-                      validator: (v) {
-                        if (v == null || v.trim().isEmpty) return 'Required';
-                        final digits = v.replaceAll(RegExp(r'\D'), '');
-                        if (digits.length < 7)
-                          return 'Too short (min 7 digits)';
-                        if (digits.length > 13) return 'Too long';
-                        return null;
-                      },
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
+                      const SizedBox(height: 12),
 
-          // Footer Action
-          Container(
-            padding: const EdgeInsets.all(24),
-            decoration: const BoxDecoration(
-              border: Border(top: BorderSide(color: Color(0xFFE2E8F0))),
-            ),
-            child: SizedBox(
-              width: double.infinity,
-              child: ElevatedButton(
-                onPressed: _isSubmitting ? null : _submit,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.orange,
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(vertical: 16),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
+                      TextFormField(
+                        controller: _lastCtrl,
+                        decoration: _inputDeco(
+                          'Last Name',
+                          null,
+                          isRequired: true,
+                        ),
+                        validator: (v) =>
+                            v == null || v.trim().isEmpty ? 'Required' : null,
+                      ),
+                      const SizedBox(height: 12),
+
+                      TextFormField(
+                        controller: _contactCtrl,
+                        decoration: _inputDeco(
+                          'Contact Number',
+                          Icons.phone,
+                          isRequired: true,
+                        ),
+                        keyboardType: TextInputType.phone,
+                        inputFormatters: [
+                          FilteringTextInputFormatter.allow(
+                            RegExp(r'[0-9+ \-]'),
+                          ),
+                        ],
+                        validator: (v) {
+                          if (v == null || v.trim().isEmpty) return 'Required';
+                          final digits = v.replaceAll(RegExp(r'\D'), '');
+                          if (digits.length < 7) return 'Too short';
+                          if (digits.length > 13) return 'Too long';
+                          return null;
+                        },
+                      ),
+                    ],
                   ),
                 ),
-                child: _isSubmitting
-                    ? const SizedBox(
-                        height: 20,
-                        width: 20,
-                        child: CircularProgressIndicator(
-                          color: Colors.white,
-                          strokeWidth: 2,
-                        ),
-                      )
-                    : Text(
-                        widget.technician == null
-                            ? 'Save Technician'
-                            : 'Update Technician',
-                      ),
               ),
             ),
-          ),
-        ],
+
+            // --- FOOTER (Fixed above keyboard) ---
+            Container(
+              padding: EdgeInsets.all(isMobile ? 16 : 24),
+              decoration: const BoxDecoration(
+                color: Colors.white,
+                border: Border(top: BorderSide(color: Color(0xFFE2E8F0))),
+              ),
+              child: SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  onPressed: _isSubmitting ? null : _submit,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.orange,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 16),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                  child: _isSubmitting
+                      ? const SizedBox(
+                          height: 20,
+                          width: 20,
+                          child: CircularProgressIndicator(
+                            color: Colors.white,
+                            strokeWidth: 2,
+                          ),
+                        )
+                      : Text(
+                          widget.technician == null
+                              ? 'Save Technician'
+                              : 'Update Technician',
+                        ),
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
