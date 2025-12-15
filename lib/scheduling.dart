@@ -3,6 +3,8 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'ui_app_shell.dart';
 import 'data/app_state.dart';
 import 'theme/app_theme.dart';
+import 'services/pdf_generator.dart';
+import 'package:printing/printing.dart'; // Make sure you have this for the printing functionality
 import '../services/activity_service.dart';
 import 'shared/widgets.dart'
     show
@@ -960,6 +962,66 @@ class _JobBillingManagerState extends State<_JobBillingManager>
   List<int> _linkedAirconIds = []; // NEW: To store unit IDs for the next job
 
   // inside _JobBillingManagerState
+
+  // --- NEW: AUTO-GENERATE SOA ---
+  Future<void> _generateAutoSOA() async {
+    setState(() => _isLoading = true);
+
+    try {
+      // 1. Prepare Items
+      // We map the billing line items to the SOA Item format
+      final soaItems = _lineItems.map((item) {
+        final name = item['service_items']['item_name'] ?? 'Service';
+        final qty = item['quantity'] ?? 1;
+        final price = item['actual_price'] ?? 0.0;
+        final total = (qty * price).toDouble();
+
+        return SOAItem(
+          clientName: widget.job.clientName,
+          workDescription: "$name ($qty units)",
+          amount: total,
+        );
+      }).toList();
+
+      if (soaItems.isEmpty) {
+        throw "No billing items found. Please add items to the bill first.";
+      }
+
+      // 2. Prepare Data Object
+      final soaData = SOAData(
+        customerName: widget.job.clientName,
+        customerAddress:
+            widget.job.location, // Uses 'address_complete' from DB if available
+        // --- FIX: Use exact Job Order ID (e.g. GJ-DEC1525) ---
+        soaNumber: widget.job.displayId,
+
+        // -----------------------------------------------------
+        soaDate: DateTime.now(),
+        items: soaItems,
+      );
+
+      // 3. Generate PDF Bytes
+      final pdfBytes = await PDFGeneratorService.generateSOA(soaData);
+
+      // 4. Show Preview / Print
+      // The filename can still have "SOA_" to make the file easy to find
+      await Printing.layoutPdf(
+        onLayout: (format) async => pdfBytes,
+        name: 'SOA_${widget.job.displayId}.pdf',
+      );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text("Error generating SOA: $e"),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
 
   Future<void> _showFollowUpDialog() async {
     int monthsToAdd = 3; // Default recommendation
@@ -2363,6 +2425,16 @@ class _JobBillingManagerState extends State<_JobBillingManager>
                 color: Colors.orange,
                 onTap: _onReschedule,
               ),
+              // --- NEW BUTTON: GENERATE SOA ---
+              // Only show if Corporate (Commercial)
+              if (widget.job.isCorporate)
+                _ActionButton(
+                  icon: Icons.receipt_long, // Appropriate icon
+                  label: "Generate SOA",
+                  color: Colors.indigo, // Distinct color
+                  onTap: _generateAutoSOA,
+                ),
+              // --------------------------------
               _ActionButton(
                 icon: Icons.update,
                 label: "Extend Job",
