@@ -649,23 +649,29 @@ class _ReportsScreenState extends State<ReportsScreen> {
           children: [
             const Text('Job Value by Period (Highest to Lowest):', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
             const SizedBox(height: 12),
-            SizedBox(
-              height: 200,
-              child: ListView.builder(
-                itemCount: periodDetails.length,
-                itemBuilder: (ctx, idx) {
-                  final detail = periodDetails[idx];
-                  return Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 4),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Text('${detail.period}:', style: const TextStyle(fontSize: 13)),
-                        Text('₱${detail.value.toStringAsFixed(2)} (${detail.count} jobs)', style: const TextStyle(fontSize: 13, color: Colors.blue, fontWeight: FontWeight.w600)),
-                      ],
-                    ),
-                  );
-                },
+            ConstrainedBox(
+              constraints: const BoxConstraints(maxHeight: 250),
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: List.generate(
+                    periodDetails.length,
+                    (idx) {
+                      final detail = periodDetails[idx];
+                      return Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 6),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Flexible(child: Text('${detail.period}:', style: const TextStyle(fontSize: 13))),
+                            const SizedBox(width: 8),
+                            Flexible(child: Text('₱${detail.value.toStringAsFixed(2)} (${detail.count} jobs)', style: const TextStyle(fontSize: 13, color: Colors.blue, fontWeight: FontWeight.w600), textAlign: TextAlign.end)),
+                          ],
+                        ),
+                      );
+                    },
+                  ),
+                ),
               ),
             ),
           ],
@@ -677,23 +683,29 @@ class _ReportsScreenState extends State<ReportsScreen> {
           children: [
             const Text('Completion Rate by Period (Highest to Lowest):', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
             const SizedBox(height: 12),
-            SizedBox(
-              height: 200,
-              child: ListView.builder(
-                itemCount: periodDetails.length,
-                itemBuilder: (ctx, idx) {
-                  final detail = periodDetails[idx];
-                  return Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 4),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Text('${detail.period}:', style: const TextStyle(fontSize: 13)),
-                        Text('${detail.value.toStringAsFixed(1)}% (${detail.count} completed)', style: const TextStyle(fontSize: 13, color: Colors.green, fontWeight: FontWeight.w600)),
-                      ],
-                    ),
-                  );
-                },
+            ConstrainedBox(
+              constraints: const BoxConstraints(maxHeight: 250),
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: List.generate(
+                    periodDetails.length,
+                    (idx) {
+                      final detail = periodDetails[idx];
+                      return Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 6),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Flexible(child: Text('${detail.period}:', style: const TextStyle(fontSize: 13))),
+                            const SizedBox(width: 8),
+                            Flexible(child: Text('${detail.value.toStringAsFixed(1)}% (${detail.count} completed)', style: const TextStyle(fontSize: 13, color: Colors.green, fontWeight: FontWeight.w600), textAlign: TextAlign.end)),
+                          ],
+                        ),
+                      );
+                    },
+                  ),
+                ),
               ),
             ),
           ],
@@ -705,44 +717,41 @@ class _ReportsScreenState extends State<ReportsScreen> {
           children: [
             const Text('Services Ranking (Highest to Lowest):', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
             const SizedBox(height: 12),
-            SizedBox(
-              height: 200,
-              child: ListView.builder(
-                itemCount: serviceDetails.length,
-                itemBuilder: (ctx, idx) {
-                  final detail = serviceDetails[idx];
-                  return Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 6),
-                    child: Row(
-                      children: [
-                        Text('${idx + 1}.', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Text(detail.name, style: const TextStyle(fontSize: 13)),
+            ConstrainedBox(
+              constraints: const BoxConstraints(maxHeight: 250),
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: List.generate(
+                    serviceDetails.length,
+                    (idx) {
+                      final detail = serviceDetails[idx];
+                      return Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 6),
+                        child: Row(
+                          children: [
+                            Text('${idx + 1}.', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Text(detail.name, style: const TextStyle(fontSize: 13)),
+                            ),
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                              decoration: BoxDecoration(color: Colors.orange.withOpacity(0.2), borderRadius: BorderRadius.circular(6)),
+                              child: Text('${detail.count}', style: const TextStyle(fontSize: 13, color: Colors.orange, fontWeight: FontWeight.w600)),
+                            ),
+                          ],
                         ),
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                          decoration: BoxDecoration(color: Colors.orange.withOpacity(0.2), borderRadius: BorderRadius.circular(6)),
-                          child: Text('${detail.count}', style: const TextStyle(fontSize: 13, color: Colors.orange, fontWeight: FontWeight.w600)),
-                        ),
-                      ],
-                    ),
-                  );
-                },
+                      );
+                    },
+                  ),
+                ),
               ),
             ),
           ],
         );
       } else if (isBusiestDay && dayDetails != null) {
         final sortedDays = dayDetails.entries.toList()..sort((a, b) => b.value.compareTo(a.value));
-        final dayOrder = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
-        sortedDays.sort((a, b) {
-          int aIdx = dayOrder.indexOf(a.key);
-          int bIdx = dayOrder.indexOf(b.key);
-          if (aIdx < 0) aIdx = 999;
-          if (bIdx < 0) bIdx = 999;
-          return sortedDays.indexOf(a).compareTo(sortedDays.indexOf(b));
-        });
         
         return Column(
           mainAxisSize: MainAxisSize.min,
@@ -750,27 +759,32 @@ class _ReportsScreenState extends State<ReportsScreen> {
           children: [
             const Text('Jobs by Day (Highest to Lowest):', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
             const SizedBox(height: 12),
-            SizedBox(
-              height: 200,
-              child: ListView.builder(
-                itemCount: sortedDays.length,
-                itemBuilder: (ctx, idx) {
-                  final day = sortedDays[idx];
-                  return Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 6),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Text(day.key, style: const TextStyle(fontSize: 13)),
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-                          decoration: BoxDecoration(color: Colors.purple.withOpacity(0.2), borderRadius: BorderRadius.circular(6)),
-                          child: Text('${day.value} jobs', style: const TextStyle(fontSize: 13, color: Colors.purple, fontWeight: FontWeight.w600)),
+            ConstrainedBox(
+              constraints: const BoxConstraints(maxHeight: 250),
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: List.generate(
+                    sortedDays.length,
+                    (idx) {
+                      final day = sortedDays[idx];
+                      return Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 6),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Text(day.key, style: const TextStyle(fontSize: 13)),
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                              decoration: BoxDecoration(color: Colors.purple.withOpacity(0.2), borderRadius: BorderRadius.circular(6)),
+                              child: Text('${day.value} jobs', style: const TextStyle(fontSize: 13, color: Colors.purple, fontWeight: FontWeight.w600)),
+                            ),
+                          ],
                         ),
-                      ],
-                    ),
-                  );
-                },
+                      );
+                    },
+                  ),
+                ),
               ),
             ),
           ],
