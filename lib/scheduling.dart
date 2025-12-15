@@ -843,7 +843,8 @@ class _SchedulingScreenState extends State<SchedulingScreen> {
 
             final jobs = _getJobsForDay(currentDay);
             final hasJobs = jobs.isNotEmpty;
-            // [cite: 129] Logic to change color if ALL jobs are completed
+
+            // Dot Color: Green if all done/cancelled, Orange if pending
             final isResolved =
                 hasJobs &&
                 jobs.every(
@@ -851,7 +852,15 @@ class _SchedulingScreenState extends State<SchedulingScreen> {
                 );
 
             return GestureDetector(
-              onTap: () => setState(() => _selectedDate = currentDay),
+              onTap: () {
+                // 1. Select the date visually
+                setState(() => _selectedDate = currentDay);
+
+                // 2. NEW: Auto-Open "Add Job" dialog if day is empty
+                if (!hasJobs) {
+                  _onAddOrEdit();
+                }
+              },
               child: AnimatedContainer(
                 duration: const Duration(milliseconds: 200),
                 margin: const EdgeInsets.all(4),
@@ -878,7 +887,6 @@ class _SchedulingScreenState extends State<SchedulingScreen> {
                     ),
                     if (hasJobs) ...[
                       const SizedBox(height: 4),
-                      // Dot Color: Green if all done, Orange if pending
                       Container(
                         width: 6,
                         height: 6,
