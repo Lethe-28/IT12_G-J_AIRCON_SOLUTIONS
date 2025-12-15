@@ -3049,11 +3049,78 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
         _scheduleTime.minute,
       );
 
+      // --- NEW ID GENERATION LOGIC ---
       String finalJoNumber = _externalRefController.text.trim();
+
       if (finalJoNumber.isEmpty) {
-        finalJoNumber =
-            'JO-${DateTime.now().millisecondsSinceEpoch.toString().substring(8)}';
+        // 1. Generate Base Date String: MMMddyy (e.g., DEC0125)
+        const months = [
+          'JAN',
+          'FEB',
+          'MAR',
+          'APR',
+          'MAY',
+          'JUN',
+          'JUL',
+          'AUG',
+          'SEP',
+          'OCT',
+          'NOV',
+          'DEC',
+        ];
+        final monthStr = months[_scheduleDate.month - 1];
+        final dayStr = _scheduleDate.day.toString().padLeft(2, '0');
+        final yearStr = _scheduleDate.year.toString().substring(
+          2,
+        ); // Get last 2 digits
+
+        String basePattern = "$monthStr$dayStr$yearStr";
+
+        // 2. Add Prefix based on Customer Type
+        // "Residential" gets "GJ-", "Commercial" gets nothing.
+        if (_customerType == 'Residential') {
+          basePattern = "GJ-$basePattern";
+        }
+
+        // 3. Check Database for Duplicates (Sequence A, B, C...)
+        // We look for any existing JO that starts with this pattern
+        final existingJos = await _supabase
+            .from('job_orders')
+            .select('client_jo_number')
+            .ilike('client_jo_number', '$basePattern%'); // Query: "GJ-DEC0125%"
+
+        final existingList = List<String>.from(
+          existingJos.map((e) => e['client_jo_number'] as String),
+        );
+
+        if (!existingList.contains(basePattern)) {
+          // Case 1: First one (e.g. GJ-DEC0125)
+          finalJoNumber = basePattern;
+        } else {
+          // Case 2: Duplicate exists, find next letter (e.g. GJ-DEC0125A)
+          String suffix = "A";
+          bool found = false;
+
+          // Loop A-Z to find a free spot
+          for (int i = 0; i < 26; i++) {
+            String candidate = "$basePattern$suffix";
+            if (!existingList.contains(candidate)) {
+              finalJoNumber = candidate;
+              found = true;
+              break;
+            }
+            // Increment char (A -> B -> C)
+            int nextCode = suffix.codeUnitAt(0) + 1;
+            suffix = String.fromCharCode(nextCode);
+          }
+
+          // Fallback if we somehow run out of letters (rare)
+          if (!found) {
+            finalJoNumber = "$basePattern-${DateTime.now().millisecond}";
+          }
+        }
       }
+      // -------------------------------
 
       final jobData = {
         'customer_id': finalCustomerId,
