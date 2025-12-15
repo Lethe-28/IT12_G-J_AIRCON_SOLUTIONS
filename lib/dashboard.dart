@@ -121,6 +121,22 @@ class _DashboardScreenState extends State<DashboardScreen> {
                         ),
                       ),
                     ),
+                    if (_dashboardProvider.notificationItems.isNotEmpty) ...[
+                      const SizedBox(width: 8),
+                      TextButton.icon(
+                        onPressed: () {
+                          setState(() {
+                            _dashboardProvider.clearAllNotifications();
+                          });
+                        },
+                        icon: const Icon(Icons.clear_all, size: 16),
+                        label: const Text('Clear All', style: TextStyle(fontSize: 12)),
+                        style: TextButton.styleFrom(
+                          foregroundColor: Colors.red,
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                        ),
+                      ),
+                    ],
                     const SizedBox(width: 8),
                     IconButton(
                       onPressed: () => Navigator.pop(context),
@@ -179,50 +195,76 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   Widget _notificationItem(AttentionItem item) {
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: () {
-          Navigator.pop(context); // Close the notification panel
+    return Dismissible(
+      key: Key('notification_${item.reference}_${item.relatedId}'),
+      direction: DismissDirection.endToStart,
+      background: Container(
+        margin: const EdgeInsets.symmetric(vertical: 4),
+        padding: const EdgeInsets.only(right: 20),
+        alignment: Alignment.centerRight,
+        decoration: BoxDecoration(
+          color: Colors.red,
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: const Icon(Icons.delete_outline, color: Colors.white, size: 24),
+      ),
+      onDismissed: (direction) {
+        setState(() {
+          _dashboardProvider.clearNotification(item);
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: const Text('Notification cleared'),
+            duration: const Duration(seconds: 2),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      },
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: () {
+            Navigator.pop(context); // Close the notification panel
 
-          switch (item.type) {
-            case AttentionType.payment:
-              Navigator.of(context).pushReplacementNamed('/payments');
-              break;
-            case AttentionType.expense:
-              Navigator.of(context).pushReplacementNamed('/expenses');
-              break;
-            case AttentionType.scheduling:
-              final searchText =
-                  item.searchContext ?? item.relatedId.toString();
-              // NEW LOGIC: Pass the Job ID to the Scheduling Screen
-              if (item.relatedId != null) {
-                Navigator.of(context).pushReplacement(
-                  MaterialPageRoute(
-                    builder: (context) =>
-                        SchedulingScreen(initialSearch: searchText),
-                  ),
-                );
-              } else {
-                Navigator.of(context).pushReplacementNamed('/scheduling');
-              }
-              break;
-            case AttentionType.document:
-              Navigator.of(context).pushReplacementNamed('/documents');
-              break;
-          }
-        },
-        borderRadius: BorderRadius.circular(12),
-        child: Container(
-          padding: const EdgeInsets.all(16),
+            switch (item.type) {
+              case AttentionType.payment:
+                Navigator.of(context).pushReplacementNamed('/payments');
+                break;
+              case AttentionType.expense:
+                Navigator.of(context).pushReplacementNamed('/expenses');
+                break;
+              case AttentionType.scheduling:
+                final searchText =
+                    item.searchContext ?? item.relatedId.toString();
+                // NEW LOGIC: Pass the Job ID to the Scheduling Screen
+                if (item.relatedId != null) {
+                  Navigator.of(context).pushReplacement(
+                    MaterialPageRoute(
+                      builder: (context) =>
+                          SchedulingScreen(initialSearch: searchText),
+                    ),
+                  );
+                } else {
+                  Navigator.of(context).pushReplacementNamed('/scheduling');
+                }
+                break;
+              case AttentionType.document:
+                Navigator.of(context).pushReplacementNamed('/documents');
+                break;
+            }
+          },
+          borderRadius: BorderRadius.circular(12),
+          child: Container(
+            padding: const EdgeInsets.all(16),
           decoration: BoxDecoration(
             color: item.color.withOpacity(0.05),
             borderRadius: BorderRadius.circular(12),
             border: Border.all(color: item.color.withOpacity(0.2)),
           ),
-          child: Row(
-            children: [
-              Container(
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Container(
                 padding: const EdgeInsets.all(10),
                 decoration: BoxDecoration(
                   color: item.color.withOpacity(0.1),
@@ -235,48 +277,111 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   color: item.color,
                   size: 24,
                 ),
-              ),
-              const SizedBox(width: 16),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      item.title,
-                      style: const TextStyle(
-                        fontWeight: FontWeight.w600,
-                        fontSize: 14,
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      item.reference,
-                      style: const TextStyle(
-                        fontSize: 12,
-                        color: Colors.black54,
-                      ),
-                    ),
-                  ],
                 ),
-              ),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                decoration: BoxDecoration(
-                  color: item.color.withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(6),
-                ),
-                child: Text(
-                  item.priority,
-                  style: TextStyle(
-                    fontSize: 10,
-                    color: item.color,
-                    fontWeight: FontWeight.w700,
+                const SizedBox(width: 16),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        item.title,
+                        style: const TextStyle(
+                          fontWeight: FontWeight.w600,
+                          fontSize: 14,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        item.reference,
+                        style: const TextStyle(
+                          fontSize: 12,
+                          color: Colors.black87,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                      if (item.customerName != null) ...[
+                        const SizedBox(height: 6),
+                        Row(
+                          children: [
+                            const Icon(Icons.person_outline, size: 14, color: Colors.black54),
+                            const SizedBox(width: 4),
+                            Expanded(
+                              child: Text(
+                                item.customerName!,
+                                style: const TextStyle(
+                                  fontSize: 11,
+                                  color: Colors.black54,
+                                ),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                      if (item.serviceType != null) ...[
+                        const SizedBox(height: 4),
+                        Row(
+                          children: [
+                            const Icon(Icons.build_outlined, size: 14, color: Colors.black54),
+                            const SizedBox(width: 4),
+                            Expanded(
+                              child: Text(
+                                item.serviceType!,
+                                style: const TextStyle(
+                                  fontSize: 11,
+                                  color: Colors.black54,
+                                ),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                      if (item.date != null) ...[
+                        const SizedBox(height: 4),
+                        Row(
+                          children: [
+                            const Icon(Icons.calendar_today_outlined, size: 14, color: Colors.black54),
+                            const SizedBox(width: 4),
+                            Text(
+                              item.date!,
+                              style: const TextStyle(
+                                fontSize: 11,
+                                color: Colors.black54,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ],
                   ),
                 ),
-              ),
-              const SizedBox(width: 8),
-              Icon(Icons.chevron_right, size: 20, color: Colors.black26),
-            ],
+                const SizedBox(width: 8),
+                Column(
+                  children: [
+                    Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: item.color.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: Text(
+                      item.priority,
+                      style: TextStyle(
+                        fontSize: 10,
+                        color: item.color,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    ),
+                    const SizedBox(height: 4),
+                    Icon(Icons.chevron_right, size: 20, color: Colors.black26),
+                  ],
+                ),
+              ],
+            ),
           ),
         ),
       ),
@@ -524,43 +629,48 @@ class _DashboardScreenState extends State<DashboardScreen> {
           onTap: () => Navigator.of(context).pushReplacementNamed('/expenses'),
         );
 
-        // MOBILE: Horizontal Scroll (Carousel)
-        // This prevents overflow by giving cards infinite horizontal space
+        // MOBILE: Stacked Rectangle Bars
         if (isMobileView) {
-          return SizedBox(
-            height: 170, // Increased height to prevent overflow
-            // We use a negative margin on the parent to allow cards to touch the screen edge
-            // while keeping the main padding for the rest of the content.
-            child: ListView(
-              scrollDirection: Axis.horizontal,
-              // Add padding inside the list view so the first card aligns with text
-              padding: const EdgeInsets.only(bottom: 4),
-              children: [
-                SizedBox(
-                  width: 160,
-                  child: AnimatedCard(
-                    delay: const Duration(milliseconds: 200),
-                    child: pendingCard,
+          return Column(
+            children: [
+              AnimatedCard(
+                delay: const Duration(milliseconds: 200),
+                child: _OverviewBarCard(
+                  title: 'Pending Jobs',
+                  value: _dashboardProvider.pendingJobsCount.toString(),
+                  icon: Icons.pending_actions,
+                  color: Colors.orange,
+                  onTap: () => Navigator.of(context).pushReplacement(
+                    MaterialPageRoute(
+                      builder: (context) =>
+                          const SchedulingScreen(showPendingActions: true),
+                    ),
                   ),
                 ),
-                const SizedBox(width: 12),
-                SizedBox(
-                  width: 160,
-                  child: AnimatedCard(
-                    delay: const Duration(milliseconds: 250),
-                    child: paymentsCard,
-                  ),
+              ),
+              const SizedBox(height: 12),
+              AnimatedCard(
+                delay: const Duration(milliseconds: 250),
+                child: _OverviewBarCard(
+                  title: 'Revenue',
+                  value: '₱${_dashboardProvider.totalRevenue.toStringAsFixed(0)}',
+                  icon: Icons.payments,
+                  color: Colors.green,
+                  onTap: () => Navigator.of(context).pushReplacementNamed('/expenses'),
                 ),
-                const SizedBox(width: 12),
-                SizedBox(
-                  width: 160,
-                  child: AnimatedCard(
-                    delay: const Duration(milliseconds: 300),
-                    child: expensesCard,
-                  ),
+              ),
+              const SizedBox(height: 12),
+              AnimatedCard(
+                delay: const Duration(milliseconds: 300),
+                child: _OverviewBarCard(
+                  title: 'Expenses',
+                  value: '₱${_dashboardProvider.totalExpenses.toStringAsFixed(0)}',
+                  icon: Icons.money_off,
+                  color: Colors.red,
+                  onTap: () => Navigator.of(context).pushReplacementNamed('/expenses'),
                 ),
-              ],
-            ),
+              ),
+            ],
           );
         }
 
@@ -965,6 +1075,81 @@ class _OverviewCard extends StatelessWidget {
                   fontWeight: FontWeight.w600,
                 ),
                 overflow: TextOverflow.ellipsis,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _OverviewBarCard extends StatelessWidget {
+  final String title;
+  final String value;
+  final IconData icon;
+  final Color color;
+  final VoidCallback onTap;
+
+  const _OverviewBarCard({
+    required this.title,
+    required this.value,
+    required this.icon,
+    required this.color,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: AppTheme.borderRadius,
+        child: Container(
+          padding: const EdgeInsets.all(16),
+          decoration: AppTheme.cardDecoration,
+          child: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: color.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Icon(icon, color: color, size: 28),
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      value,
+                      style: const TextStyle(
+                        fontSize: 24,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.black87,
+                      ),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      title,
+                      style: const TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.black54,
+                      ),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ],
+                ),
+              ),
+              Icon(
+                Icons.chevron_right,
+                color: AppTheme.textSecondary.withOpacity(0.5),
+                size: 20,
               ),
             ],
           ),

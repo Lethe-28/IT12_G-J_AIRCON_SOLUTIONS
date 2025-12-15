@@ -312,13 +312,20 @@ class DashboardProvider extends ChangeNotifier {
       // B. Overdue Jobs
       final overdueJobs = await supabase
           .from('job_orders')
-          .select('id, client_jo_number, date_scheduled')
+          .select('id, client_jo_number, date_scheduled, customers(company_name, first_name, last_name), job_types(job_type_name)')
           .neq('status', 'Completed')
           .neq('status', 'Cancelled')
           .lt('date_scheduled', now.toUtc().toIso8601String())
           .order('date_scheduled', ascending: true);
 
       for (var job in overdueJobs) {
+        final customer = job['customers'];
+        final customerName = customer?['company_name'] ?? 
+            '${customer?['first_name'] ?? ''} ${customer?['last_name'] ?? ''}'.trim();
+        final serviceType = job['job_types']?['job_type_name'] ?? 'N/A';
+        final dateScheduled = DateTime.parse(job['date_scheduled']).toLocal();
+        final dateStr = '${dateScheduled.month}/${dateScheduled.day}/${dateScheduled.year}';
+        
         _notificationItems.add(
           AttentionItem(
             title: 'Job order overdue',
@@ -328,6 +335,9 @@ class DashboardProvider extends ChangeNotifier {
             type: AttentionType.scheduling,
             relatedId: job['id'],
             searchContext: job['client_jo_number'],
+            customerName: customerName,
+            serviceType: serviceType,
+            date: dateStr,
           ),
         );
       }
@@ -336,7 +346,7 @@ class DashboardProvider extends ChangeNotifier {
       final upcomingJobs = await supabase
           .from('job_orders')
           .select(
-            'id, client_jo_number, date_scheduled, job_order_technicians(count), job_order_aircons(count)',
+            'id, client_jo_number, date_scheduled, job_order_technicians(count), job_order_aircons(count), customers(company_name, first_name, last_name), job_types(job_type_name)',
           )
           .neq('status', 'Completed')
           .neq('status', 'Cancelled')
@@ -349,18 +359,24 @@ class DashboardProvider extends ChangeNotifier {
 
         if (techCount == 0 || unitCount == 0) {
           final date = DateTime.parse(job['date_scheduled']).toLocal();
-          final dateStr =
-              "${date.month}/${date.day} ${date.hour}:${date.minute.toString().padLeft(2, '0')}";
+          final dateStr = "${date.month}/${date.day}/${date.year}";
+          final customer = job['customers'];
+          final customerName = customer?['company_name'] ?? 
+              '${customer?['first_name'] ?? ''} ${customer?['last_name'] ?? ''}'.trim();
+          final serviceType = job['job_types']?['job_type_name'] ?? 'N/A';
 
           _notificationItems.add(
             AttentionItem(
               title: 'Upcoming Job Incomplete',
-              reference: '${job['client_jo_number']} ($dateStr)',
+              reference: job['client_jo_number'],
               priority: 'Medium',
               color: Colors.amber.shade700,
               type: AttentionType.scheduling,
               relatedId: job['id'],
               searchContext: job['client_jo_number'],
+              customerName: customerName,
+              serviceType: serviceType,
+              date: dateStr,
             ),
           );
         }
@@ -462,6 +478,18 @@ class DashboardProvider extends ChangeNotifier {
     _pendingDocsCount = count;
     notifyListeners();
   }
+
+  /// Clear a single notification
+  void clearNotification(AttentionItem item) {
+    _notificationItems.remove(item);
+    notifyListeners();
+  }
+
+  /// Clear all notifications
+  void clearAllNotifications() {
+    _notificationItems.clear();
+    notifyListeners();
+  }
 }
 
 // Data models
@@ -493,6 +521,9 @@ class AttentionItem {
   final AttentionType type;
   final int? relatedId;
   final String? searchContext; // Added searchContext for passing JO#
+  final String? customerName;
+  final String? serviceType;
+  final String? date;
 
   AttentionItem({
     required this.title,
@@ -502,5 +533,8 @@ class AttentionItem {
     required this.type,
     this.relatedId,
     this.searchContext,
+    this.customerName,
+    this.serviceType,
+    this.date,
   });
 }
