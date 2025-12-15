@@ -97,7 +97,8 @@ class _SchedulingScreenState extends State<SchedulingScreen> {
               // 1. Wrap all the "OR" flags in parentheses
               (o.isUnbilled || o.isUnpaid || o.hasNoTechs || o.hasNoUnits) &&
               // 2. The AND now applies to the entire group above
-              o.status != 'Cancelled',
+              o.status != 'Cancelled' &&
+              o.status != 'Completed',
         )
         .toList();
 
