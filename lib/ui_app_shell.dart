@@ -7,12 +7,14 @@ class AppShell extends StatefulWidget {
 
   // NEW: Allow pages to pass a FAB to the main shell
   final Widget? floatingActionButton;
+  final List<Widget>? actions;
 
   const AppShell({
     super.key,
     required this.selectedIndex,
     required this.body,
-    this.floatingActionButton, // Initialize it
+    this.floatingActionButton,
+    this.actions,
   });
 
   @override
@@ -74,6 +76,7 @@ class _AppShellState extends State<AppShell> {
               backgroundColor: Colors.white,
               elevation: 1,
               title: _MobileAppBarTitle(selectedIndex: widget.selectedIndex),
+              actions: widget.actions,
               iconTheme: const IconThemeData(color: Colors.black87),
               leading: IconButton(
                 icon: const Icon(Icons.menu),

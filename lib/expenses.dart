@@ -11,9 +11,9 @@ class Transaction {
   final String description;
   final double amount;
   final String type; // 'IN' or 'OUT'
-  final String
-  category; // 'Operational', 'Personal', 'Job Revenue', 'General Income'
+  final String category; // 'Operational', 'Personal', 'Job Revenue', 'General Income'
   final String? relatedJob;
+  final int? sourceJobId; // For editing
 
   Transaction({
     required this.id,
@@ -23,6 +23,7 @@ class Transaction {
     required this.type,
     required this.category,
     this.relatedJob,
+    this.sourceJobId,
   });
 }
 
@@ -32,6 +33,8 @@ class ExpensesScreen extends StatefulWidget {
   @override
   State<ExpensesScreen> createState() => _ExpensesScreenState();
 }
+
+enum _ExpenseRange { today, weekly, monthly, last6Months, yearly }
 
 class _ExpensesScreenState extends State<ExpensesScreen> {
   bool _isLoading = true;
@@ -43,6 +46,7 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
 
   // FILTER STATE
   String _selectedFilter = 'All'; // All, Operational, Personal, Revenue/In
+  _ExpenseRange _selectedRange = _ExpenseRange.monthly;
 
   double _totalIn = 0;
   double _totalOut = 0;
@@ -82,6 +86,7 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
         // 2. Category Filter
         if (_selectedFilter == 'All') return true;
         if (_selectedFilter == 'Revenue / In') return txn.type == 'IN';
+        if (_selectedFilter == 'Expenses / Out') return txn.type == 'OUT'; // Added Filter
         if (_selectedFilter == 'Operational')
           return txn.category == 'Operational';
         if (_selectedFilter == 'Personal') return txn.category == 'Personal';
@@ -97,22 +102,20 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
     });
   }
 
+  void _onRangeChanged(_ExpenseRange range) {
+    setState(() {
+      _selectedRange = range;
+    });
+    _fetchCashFlow();
+  }
+
   Future<void> _fetchCashFlow() async {
     setState(() => _isLoading = true);
     try {
-      final startOfMonth = DateTime(
-        _selectedMonth.year,
-        _selectedMonth.month,
-        1,
-      );
-      final nextMonth = DateTime(
-        _selectedMonth.year,
-        _selectedMonth.month + 1,
-        1,
-      );
+      final range = _computeRange();
 
-      final startStr = startOfMonth.toIso8601String();
-      final endStr = nextMonth.toIso8601String();
+      final startStr = range.start.toIso8601String();
+      final endStr = range.end.toIso8601String();
 
       // 1. FETCH PAYMENTS (Job Revenue - ALWAYS IN)
       final paymentsRes = await _supabase
@@ -129,7 +132,7 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
       final expensesRes = await _supabase
           .from('expenses')
           .select(
-            'id, amount, date, expense_name, expense_type, is_income, job_orders(client_jo_number)',
+            'id, amount, date, expense_name, expense_type, is_income, job_order_id, job_orders(client_jo_number)',
           )
           .gte('date', startStr)
           .lt('date', endStr);
@@ -198,6 +201,7 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
                 e['expense_type'] ??
                 (isIncome ? 'General Income' : 'Operational'),
             relatedJob: joNum,
+            sourceJobId: e['job_order_id'],
           ),
         );
       }
@@ -249,6 +253,30 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
       );
     });
     _fetchCashFlow();
+  }
+
+  DateTimeRange _computeRange() {
+    final now = DateTime.now();
+    switch (_selectedRange) {
+      case _ExpenseRange.today:
+        final start = DateTime(now.year, now.month, now.day);
+        return DateTimeRange(start: start, end: start.add(const Duration(days: 1)));
+      case _ExpenseRange.weekly:
+        final monday = DateTime(now.year, now.month, now.day).subtract(Duration(days: now.weekday - 1));
+        return DateTimeRange(start: monday, end: monday.add(const Duration(days: 7)));
+      case _ExpenseRange.monthly:
+        final start = DateTime(_selectedMonth.year, _selectedMonth.month, 1);
+        final end = DateTime(_selectedMonth.year, _selectedMonth.month + 1, 1);
+        return DateTimeRange(start: start, end: end);
+      case _ExpenseRange.last6Months:
+        final start = DateTime(now.year, now.month - 5, 1);
+        final end = DateTime(now.year, now.month + 1, 1);
+        return DateTimeRange(start: start, end: end);
+      case _ExpenseRange.yearly:
+        final start = DateTime(now.year, 1, 1);
+        final end = DateTime(now.year + 1, 1, 1);
+        return DateTimeRange(start: start, end: end);
+    }
   }
 
   // Pagination Helpers
@@ -369,6 +397,12 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
                             amount: _totalIn,
                             color: Colors.green.shade600,
                             icon: Icons.arrow_downward,
+                            onTap: () {
+                              setState(() {
+                                _selectedFilter = 'Revenue / In';
+                                _onFilterChanged();
+                              });
+                            },
                           ),
                         ),
                         const SizedBox(width: 10),
@@ -379,6 +413,12 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
                             amount: _totalOut,
                             color: Colors.red.shade600,
                             icon: Icons.arrow_upward,
+                            onTap: () {
+                              setState(() {
+                                _selectedFilter = 'Expenses / Out';
+                                _onFilterChanged();
+                              });
+                            },
                           ),
                         ),
                         const SizedBox(width: 10),
@@ -391,6 +431,30 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
                                 ? Colors.blue.shade600
                                 : Colors.orange.shade600,
                             icon: Icons.account_balance_wallet,
+                            onTap: () {
+                              showDialog(
+                                context: context, 
+                                builder: (_) => AlertDialog(
+                                  title: const Text("Net Cash Breakdown"),
+                                  content: Column(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      _buildBreakdownRow("Total Cash In", _totalIn, Colors.green),
+                                      const SizedBox(height: 8),
+                                      _buildBreakdownRow("Total Cash Out", _totalOut, Colors.red),
+                                      const Divider(),
+                                      _buildBreakdownRow("Net Cash", netCash, Colors.blue, isBold: true),
+                                    ],
+                                  ),
+                                  actions: [
+                                    TextButton(
+                                      onPressed: () => Navigator.pop(context),
+                                      child: const Text("Close"),
+                                    )
+                                  ],
+                                )
+                              );
+                            },
                           ),
                         ),
                       ],
@@ -441,6 +505,42 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
                         ),
                       ),
                       const SizedBox(width: 12),
+                      // Range Dropdown
+                      Container(
+                        height: 48,
+                        padding: const EdgeInsets.symmetric(horizontal: 14),
+                        decoration: BoxDecoration(
+                          border: Border.all(color: Colors.grey.shade300),
+                          borderRadius: BorderRadius.circular(12),
+                          color: Colors.white,
+                        ),
+                        child: DropdownButton<_ExpenseRange>(
+                          value: _selectedRange,
+                          underline: const SizedBox.shrink(),
+                          icon: Icon(
+                            Icons.arrow_drop_down,
+                            color: Colors.grey.shade700,
+                          ),
+                          style: const TextStyle(
+                            color: Colors.black87,
+                            fontSize: 14,
+                            fontWeight: FontWeight.w500,
+                          ),
+                          items: const [
+                            DropdownMenuItem(value: _ExpenseRange.today, child: Text('Today')),
+                            DropdownMenuItem(value: _ExpenseRange.weekly, child: Text('Weekly')),
+                            DropdownMenuItem(value: _ExpenseRange.monthly, child: Text('Monthly')),
+                            DropdownMenuItem(value: _ExpenseRange.last6Months, child: Text('Last 6 Months')),
+                            DropdownMenuItem(value: _ExpenseRange.yearly, child: Text('Yearly')),
+                          ],
+                          onChanged: (val) {
+                            if (val != null) {
+                              _onRangeChanged(val);
+                            }
+                          },
+                        ),
+                      ),
+                      const SizedBox(width: 12),
                       // Filter Dropdown
                       Container(
                         height: 48,
@@ -463,7 +563,7 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
                             fontWeight: FontWeight.w500,
                           ),
                           items:
-                              ['All', 'Revenue / In', 'Operational', 'Personal']
+                              ['All', 'Revenue / In', 'Expenses / Out', 'Operational', 'Personal']
                                   .map(
                                     (filter) => DropdownMenuItem(
                                       value: filter,
@@ -497,8 +597,8 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
                         builder: (context, constraints) {
                           // FIX: Scrollable Empty State to prevent overflow on small screens
                           return SingleChildScrollView(
-                            physics: const AlwaysScrollableScrollPhysics(),
-                            child: ConstrainedBox(
+                              physics: const AlwaysScrollableScrollPhysics(),
+                              child: ConstrainedBox(
                               constraints: BoxConstraints(
                                 minHeight: constraints.maxHeight,
                               ),
@@ -518,7 +618,7 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
                         },
                       )
                     : Column(
-                        children: [
+                          children: [
                           // List with Pagination
                           Expanded(
                             child: _getPaginatedItems().isEmpty
@@ -541,9 +641,24 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
                                         const SizedBox(height: 12),
                                     itemBuilder: (ctx, i) {
                                       final txn = _getPaginatedItems()[i];
-                                      return _TransactionCard(txn: txn);
+                                      return InkWell(
+                                        onTap: () async {
+                                          if (!txn.id.startsWith('E-')) {
+                                             ScaffoldMessenger.of(context).showSnackBar(
+                                               const SnackBar(content: Text("Cannot edit job payments here.")),
+                                             );
+                                             return;
+                                          }
+                                          await showDialog(
+                                            context: context,
+                                            builder: (_) => _AddTransactionDialog(transactionToEdit: txn),
+                                          );
+                                          _fetchCashFlow();
+                                        },
+                                        child: _TransactionCard(txn: txn),
+                                      );
                                     },
-                                  ),
+                                    ),
                           ),
                           // Pagination Controls
                           Container(
@@ -674,6 +789,29 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
     ];
     return "${months[date.month - 1]} ${date.year}";
   }
+
+  Widget _buildBreakdownRow(String label, double amount, Color color, {bool isBold = false}) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        Text(
+          label,
+          style: TextStyle(
+            fontWeight: isBold ? FontWeight.bold : FontWeight.normal,
+            fontSize: isBold ? 16 : 14,
+          ),
+        ),
+        Text(
+          "${amount >= 0 ? '+' : ''}₱${amount.toStringAsFixed(2)}",
+          style: TextStyle(
+            color: color,
+            fontWeight: FontWeight.bold,
+            fontSize: isBold ? 16 : 14,
+          ),
+        ),
+      ],
+    );
+  }
 }
 
 // --- WIDGETS ---
@@ -683,18 +821,19 @@ class _SummaryCard extends StatelessWidget {
   final double amount;
   final Color color;
   final IconData icon;
+  final VoidCallback? onTap;
 
   const _SummaryCard({
     required this.label,
     required this.amount,
     required this.color,
     required this.icon,
+    this.onTap,
   });
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
         color: color.withOpacity(0.08),
         borderRadius: BorderRadius.circular(12),
@@ -707,42 +846,52 @@ class _SummaryCard extends StatelessWidget {
           ),
         ],
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Icon(icon, size: 16, color: color),
-              const SizedBox(width: 4),
-              // FIX: Flexible allows text to shrink if needed
-              Expanded(
-                child: Text(
-                  label,
-                  style: TextStyle(
-                    color: color,
-                    fontWeight: FontWeight.bold,
-                    fontSize: 11, // Slightly smaller font
-                  ),
-                  overflow: TextOverflow.ellipsis,
-                  maxLines: 1,
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(12),
+          child: Padding(
+            padding: const EdgeInsets.all(14),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Icon(icon, size: 16, color: color),
+                    const SizedBox(width: 4),
+                    // FIX: Flexible allows text to shrink if needed
+                    Expanded(
+                      child: Text(
+                        label,
+                        style: TextStyle(
+                          color: color,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 11, // Slightly smaller font
+                        ),
+                        overflow: TextOverflow.ellipsis,
+                        maxLines: 1,
+                      ),
+                    ),
+                  ],
                 ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          // FIX: FittedBox forces the amount to scale down instead of overflowing
-          FittedBox(
-            fit: BoxFit.scaleDown,
-            child: Text(
-              "₱${amount.toStringAsFixed(2)}",
-              style: TextStyle(
-                color: color,
-                fontWeight: FontWeight.w800,
-                fontSize: 18,
-              ),
+                const SizedBox(height: 8),
+                // FIX: FittedBox forces the amount to scale down instead of overflowing
+                FittedBox(
+                  fit: BoxFit.scaleDown,
+                  child: Text(
+                    "₱${amount.toStringAsFixed(2)}",
+                    style: TextStyle(
+                      color: color,
+                      fontWeight: FontWeight.w800,
+                      fontSize: 18,
+                    ),
+                  ),
+                ),
+              ],
             ),
           ),
-        ],
+        ),
       ),
     );
   }
@@ -863,7 +1012,7 @@ class _TransactionCard extends StatelessWidget {
 
                       // Amount
                       Text(
-                        "${isIncome ? '+' : '-'}₱${txn.amount.toStringAsFixed(0)}",
+                        "${isIncome ? '+' : '-'}₱${txn.amount.toStringAsFixed(2)}",
                         style: TextStyle(
                           color: color,
                           fontWeight: FontWeight.bold,
@@ -883,9 +1032,9 @@ class _TransactionCard extends StatelessWidget {
 }
 
 // --- ADD TRANSACTION DIALOG (Refactored) ---
-
 class _AddTransactionDialog extends StatefulWidget {
-  const _AddTransactionDialog();
+  final Transaction? transactionToEdit;
+  const _AddTransactionDialog({this.transactionToEdit});
 
   @override
   State<_AddTransactionDialog> createState() => _AddTransactionDialogState();
@@ -908,6 +1057,15 @@ class _AddTransactionDialogState extends State<_AddTransactionDialog> {
   void initState() {
     super.initState();
     _fetchActiveJobs();
+    if (widget.transactionToEdit != null) {
+      final txn = widget.transactionToEdit!;
+      _nameController.text = txn.description;
+      _amountController.text = txn.amount.toStringAsFixed(2);
+      _date = txn.date;
+      _isIncome = txn.type == 'IN';
+      _category = txn.category;
+      _selectedJobId = txn.sourceJobId;
+    }
   }
 
   Future<void> _fetchActiveJobs() async {
@@ -929,34 +1087,61 @@ class _AddTransactionDialogState extends State<_AddTransactionDialog> {
 
   Future<void> _save() async {
     if (!_formKey.currentState!.validate()) return;
-    final amount = double.tryParse(_amountController.text);
-    if (amount == null) return;
+    
+    // FIX: Flexible Input Cleaning (Remove ₱, commas, spaces)
+    String cleanAmount = _amountController.text
+        .replaceAll('₱', '')
+        .replaceAll(',', '')
+        .replaceAll(' ', '')
+        .trim();
+        
+    final amount = double.tryParse(cleanAmount);
+    if (amount == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Invalid amount format"), backgroundColor: Colors.red),
+      );
+      return;
+    }
 
     try {
-      await Supabase.instance.client.from('expenses').insert({
+      final data = {
         'expense_name': _nameController.text.trim(),
         'amount': amount,
-
-        // FIX: Send YYYY-MM-DD string directly to avoid Timezone shift
         'date': _date.toString().split(' ')[0],
-
         'expense_type': _category,
         'is_income': _isIncome,
         'user_id': Supabase.instance.client.auth.currentUser?.id,
         'job_order_id': (_category == 'Operational' && !_isIncome)
             ? _selectedJobId
             : null,
-      });
+      };
 
-      // --- NEW: LOG THE ACTIVITY ---
-      await ActivityLogger.log(
-        // Use 'Payment' for Money In (Green), 'Expense' for Money Out
-        type: _isIncome ? 'Payment' : 'Expense',
-        details: _isIncome
-            ? 'Recorded Cash In: ₱${amount.toStringAsFixed(0)} (${_nameController.text})'
-            : 'Recorded Expense: ₱${amount.toStringAsFixed(0)} for ${_nameController.text}',
-      );
-      // -----------------------------
+      if (widget.transactionToEdit != null) {
+        // UPDATE
+        // Extract ID from "E-123"
+        final rawId = widget.transactionToEdit!.id.split('-')[1];
+        await Supabase.instance.client
+            .from('expenses')
+            .update(data)
+            .eq('id', rawId);
+
+        await ActivityLogger.log(
+          type: _isIncome ? 'Payment' : 'Expense',
+          details: 'Updated Transaction: ₱${amount.toStringAsFixed(2)} (${_nameController.text})',
+        );
+      } else {
+        // INSERT
+        await Supabase.instance.client.from('expenses').insert(data);
+        
+        await ActivityLogger.log(
+          type: _isIncome ? 'Payment' : 'Expense',
+          details: _isIncome
+              ? 'Recorded Cash In: ₱${amount.toStringAsFixed(2)} (${_nameController.text})'
+              : 'Recorded Expense: ₱${amount.toStringAsFixed(2)} for ${_nameController.text}',
+        );
+      }
+
+
 
       if (mounted) Navigator.pop(context);
     } catch (e) {
@@ -970,17 +1155,18 @@ class _AddTransactionDialogState extends State<_AddTransactionDialog> {
   Widget build(BuildContext context) {
     return Dialog(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      child: Container(
-        width: 450,
-        padding: const EdgeInsets.all(24),
-        child: Form(
-          key: _formKey,
-          child: Column(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 450),
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(24),
+          child: Form(
+            key: _formKey,
+            child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                "Add Record",
+                widget.transactionToEdit != null ? "Edit Record" : "Add Record",
                 style: const TextStyle(
                   fontSize: 20,
                   fontWeight: FontWeight.bold,
@@ -1189,13 +1375,16 @@ class _AddTransactionDialogState extends State<_AddTransactionDialog> {
                     backgroundColor: _isIncome ? Colors.green : Colors.red,
                     foregroundColor: Colors.white,
                   ),
-                  child: Text(_isIncome ? "Save Cash In" : "Save Expense"),
+                  child: Text(
+                      widget.transactionToEdit != null ? "Update Record" : (_isIncome ? "Save Cash In" : "Save Expense")
+                  ),
                 ),
               ),
             ],
           ),
         ),
       ),
+    ),
     );
   }
 }

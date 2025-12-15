@@ -24,7 +24,7 @@ class DocumentItem {
   final String type; // 'pdf', 'excel', 'image', 'word'
   final String size;
   final String status; // 'Verified', 'Pending'
-  final String category; // 'Invoice', 'Report', 'Receipt', 'Contract'
+  final String category; // 'Statement of Account', 'Deferment Form', 'Weekly Report'
   final String uploadedBy;
   final DateTime date;
   final List<String> tags;
@@ -62,10 +62,9 @@ class _DocumentsScreenState extends State<DocumentsScreen> {
   
   // Dynamic categories - start with predefined ones
   final List<String> _categories = [
-    'Invoices',
-    'Job Reports',
-    'Receipts',
-    'Contracts',
+    'Statement of Account',
+    'Deferment Form',
+    'Weekly Report',
   ];
 
   @override
@@ -374,7 +373,7 @@ class _DocumentsScreenState extends State<DocumentsScreen> {
         type: 'excel',
         size: '$sizeKB KB',
         status: 'Pending',
-        category: 'Job Reports',
+        category: 'Weekly Report',
         uploadedBy: 'System',
         date: now,
         tags: ['Weekly Report', 'Generated', 'Excel'],
@@ -437,7 +436,7 @@ class _DocumentsScreenState extends State<DocumentsScreen> {
         type: 'pdf',
         size: '$sizeKB KB',
         status: 'Pending',
-        category: 'Job Reports',
+        category: 'Deferment Form',
         uploadedBy: 'System',
         date: now,
         tags: ['Deferment', 'Generated', 'PDF'],
@@ -485,7 +484,7 @@ class _DocumentsScreenState extends State<DocumentsScreen> {
         type: 'pdf',
         size: '$sizeKB KB',
         status: 'Pending',
-        category: 'Invoices',
+        category: 'Statement of Account',
         uploadedBy: 'System',
         date: now,
         tags: ['SOA', 'Generated', 'PDF'],
@@ -604,10 +603,9 @@ class _DocumentsScreenState extends State<DocumentsScreen> {
                                 const SizedBox(width: 8),
                                 ..._categories.map((cat) {
                                   final categoryIcons = {
-                                    'Invoices': Icons.receipt_long,
-                                    'Job Reports': Icons.assessment_outlined,
-                                    'Receipts': Icons.payment,
-                                    'Contracts': Icons.gavel_outlined,
+                                    'Statement of Account': Icons.receipt_long,
+                                    'Deferment Form': Icons.assignment_turned_in,
+                                    'Weekly Report': Icons.assessment_outlined,
                                   };
                                   return Padding(
                                     padding: const EdgeInsets.only(right: 8),
@@ -873,10 +871,9 @@ class _DocumentsScreenState extends State<DocumentsScreen> {
 
   Widget _buildCategorySidebar() {
     final categoryIcons = {
-      'Invoices': Icons.receipt_long,
-      'Job Reports': Icons.assessment_outlined,
-      'Receipts': Icons.payment,
-      'Contracts': Icons.gavel_outlined,
+      'Statement of Account': Icons.receipt_long,
+      'Deferment Form': Icons.assignment_turned_in,
+      'Weekly Report': Icons.assessment_outlined,
     };
     
     final categories = [
@@ -1124,7 +1121,7 @@ class _DocumentsScreenState extends State<DocumentsScreen> {
                       ),
                       const SizedBox(height: 2),
                       Text(
-                        'Create SOA, invoices, reports',
+                        'Create SOA, deferment forms, weekly reports',
                         style: TextStyle(fontSize: 12, color: kTextSecondary.withOpacity(0.8)),
                       ),
                     ],
@@ -1158,7 +1155,7 @@ class _DocumentsScreenState extends State<DocumentsScreen> {
                 const SizedBox(height: 16),
                 const Text('Generate Documents', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600, color: kTextPrimary)),
                 const SizedBox(height: 8),
-                const Text('Create statements, invoices, and reports', style: TextStyle(fontSize: 14, color: kTextSecondary)),
+                const Text('Create statements, deferment forms, and weekly reports', style: TextStyle(fontSize: 14, color: kTextSecondary)),
                 const SizedBox(height: 20),
                 ElevatedButton.icon(
                   onPressed: _showGenerateModal,

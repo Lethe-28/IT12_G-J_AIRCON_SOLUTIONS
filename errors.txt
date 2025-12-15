@@ -1,0 +1,418 @@
+﻿
+  build_log.txt:171:[   +1 ms] 
+LocalFile: 'C:\Users\Jester\Documents\
+Flutter_Projects\it12_cloned_2\IT12_G-
+J_AIRCON_SOLUTIONS\android\settings.gr
+adle.kts' provides AGP version: 8.9.1
+  build_log.txt:172:[  +11 ms] 
+Running Gradle task 
+'assembleRelease'...
+  build_log.txt:173:[   +9 ms] 
+executing: [C:\Users\Jester\Documents\
+Flutter_Projects\it12_cloned_2\IT12_G-
+J_AIRCON_SOLUTIONS\android/] C:\Users\
+Jester\Documents\Flutter_Projects\it12
+_cloned_2\IT12_G-J_AIRCON_SOLUTIONS\an
+droid\gradlew.bat --full-stacktrace 
+--info -Pverbose=true -Ptarget-platfor
+m=android-arm,android-arm64,android-x6
+4 -Ptarget=lib\main.dart -Pbase-applic
+ation-name=android.app.Application -Pd
+art-defines=RkxVVFRFUl9WRVJTSU9OPTMuMz
+guMw==,RkxVVFRFUl9DSEFOTkVMPXN0YWJsZQ=
+=,RkxVVFRFUl9HSVRfVVJMPWh0dHBzOi8vZ2l0
+aHViLmNvbS9mbHV0dGVyL2ZsdXR0ZXIuZ2l0,R
+kxVVFRFUl9GUkFNRVdPUktfUkVWSVNJT049MTk
+wNzRkMTJmNw==,RkxVVFRFUl9FTkdJTkVfUkVW
+SVNJT049MTNlNjU4NzI1ZA==,RkxVVFRFUl9EQ
+VJUX1ZFUlNJT049My4xMC4x 
+-Pdart-obfuscation=false 
+-Ptrack-widget-creation=true 
+-Ptree-shake-icons=true 
+assembleRelease
+  build_log.txt:174:[+1150 ms] 
+Initialized native services in: 
+C:\Users\Jester\.gradle\native
+  build_log.txt:175:[   +1 ms] 
+Initialized jansi services in: 
+C:\Users\Jester\.gradle\native
+> build_log.txt:176:[ +415 ms] Found 
+daemon DaemonInfo{pid=209508, address=
+[a8d9863c-bdd0-4cb2-9c7f-054fcb5e54bf 
+port:58765, addresses:[/127.0.0.1]], 
+state=Idle, lastBusy=1758253038422, co
+ntext=DefaultDaemonContext[uid=e89c74b
+e-379c-4722-a1b6-f3a93761e498,javaHome
+=C:\Program Files\Java\jdk-25,javaVers
+ion=25,javaVendor=Oracle Corporation,d
+aemonRegistryDir=C:\Users\Jester\.grad
+le\daemon,pid=209508,idleTimeout=10800
+000,priority=NORMAL,applyInstrumentati
+onAgent=true,nativeServicesMode=ENABLE
+D,daemonOpts=-XX:MaxMetaspaceSize=4G,-
+XX:ReservedCodeCacheSize=512m,-XX:+Hea
+pDumpOnOutOfMemoryError,-Xmx8G,-Dfile.
+encoding=UTF-8,-Duser.country=PH,-Duse
+r.language=en,-Duser.variant]} 
+however its context does not match 
+the desired criteria.
+  build_log.txt:177:[        ] JVM is 
+incompatible.
+> build_log.txt:178:[        ] 
+Wanted: DaemonRequestContext{jvmCriter
+ia=C:\Program Files\Android\Android 
+Studio\jbr (no JDK specified, using 
+current Java home), 
+daemonOpts=[-XX:MaxMetaspaceSize=4G, 
+-XX:ReservedCodeCacheSize=512m, 
+-XX:+HeapDumpOnOutOfMemoryError, 
+-Xmx8G, -Dfile.encoding=UTF-8, 
+-Duser.country=PH, 
+-Duser.language=en, -Duser.variant], 
+applyInstrumentationAgent=true, 
+nativeServicesMode=ENABLED, 
+priority=NORMAL}
+> build_log.txt:179:[        ] 
+Actual: DefaultDaemonContext[uid=e89c7
+4be-379c-4722-a1b6-f3a93761e498,javaHo
+me=C:\Program Files\Java\jdk-25,javaVe
+rsion=25,javaVendor=Oracle Corporation
+,daemonRegistryDir=C:\Users\Jester\.gr
+adle\daemon,pid=209508,idleTimeout=108
+00000,priority=NORMAL,applyInstrumenta
+tionAgent=true,nativeServicesMode=ENAB
+LED,daemonOpts=-XX:MaxMetaspaceSize=4G
+,-XX:ReservedCodeCacheSize=512m,-XX:+H
+eapDumpOnOutOfMemoryError,-Xmx8G,-Dfil
+e.encoding=UTF-8,-Duser.country=PH,-Du
+ser.language=en,-Duser.variant]
+  build_log.txt:180:[        ]   
+Looking for a different daemon...
+> build_log.txt:181:[   +1 ms] Found 
+daemon DaemonInfo{pid=28580, address=[
+fcb5ac81-ec2d-4b0b-a8e9-df50ec6ffae0 
+port:59699, addresses:[/127.0.0.1]], 
+state=Idle, lastBusy=1760546566122, co
+ntext=DefaultDaemonContext[uid=9640504
+4-01fb-4561-a2e4-38cefc5a1323,javaHome
+=C:\Program Files\Java\jdk-17,javaVers
+ion=17,javaVendor=Oracle Corporation,d
+aemonRegistryDir=C:\Users\Jester\.grad
+le\daemon,pid=28580,idleTimeout=108000
+00,priority=NORMAL,applyInstrumentatio
+nAgent=true,nativeServicesMode=ENABLED
+,daemonOpts=-XX:MaxMetaspaceSize=1G,-X
+X:ReservedCodeCacheSize=256m,-XX:+Heap
+DumpOnOutOfMemoryError,-Xmx2048M,-Dfil
+e.encoding=windows-1252,-Duser.country
+=PH,-Duser.language=en,-Duser.variant]
+} however its context does not match 
+the desired criteria.
+  build_log.txt:182:[        ] JVM is 
+incompatible.
+> build_log.txt:183:[        ] 
+Wanted: DaemonRequestContext{jvmCriter
+ia=C:\Program Files\Android\Android 
+Studio\jbr (no JDK specified, using 
+current Java home), 
+daemonOpts=[-XX:MaxMetaspaceSize=4G, 
+-XX:ReservedCodeCacheSize=512m, 
+-XX:+HeapDumpOnOutOfMemoryError, 
+-Xmx8G, -Dfile.encoding=UTF-8, 
+-Duser.country=PH, 
+-Duser.language=en, -Duser.variant], 
+applyInstrumentationAgent=true, 
+nativeServicesMode=ENABLED, 
+priority=NORMAL}
+> build_log.txt:184:[        ] 
+Actual: DefaultDaemonContext[uid=96405
+044-01fb-4561-a2e4-38cefc5a1323,javaHo
+me=C:\Program Files\Java\jdk-17,javaVe
+rsion=17,javaVendor=Oracle Corporation
+,daemonRegistryDir=C:\Users\Jester\.gr
+adle\daemon,pid=28580,idleTimeout=1080
+0000,priority=NORMAL,applyInstrumentat
+ionAgent=true,nativeServicesMode=ENABL
+ED,daemonOpts=-XX:MaxMetaspaceSize=1G,
+-XX:ReservedCodeCacheSize=256m,-XX:+He
+apDumpOnOutOfMemoryError,-Xmx2048M,-Df
+ile.encoding=windows-1252,-Duser.count
+ry=PH,-Duser.language=en,-Duser.varian
+t]
+  build_log.txt:185:[        ]   
+Looking for a different daemon...
+  build_log.txt:186:[  +87 ms] The 
+client will now receive all logging 
+from the daemon (pid: 4928). The 
+daemon log file: C:\Users\Jester\.grad
+le\daemon\8.12\daemon-4928.out.log
+  build_log.txt:187:[        ] 
+Starting 4th build in daemon [uptime: 
+1 mins 50.786 secs, performance: 99%, 
+GC rate: 0.00/s, heap usage: 0% of 8 
+GiB, non-heap usage: 2% of 4 GiB]
+  build_log.txt:188:[        ] Using 
+12 worker leases.
+  build_log.txt:189:[        ] Now 
+considering [C:\Users\Jester\Documents
+\Flutter_Projects\it12_cloned_2\IT12_G
+-J_AIRCON_SOLUTIONS\android, C:\dev\fl
+utter\packages\flutter_tools\gradle] 
+as hierarchies to watch
+  build_log.txt:202:[        ] kotlin 
+scripting plugin: created the 
+scripting discovery configuration: 
+testKotlinScriptDef
+  build_log.txt:203:[        ] file 
+or directory 'C:\dev\flutter\packages\
+flutter_tools\gradle\src\main\java', 
+not found
+  build_log.txt:204:[        ] 
+Resolved plugin [id: 
+'dev.flutter.flutter-plugin-loader', 
+version: '1.0.0']
+  build_log.txt:205:[        ] 
+Resolved plugin [id: 
+'com.android.application', version: 
+'8.9.1', apply: false]
+  build_log.txt:206:[        ] 
+Resolved plugin [id: 
+'org.jetbrains.kotlin.android', 
+version: '2.1.0', apply: false]
+> build_log.txt:207:[  +90 ms] 
+Resolve mutations for :gradle:checkKot
+linGradlePluginConfigurationErrors 
+(Thread[#398,Execution 
+worker,5,main]) started.
+> build_log.txt:208:[        ] :gradle
+:checkKotlinGradlePluginConfigurationE
+rrors (Thread[#398,Execution 
+worker,5,main]) started.
+> build_log.txt:209:[        ] > Task 
+:gradle:checkKotlinGradlePluginConfigu
+rationErrors SKIPPED
+> build_log.txt:210:[        ] 
+Skipping task ':gradle:checkKotlinGrad
+lePluginConfigurationErrors' as task 
+onlyIf 'errorDiagnostics are present' 
+is false.
+  build_log.txt:211:[        ] 
+Resolve mutations for 
+:gradle:compileKotlin 
+(Thread[#398,Execution 
+worker,5,main]) started.
+  build_log.txt:212:[        ] 
+:gradle:compileKotlin 
+(Thread[#398,Execution 
+worker,5,main]) started.
+  build_log.txt:213:[  +93 ms] > Task 
+:gradle:compileKotlin UP-TO-DATE
+  build_log.txt:214:[        ] 
+Caching disabled for task 
+':gradle:compileKotlin' because:
+  build_log.txt:215:[        ]   
+Build cache is disabled
+  build_log.txt:262:[        ] C/C++: 
+ndk.dir in local.properties is not set
+  build_log.txt:263:[        ] C/C++: 
+Not considering ANDROID_NDK_HOME 
+because support was removed after 
+deprecation period.
+  build_log.txt:264:[        ] C/C++: 
+sdkFolder is C:\Users\Jester\AppData\L
+ocal\Android\sdk
+  build_log.txt:265:[        ] > 
+Configure project :
+  build_log.txt:266:[        ] 
+Evaluating root project 'android' 
+using build file 'C:\Users\Jester\Docu
+ments\Flutter_Projects\it12_cloned_2\I
+T12_G-J_AIRCON_SOLUTIONS\android\build
+.gradle.kts'.
+> build_log.txt:267:flutter : [       
+ ] FAILURE: Build 
+> build_log.txt:268:failed with an 
+exception.
+  build_log.txt:269:At line:1 char:1
+  build_log.txt:270:+ flutter build 
+apk --verbose > 
+  build_log.txt:271:build_log.txt 2>&1
+  build_log.txt:272:+ 
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+  build_log.txt:273:~~~~~~~~~~~~
+  build_log.txt:274:    + 
+CategoryInfo          : NotSpec 
+  build_log.txt:275:   ified: ([      
+  ] FAIL...h an ex  
+  build_log.txt:276:  
+ception.:String) [], RemoteExcept   
+  build_log.txt:277: ion
+> build_log.txt:278:    + 
+FullyQualifiedErrorId : NativeC 
+> build_log.txt:279:   ommandError
+  build_log.txt:280: 
+  build_log.txt:281:[   +1 ms] * 
+Where:
+  build_log.txt:282:[        ] Build 
+file 'C:\Users\Jester
+  build_log.txt:283:\Documents\Flutter
+_Projects\it12_clone
+  build_log.txt:284:d_2\IT12_G-J_AIRCO
+N_SOLUTIONS\android\
+  build_log.txt:295:to get more log 
+output.
+  build_log.txt:296:[        ] > Run 
+with --scan to get 
+  build_log.txt:297:full insights.
+  build_log.txt:298:[        ] > Get 
+more help at 
+  build_log.txt:299:https://help.gradl
+e.org.
+> build_log.txt:300:[        ] * 
+Exception is:
+  build_log.txt:301:[        ] 
+org.gradle.api.ProjectConfi
+> 
+build_log.txt:302:gurationException: 
+A problem occurred 
+  build_log.txt:303:configuring 
+project ':app'.
+  build_log.txt:304:[        ] 	at 
+org.gradle.configuratio
+  build_log.txt:305:n.project.Lifecycl
+eProjectEvaluator.wr
+> build_log.txt:306:apException(Lifecy
+cleProjectEvaluator.
+  build_log.txt:307:java:84)
+  build_log.txt:308:[        ] 	at 
+org.gradle.configuratio
+  build_log.txt:309:n.project.Lifecycl
+eProjectEvaluator.ad
+> build_log.txt:310:dConfigurationFail
+ure(LifecycleProject
+  build_log.txt:311:Evaluator.java:77)
+  build_log.txt:312:[        ] 	at 
+org.gradle.configuratio
+  build_log.txt:313:n.project.Lifecycl
+eProjectEvaluator.ac
+  build_log.txt:314:cess$500(Lifecycle
+ProjectEvaluator.jav
+  build_log.txt:315:a:55)
+  build_log.txt:1074:[        ] 	at 
+org.gradle.internal.bui
+  build_log.txt:1075:ldprocess.executi
+on.StartParamsValidat
+  build_log.txt:1076:ingActionExecutor
+.execute(StartParamsV
+  build_log.txt:1077:alidatingActionEx
+ecutor.java:32)
+  build_log.txt:1078:[        ] 	at 
+org.gradle.internal.bui
+> build_log.txt:1079:ldprocess.executi
+on.SessionFailureRepo
+  build_log.txt:1080:rtingActionExecut
+or.execute(SessionFai
+  build_log.txt:1081:lureReportingActi
+onExecutor.java:51)
+  build_log.txt:1082:[        ] 	at 
+org.gradle.internal.bui
+> build_log.txt:1083:ldprocess.executi
+on.SessionFailureRepo
+  build_log.txt:1084:rtingActionExecut
+or.execute(SessionFai
+  build_log.txt:1085:lureReportingActi
+onExecutor.java:39)
+  build_log.txt:1086:[        ] 	at 
+org.gradle.internal.bui
+  build_log.txt:1087:ldprocess.executi
+on.SetupLoggingAction
+  build_log.txt:1088:Executor.execute(
+SetupLoggingActionExe
+  build_log.txt:1189:current.ThreadPoo
+lExecutor$Worker.run(
+  build_log.txt:1190:Unknown Source)
+  build_log.txt:1191:[        ] 	at 
+java.base/java.lang.Thr
+  build_log.txt:1192:ead.run(Unknown 
+Source)
+  build_log.txt:1193:[        ] 
+Caused by: com.android.buil
+> build_log.txt:1194:der.errors.EvalIs
+sueException: 
+  build_log.txt:1195:[CXX1101] NDK at 
+C:\Users\Jester\AppDa
+  build_log.txt:1196:ta\Local\Android\
+sdk\ndk\28.2.13676358
+  build_log.txt:1197: did not have a 
+source.properties file
+  build_log.txt:1198:[        ] 	at 
+com.android.builder.err
+> build_log.txt:1199:ors.IssueReporter
+.reportError(IssueRep
+  build_log.txt:1200:orter.kt:118)
+  build_log.txt:1201:[        ] 	at 
+com.android.builder.err
+> build_log.txt:1202:ors.IssueReporter
+.reportError$default(
+  build_log.txt:1203:IssueReporter.kt:
+113)
+  build_log.txt:1204:[        ] 	at 
+com.android.build.gradl
+  build_log.txt:1205:e.internal.cxx.lo
+gging.IssueReporterLo
+  build_log.txt:1206:ggingEnvironment.
+log(IssueReporterLogg
+  build_log.txt:1207:ingEnvironment.kt
+:113)
+  build_log.txt:1210:vironment$Compani
+on.reportFormattedErr
+  build_log.txt:1211:orToCurrentLogger
+(LoggingEnvironment.k
+  build_log.txt:1212:t:230)
+  build_log.txt:1213:[        ] 	at 
+com.android.build.gradl
+  build_log.txt:1214:e.internal.cxx.lo
+gging.LoggingEnvironm
+> build_log.txt:1215:entKt.errorln(Log
+gingEnvironment.kt:62
+  build_log.txt:1216:)
+  build_log.txt:1217:[   +5 ms] 	at 
+com.android.build.gradl
+  build_log.txt:1218:e.internal.cxx.co
+nfigure.NdkLocatorKt.
+  build_log.txt:1219:getNdkVersionInfo
+(NdkLocator.kt:362)
+  build_log.txt:1220:[        ] 	at 
+com.android.build.gradl
+  build_log.txt:2138:[        ] 	at 
+org.gradle.internal.bui
+  build_log.txt:2139:ldprocess.executi
+on.StartParamsValidat
+  build_log.txt:2140:ingActionExecutor
+.execute(StartParamsV
+  build_log.txt:2141:alidatingActionEx
+ecutor.java:32)
+  build_log.txt:2142:[        ] 	at 
+org.gradle.internal.bui
+> build_log.txt:2143:ldprocess.executi
+on.SessionFailureRepo
+  build_log.txt:2144:rtingActionExecut
+or.execute(SessionFai
+  build_log.txt:2145:lureReportingActi
+onExecutor.java:51)
+  build_log.txt:2146:[        ] 	at 
+org.gradle.internal.bui
+> build_log.txt:2147:ldprocess.executi
+on.SessionFailureRepo
+  build_log.txt:2148:rtingActionExecut
+or.execute(SessionFai
+  build_log.txt:2149:lureReportingActi
+onExecutor.java:39)
+  build_log.txt:2150:[        ] 	at 
+org.gradle.internal.bui
+  build_log.txt:2151:ldprocess.executi
+on.SetupLoggingAction
+  build_log.txt:2152:Executor.execute(
+SetupLoggingActionExe
+
+

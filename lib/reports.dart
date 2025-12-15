@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import 'package:intl/intl.dart';
+import 'package:intl/intl.dart' hide TextDirection;
 import 'ui_app_shell.dart';
 import 'theme/app_theme.dart';
 import 'shared/widgets.dart' show AnimatedCard, HoverCard, AnimatedButton, isMobile;
@@ -16,6 +16,31 @@ class ReportsScreen extends StatefulWidget {
 
 enum _ReportRange { today, weekly, monthly, last6Months, yearly }
 
+class _TimeBucket {
+  final String label;
+  final DateTime start;
+  final DateTime end;
+
+  const _TimeBucket({required this.label, required this.start, required this.end});
+
+  bool contains(DateTime date) => !date.isBefore(start) && date.isBefore(end);
+}
+
+class _PeriodDetail {
+  final String period;
+  final double value;
+  final int? count;
+
+  _PeriodDetail({required this.period, required this.value, this.count});
+}
+
+class _ServiceDetail {
+  final String name;
+  final int count;
+
+  _ServiceDetail({required this.name, required this.count});
+}
+
 class _ReportsScreenState extends State<ReportsScreen> {
   _ReportRange _selectedRange = _ReportRange.monthly;
   
@@ -24,6 +49,10 @@ class _ReportsScreenState extends State<ReportsScreen> {
   List<_ChartDataPoint> _serviceChartData = [];
   List<_FinancialChartPoint> _financialChartData = [];
   List<_TopCustomer> _topCustomers = [];
+  List<_PeriodDetail> _jobValueDetails = [];
+  List<_PeriodDetail> _completionRateDetails = [];
+  List<_ServiceDetail> _serviceDetails = [];
+  Map<String, int> _dayCountsMap = {};
 
   @override
   void initState() {
@@ -60,13 +89,15 @@ class _ReportsScreenState extends State<ReportsScreen> {
           break;
       }
 
+      final buckets = _buildBuckets(startDate, endDate, now);
+
       final startStr = startDate.toIso8601String();
       final endStr = endDate.toIso8601String();
 
-      // 1. Fetch Job Orders
+      // 1. Fetch Job Orders with payments
       final jobsResponse = await supabase
           .from('job_orders')
-          .select('id, status, date_scheduled, customer_id, customers(company_name, first_name, last_name), job_types(job_type_name)')
+          .select('id, status, date_scheduled, customer_id, customers(company_name, first_name, last_name), job_types(job_type_name), payments(amount, status)')
           .gte('date_scheduled', startStr)
           .lte('date_scheduled', endStr);
 
@@ -93,22 +124,28 @@ class _ReportsScreenState extends State<ReportsScreen> {
       int repairs = 0;
       int completedJobs = 0;
 
-      Map<String, _ChartDataPoint> serviceMap = {};
-      Map<String, _FinancialChartPoint> financialMap = {};
+      Map<String, _ChartDataPoint> serviceMap = {
+        for (final bucket in buckets)
+          bucket.label: _ChartDataPoint(label: bucket.label, installations: 0, maintenance: 0, repairs: 0),
+      };
+      Map<String, _FinancialChartPoint> financialMap = {
+        for (final bucket in buckets)
+          bucket.label: _FinancialChartPoint(label: bucket.label, income: 0, expense: 0),
+      };
       Map<int, _TopCustomer> customerAggMap = {};
       
       // For Business Insights
       Map<String, int> jobTypeCounts = {};
       Map<String, int> dayCounts = {};
-
-      String getKey(DateTime date) {
-        if (_selectedRange == _ReportRange.today || _selectedRange == _ReportRange.weekly) {
-          return DateFormat('EEE').format(date);
-        } else if (_selectedRange == _ReportRange.monthly) {
-          return DateFormat('dd').format(date);
-        } else {
-          return DateFormat('MMM').format(date);
-        }
+      Map<String, List<double>> jobValuesByPeriod = {};
+      Map<String, int> completedJobsByPeriod = {};
+      Map<String, int> totalJobsByPeriod = {};
+      
+      // Initialize period maps
+      for (final bucket in buckets) {
+        jobValuesByPeriod[bucket.label] = [];
+        completedJobsByPeriod[bucket.label] = 0;
+        totalJobsByPeriod[bucket.label] = 0;
       }
 
       for (var job in jobsResponse) {
@@ -131,14 +168,31 @@ class _ReportsScreenState extends State<ReportsScreen> {
         final dayName = DateFormat('EEEE').format(date);
         dayCounts[dayName] = (dayCounts[dayName] ?? 0) + 1;
 
-        final key = getKey(date);
-
-        if (!serviceMap.containsKey(key)) {
-          serviceMap[key] = _ChartDataPoint(label: key, installations: 0, maintenance: 0, repairs: 0);
+        final bucketLabel = _bucketLabelFor(date, buckets);
+        if (bucketLabel != null) {
+          if (typeKey.contains('install')) serviceMap[bucketLabel]!.installations++;
+          else if (typeKey.contains('maintenance') || typeKey.contains('clean')) serviceMap[bucketLabel]!.maintenance++;
+          else if (typeKey.contains('repair')) serviceMap[bucketLabel]!.repairs++;
+          
+          // Track job values per period
+          totalJobsByPeriod[bucketLabel] = (totalJobsByPeriod[bucketLabel] ?? 0) + 1;
+          
+          // Calculate job payment value
+          double jobValue = 0;
+          if (job['payments'] != null && (job['payments'] as List).isNotEmpty) {
+            for (var payment in (job['payments'] as List)) {
+              if ((payment['status'] ?? '').toString().toLowerCase() == 'verified') {
+                jobValue += ((payment['amount'] as num?) ?? 0).toDouble();
+              }
+            }
+          }
+          jobValuesByPeriod[bucketLabel]!.add(jobValue);
+          
+          // Track completion rate per period
+          if (status == 'completed') {
+            completedJobsByPeriod[bucketLabel] = (completedJobsByPeriod[bucketLabel] ?? 0) + 1;
+          }
         }
-        if (typeKey.contains('install')) serviceMap[key]!.installations++;
-        else if (typeKey.contains('maintenance') || typeKey.contains('clean')) serviceMap[key]!.maintenance++;
-        else if (typeKey.contains('repair')) serviceMap[key]!.repairs++;
 
         // Top Customers
         if (job['customer_id'] != null && job['customers'] != null) {
@@ -172,18 +226,21 @@ class _ReportsScreenState extends State<ReportsScreen> {
           busiestDay = key;
         }
       });
+      
+      String busiestDayDisplay = busiestDay;
+      if (busiestDay != 'N/A') {
+         busiestDayDisplay = '$busiestDay ($maxDayCount)';
+      }
 
       double totalPayments = 0;
       for (var p in paymentsResponse) {
         final amount = (p['amount'] as num).toDouble();
         totalPayments += amount;
         final date = DateTime.parse(p['payment_date']);
-        final key = getKey(date);
-
-        if (!financialMap.containsKey(key)) {
-          financialMap[key] = _FinancialChartPoint(label: key, income: 0, expense: 0);
+        final bucketLabel = _bucketLabelFor(date, buckets);
+        if (bucketLabel != null) {
+          financialMap[bucketLabel]!.income += amount;
         }
-        financialMap[key]!.income += amount;
       }
 
       double totalExpenses = 0;
@@ -191,20 +248,51 @@ class _ReportsScreenState extends State<ReportsScreen> {
         final amount = (e['amount'] as num).toDouble();
         totalExpenses += amount;
         final date = DateTime.parse(e['date']);
-        final key = getKey(date);
-
-        if (!financialMap.containsKey(key)) {
-          financialMap[key] = _FinancialChartPoint(label: key, income: 0, expense: 0);
+        final bucketLabel = _bucketLabelFor(date, buckets);
+        if (bucketLabel != null) {
+          financialMap[bucketLabel]!.expense += amount;
         }
-        financialMap[key]!.expense += amount;
       }
 
-      _serviceChartData = serviceMap.values.toList();
-      _financialChartData = financialMap.values.toList();
+      _serviceChartData = buckets.map((b) => serviceMap[b.label]!).toList();
+      _financialChartData = buckets.map((b) => financialMap[b.label]!).toList();
       
       _topCustomers = customerAggMap.values.toList()
         ..sort((a, b) => b.jobCount.compareTo(a.jobCount));
       if (_topCustomers.length > 5) _topCustomers = _topCustomers.sublist(0, 5);
+
+      // Build detailed breakdown lists
+      _jobValueDetails = [];
+      _completionRateDetails = [];
+      for (final bucket in buckets) {
+        final label = bucket.label;
+        
+        // Job value per period
+        double avgValue = 0;
+        if (jobValuesByPeriod[label]!.isNotEmpty) {
+          avgValue = jobValuesByPeriod[label]!.reduce((a, b) => a + b) / jobValuesByPeriod[label]!.length;
+        }
+        _jobValueDetails.add(_PeriodDetail(period: label, value: avgValue, count: totalJobsByPeriod[label]));
+        
+        // Completion rate per period
+        double completionRate = 0;
+        if ((totalJobsByPeriod[label] ?? 0) > 0) {
+          completionRate = ((completedJobsByPeriod[label] ?? 0) / (totalJobsByPeriod[label]!)) * 100;
+        }
+        _completionRateDetails.add(_PeriodDetail(period: label, value: completionRate, count: completedJobsByPeriod[label]));
+      }
+      
+      // Sort by value descending
+      _jobValueDetails.sort((a, b) => b.value.compareTo(a.value));
+      _completionRateDetails.sort((a, b) => b.value.compareTo(a.value));
+      
+      // Build service details sorted by count descending
+      _serviceDetails = jobTypeCounts.entries
+          .map((e) => _ServiceDetail(name: e.key, count: e.value))
+          .toList()
+        ..sort((a, b) => b.count.compareTo(a.count));
+      
+      _dayCountsMap = dayCounts;
 
       if (mounted) {
         setState(() {
@@ -217,7 +305,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
             totalPayments: totalPayments,
             totalExpenses: totalExpenses,
             topService: topService,
-            busiestDay: busiestDay,
+            busiestDay: busiestDayDisplay,
           );
           _isLoading = false;
         });
@@ -235,50 +323,80 @@ class _ReportsScreenState extends State<ReportsScreen> {
     
     return AppShell(
       selectedIndex: 4,
+      // NEW: Pass dropdown to AppBar explicitly on Mobile
+      actions: mobile ? [
+         Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+            margin: const EdgeInsets.only(right: 8),
+            decoration: BoxDecoration(
+              color: AppTheme.background,
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: AppTheme.borderColor),
+            ),
+            child: DropdownButtonHideUnderline(
+              child: DropdownButton<_ReportRange>(
+                value: _selectedRange,
+                isDense: true,
+                icon: const Icon(Icons.keyboard_arrow_down, color: AppTheme.textSecondary),
+                style: AppTheme.body.copyWith(fontWeight: FontWeight.w600),
+                items: const [
+                  DropdownMenuItem(value: _ReportRange.today, child: Text("Today")),
+                  DropdownMenuItem(value: _ReportRange.weekly, child: Text("Weekly")),
+                  DropdownMenuItem(value: _ReportRange.monthly, child: Text("Monthly")),
+                  DropdownMenuItem(value: _ReportRange.last6Months, child: Text("Last 6 Months")),
+                  DropdownMenuItem(value: _ReportRange.yearly, child: Text("Yearly")),
+                ],
+                onChanged: (val) {
+                  if (val != null) _updateRange(val);
+                },
+              ),
+            ),
+          ),
+      ] : null,
       body: Container(
         color: AppTheme.background,
         child: Column(
           children: [
-            // Header
-            Container(
-              padding: EdgeInsets.symmetric(horizontal: mobile ? 16 : 24, vertical: 16),
-              decoration: const BoxDecoration(
-                color: AppTheme.surface,
-                border: Border(bottom: BorderSide(color: AppTheme.borderColor)),
-              ),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.end, // Align to right
-                children: [
-                  // Dropdown Filter
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-                    decoration: BoxDecoration(
-                      color: AppTheme.background,
-                      borderRadius: BorderRadius.circular(8),
-                      border: Border.all(color: AppTheme.borderColor),
-                    ),
-                    child: DropdownButtonHideUnderline(
-                      child: DropdownButton<_ReportRange>(
-                        value: _selectedRange,
-                        isDense: true,
-                        icon: const Icon(Icons.keyboard_arrow_down, color: AppTheme.textSecondary),
-                        style: AppTheme.body.copyWith(fontWeight: FontWeight.w600),
-                        items: const [
-                          DropdownMenuItem(value: _ReportRange.today, child: Text("Today")),
-                          DropdownMenuItem(value: _ReportRange.weekly, child: Text("Weekly")),
-                          DropdownMenuItem(value: _ReportRange.monthly, child: Text("Monthly")),
-                          DropdownMenuItem(value: _ReportRange.last6Months, child: Text("Last 6 Months")),
-                          DropdownMenuItem(value: _ReportRange.yearly, child: Text("Yearly")),
-                        ],
-                        onChanged: (val) {
-                          if (val != null) _updateRange(val);
-                        },
+            // Header (Desktop Only for Dropdown)
+             if (!mobile)
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+                decoration: const BoxDecoration(
+                  color: AppTheme.surface,
+                  border: Border(bottom: BorderSide(color: AppTheme.borderColor)),
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.end, 
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: AppTheme.background,
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: AppTheme.borderColor),
+                      ),
+                      child: DropdownButtonHideUnderline(
+                        child: DropdownButton<_ReportRange>(
+                          value: _selectedRange,
+                          isDense: true,
+                          icon: const Icon(Icons.keyboard_arrow_down, color: AppTheme.textSecondary),
+                          style: AppTheme.body.copyWith(fontWeight: FontWeight.w600),
+                          items: const [
+                            DropdownMenuItem(value: _ReportRange.today, child: Text("Today")),
+                            DropdownMenuItem(value: _ReportRange.weekly, child: Text("Weekly")),
+                            DropdownMenuItem(value: _ReportRange.monthly, child: Text("Monthly")),
+                            DropdownMenuItem(value: _ReportRange.last6Months, child: Text("Last 6 Months")),
+                            DropdownMenuItem(value: _ReportRange.yearly, child: Text("Yearly")),
+                          ],
+                          onChanged: (val) {
+                            if (val != null) _updateRange(val);
+                          },
+                        ),
                       ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
-            ),
 
             // Content
             Expanded(
@@ -289,23 +407,17 @@ class _ReportsScreenState extends State<ReportsScreen> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      // KPI Grid
+                      // Kpis
                       _buildKpiGrid(_reportData, mobile),
-                      SizedBox(height: mobile ? 16 : 32),
-                      
-                      // Financials
-                      Text("Financial Overview", style: AppTheme.heading2),
-                      const SizedBox(height: 12),
-                      _buildFinancialGrid(_reportData, mobile),
                       SizedBox(height: mobile ? 16 : 32),
 
                       // Business Insights
                       Text("Business Insights", style: AppTheme.heading2),
                       const SizedBox(height: 12),
-                      _buildBusinessInsights(mobile),
+                      _buildBusinessInsights(_reportData, mobile),
                       SizedBox(height: mobile ? 16 : 32),
-
-                      // Charts (Hidden for Today)
+                      
+                      // Charts (Moved to Top)
                       if (_selectedRange != _ReportRange.today) ...[
                         Text("Performance Analytics", style: AppTheme.heading2),
                         const SizedBox(height: 12),
@@ -316,16 +428,37 @@ class _ReportsScreenState extends State<ReportsScreen> {
                            const SizedBox(height: 16),
                            _buildTopCustomers(),
                         ] else 
-                          Wrap(
-                            spacing: 24,
-                            runSpacing: 24,
+                          Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
                             children: [
-                              SizedBox(width: 500, child: _buildServiceChart()),
-                              SizedBox(width: 500, child: _buildFinancialChart()),
-                              SizedBox(width: 500, child: _buildTopCustomers()),
+                               IntrinsicHeight( // Ensure equal height for row items
+                                 child: Row(
+                                   crossAxisAlignment: CrossAxisAlignment.stretch,
+                                   children: [
+                                     Expanded(
+                                       flex: 2,
+                                       child: _buildServiceChart(),
+                                     ),
+                                     const SizedBox(width: 24),
+                                     Expanded(
+                                       flex: 1,
+                                       child: _buildTopCustomers(),
+                                     ),
+                                   ],
+                                 ),
+                               ),
+                               const SizedBox(height: 24),
+                               _buildFinancialChart(),
                             ],
                           ),
+                         SizedBox(height: mobile ? 16 : 32),
                       ],
+
+                      // Financials
+                      Text("Financial Overview", style: AppTheme.heading2),
+                      const SizedBox(height: 12),
+                      _buildFinancialGrid(_reportData, mobile),
+                      SizedBox(height: mobile ? 16 : 32),
                     ],
                   ),
                 ),
@@ -341,6 +474,60 @@ class _ReportsScreenState extends State<ReportsScreen> {
       _selectedRange = range;
     });
     _fetchReportData();
+  }
+
+  List<_TimeBucket> _buildBuckets(DateTime startDate, DateTime endDate, DateTime now) {
+    switch (_selectedRange) {
+      case _ReportRange.today:
+        final start = DateTime(now.year, now.month, now.day);
+        final end = start.add(const Duration(days: 1));
+        return [
+          _TimeBucket(label: 'Today', start: start, end: end),
+        ];
+      case _ReportRange.weekly:
+        final monday = DateTime(startDate.year, startDate.month, startDate.day);
+        return List.generate(7, (i) {
+          final dayStart = monday.add(Duration(days: i));
+          final dayEnd = dayStart.add(const Duration(days: 1));
+          return _TimeBucket(label: DateFormat('EEE').format(dayStart), start: dayStart, end: dayEnd);
+        });
+      case _ReportRange.monthly:
+        final buckets = <_TimeBucket>[];
+        DateTime cursor = DateTime(startDate.year, startDate.month, startDate.day);
+        final monthEnd = DateTime(startDate.year, startDate.month + 1, 1);
+        int week = 1;
+        while (cursor.isBefore(monthEnd)) {
+          final next = cursor.add(const Duration(days: 7));
+          final bucketEnd = next.isAfter(monthEnd) ? monthEnd : next;
+          buckets.add(_TimeBucket(label: 'Week $week', start: cursor, end: bucketEnd));
+          cursor = bucketEnd;
+          week++;
+        }
+        return buckets;
+      case _ReportRange.last6Months:
+        final buckets = <_TimeBucket>[];
+        for (int i = 0; i < 6; i++) {
+          final monthStart = DateTime(startDate.year, startDate.month + i, 1);
+          final monthEnd = DateTime(monthStart.year, monthStart.month + 1, 1);
+          buckets.add(_TimeBucket(label: DateFormat('MMM').format(monthStart), start: monthStart, end: monthEnd));
+        }
+        return buckets;
+      case _ReportRange.yearly:
+        final buckets = <_TimeBucket>[];
+        for (int m = 1; m <= 12; m++) {
+          final monthStart = DateTime(startDate.year, m, 1);
+          final monthEnd = DateTime(startDate.year, m + 1, 1);
+          buckets.add(_TimeBucket(label: DateFormat('MMM').format(monthStart), start: monthStart, end: monthEnd));
+        }
+        return buckets;
+    }
+  }
+
+  String? _bucketLabelFor(DateTime date, List<_TimeBucket> buckets) {
+    for (final bucket in buckets) {
+      if (bucket.contains(date)) return bucket.label;
+    }
+    return null;
   }
 
   Widget _buildKpiGrid(_ReportData report, bool mobile) {
@@ -392,6 +579,257 @@ class _ReportsScreenState extends State<ReportsScreen> {
     );
   }
 
+  Widget _buildBusinessInsights(_ReportData report, bool mobile) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        int crossAxisCount = 4;
+        if (constraints.maxWidth < 1200) crossAxisCount = 2;
+        if (mobile) crossAxisCount = 1;
+
+        final gap = mobile ? 12.0 : 24.0;
+        final width = crossAxisCount == 1 ? constraints.maxWidth : (constraints.maxWidth - (gap * (crossAxisCount - 1))) / crossAxisCount;
+
+        return Wrap(
+          spacing: gap,
+          runSpacing: gap,
+          children: [
+            _InsightCardClickable(
+              title: 'Avg. Job Value',
+              value: report.avgJobValue,
+              icon: Icons.attach_money,
+              color: const Color(0xFF5C6BC0),
+              backgroundColor: const Color(0xFFE8EAF6),
+              width: width,
+              onTap: () => _showInsightModal(context, 'Avg. Job Value', report.avgJobValue, 'Average amount per job completed.\nTotal Revenue: ${report.totalPaymentsFormatted}\nTotal Jobs: ${report.totalJobs}', periodDetails: _jobValueDetails),
+            ),
+            _InsightCardClickable(
+              title: 'Completion Rate',
+              value: report.completionRate,
+              icon: Icons.check_circle_outline,
+              color: const Color(0xFF66BB6A),
+              backgroundColor: const Color(0xFFE8F5E9),
+              width: width,
+              onTap: () => _showInsightModal(context, 'Completion Rate', report.completionRate, 'Completed Jobs: ${report.completedJobs}\nTotal Jobs: ${report.totalJobs}', periodDetails: _completionRateDetails),
+            ),
+            _InsightCardClickable(
+              title: 'Top Service',
+              value: report.topService,
+              icon: Icons.star_outline,
+              color: const Color(0xFFFFA726),
+              backgroundColor: const Color(0xFFFFF3E0),
+              width: width,
+              onTap: () => _showInsightModal(context, 'Top Service', report.topService, 'Most requested service type across the selected period.', serviceDetails: _serviceDetails),
+            ),
+            _InsightCardClickable(
+              title: 'Busiest Day',
+              value: report.busiestDay,
+              icon: Icons.calendar_today,
+              color: const Color(0xFFAB47BC),
+              backgroundColor: const Color(0xFFF3E5F5),
+              width: width,
+              onTap: () => _showInsightModal(context, 'Busiest Day', report.busiestDay, 'Day with the highest number of scheduled jobs.', dayDetails: _dayCountsMap),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  void _showInsightModal(BuildContext context, String title, String value, String details, {List<_PeriodDetail>? periodDetails, List<_ServiceDetail>? serviceDetails, Map<String, int>? dayDetails}) {
+    final isJobValue = title == 'Avg. Job Value';
+    final isCompletionRate = title == 'Completion Rate';
+    final isTopService = title == 'Top Service';
+    final isBusiestDay = title == 'Busiest Day';
+    
+    Widget buildDetailsList() {
+      if (isJobValue && periodDetails != null) {
+        return Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('Job Value by Period (Highest to Lowest):', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+            const SizedBox(height: 12),
+            ConstrainedBox(
+              constraints: const BoxConstraints(maxHeight: 250),
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: List.generate(
+                    periodDetails.length,
+                    (idx) {
+                      final detail = periodDetails[idx];
+                      return Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 6),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Flexible(child: Text('${detail.period}:', style: const TextStyle(fontSize: 13))),
+                            const SizedBox(width: 8),
+                            Flexible(child: Text('₱${detail.value.toStringAsFixed(2)} (${detail.count} jobs)', style: const TextStyle(fontSize: 13, color: Colors.blue, fontWeight: FontWeight.w600), textAlign: TextAlign.end)),
+                          ],
+                        ),
+                      );
+                    },
+                  ),
+                ),
+              ),
+            ),
+          ],
+        );
+      } else if (isCompletionRate && periodDetails != null) {
+        return Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('Completion Rate by Period (Highest to Lowest):', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+            const SizedBox(height: 12),
+            ConstrainedBox(
+              constraints: const BoxConstraints(maxHeight: 250),
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: List.generate(
+                    periodDetails.length,
+                    (idx) {
+                      final detail = periodDetails[idx];
+                      return Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 6),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Flexible(child: Text('${detail.period}:', style: const TextStyle(fontSize: 13))),
+                            const SizedBox(width: 8),
+                            Flexible(child: Text('${detail.value.toStringAsFixed(1)}% (${detail.count} completed)', style: const TextStyle(fontSize: 13, color: Colors.green, fontWeight: FontWeight.w600), textAlign: TextAlign.end)),
+                          ],
+                        ),
+                      );
+                    },
+                  ),
+                ),
+              ),
+            ),
+          ],
+        );
+      } else if (isTopService && serviceDetails != null) {
+        return Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('Services Ranking (Highest to Lowest):', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+            const SizedBox(height: 12),
+            ConstrainedBox(
+              constraints: const BoxConstraints(maxHeight: 250),
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: List.generate(
+                    serviceDetails.length,
+                    (idx) {
+                      final detail = serviceDetails[idx];
+                      return Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 6),
+                        child: Row(
+                          children: [
+                            Text('${idx + 1}.', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Text(detail.name, style: const TextStyle(fontSize: 13)),
+                            ),
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                              decoration: BoxDecoration(color: Colors.orange.withOpacity(0.2), borderRadius: BorderRadius.circular(6)),
+                              child: Text('${detail.count}', style: const TextStyle(fontSize: 13, color: Colors.orange, fontWeight: FontWeight.w600)),
+                            ),
+                          ],
+                        ),
+                      );
+                    },
+                  ),
+                ),
+              ),
+            ),
+          ],
+        );
+      } else if (isBusiestDay && dayDetails != null) {
+        final sortedDays = dayDetails.entries.toList()..sort((a, b) => b.value.compareTo(a.value));
+        
+        return Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('Jobs by Day (Highest to Lowest):', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+            const SizedBox(height: 12),
+            ConstrainedBox(
+              constraints: const BoxConstraints(maxHeight: 250),
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: List.generate(
+                    sortedDays.length,
+                    (idx) {
+                      final day = sortedDays[idx];
+                      return Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 6),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Text(day.key, style: const TextStyle(fontSize: 13)),
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                              decoration: BoxDecoration(color: Colors.purple.withOpacity(0.2), borderRadius: BorderRadius.circular(6)),
+                              child: Text('${day.value} jobs', style: const TextStyle(fontSize: 13, color: Colors.purple, fontWeight: FontWeight.w600)),
+                            ),
+                          ],
+                        ),
+                      );
+                    },
+                  ),
+                ),
+              ),
+            ),
+          ],
+        );
+      }
+      
+      return Text(details, style: const TextStyle(fontSize: 14, color: Colors.grey));
+    }
+    
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(title),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                width: double.maxFinite,
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: Colors.blue.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Text(
+                  value,
+                  style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Colors.blue),
+                ),
+              ),
+              const SizedBox(height: 20),
+              buildDetailsList(),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Close'),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildFinancialGrid(_ReportData report, bool mobile) {
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -436,69 +874,24 @@ class _ReportsScreenState extends State<ReportsScreen> {
     );
   }
 
-  Widget _buildBusinessInsights(bool mobile) {
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        int crossAxisCount = 4;
-        if (constraints.maxWidth < 1200) crossAxisCount = 2;
-        if (mobile) crossAxisCount = 2;
-
-        final gap = mobile ? 12.0 : 24.0;
-        final totalGap = gap * (crossAxisCount - 1);
-        final width = (constraints.maxWidth - totalGap) / crossAxisCount;
-
-        return Wrap(
-          spacing: gap,
-          runSpacing: gap,
-          children: [
-             _InsightCard(
-               title: 'Avg. Job Value',
-               value: _reportData.avgJobValue,
-               icon: Icons.attach_money,
-               color: Colors.indigo,
-               width: width,
-             ),
-             _InsightCard(
-               title: 'Completion Rate',
-               value: _reportData.completionRate,
-               icon: Icons.check_circle_outline,
-               color: Colors.green,
-               width: width,
-             ),
-             _InsightCard(
-               title: 'Top Service',
-               value: _reportData.topService,
-               icon: Icons.star_outline,
-               color: Colors.orange,
-               width: width,
-             ),
-             _InsightCard(
-               title: 'Busiest Day',
-               value: _reportData.busiestDay,
-               icon: Icons.calendar_today,
-               color: Colors.purple,
-               width: width,
-             ),
-          ],
-        );
-      },
-    );
-  }
-
   Widget _buildServiceChart() {
     return _ChartContainer(
       title: 'Service Trends',
       child: _serviceChartData.isEmpty 
         ? const Center(child: Text("No data"))
-        : _BusinessBarChart(
-            data: _serviceChartData.map((d) => _BarGroup(
+        : _SimpleLineChart(
+            data: _serviceChartData.map((d) => _ChartPoint(
               label: d.label,
-              values: [
-                _BarValue(d.installations.toDouble(), AppTheme.primary),
-                _BarValue(d.maintenance.toDouble(), AppTheme.success),
-                _BarValue(d.repairs.toDouble(), AppTheme.warning),
-              ]
+              values: [d.installations.toDouble(), d.maintenance.toDouble(), d.repairs.toDouble()],
+              colors: [AppTheme.primary, AppTheme.success, AppTheme.warning],
+              tooltips: ['Installations: ${d.installations}', 'Maintenance: ${d.maintenance}', 'Repairs: ${d.repairs}'],
             )).toList(),
+            legendItems: [
+              _LegendItem('Installation', AppTheme.primary),
+              _LegendItem('Maintenance', AppTheme.success),
+              _LegendItem('Repair', AppTheme.warning),
+            ],
+            leftPadding: 30.0, // Reduced padding for single digits
           ),
     );
   }
@@ -508,39 +901,47 @@ class _ReportsScreenState extends State<ReportsScreen> {
       title: 'Income vs Expenses',
       child: _financialChartData.isEmpty 
         ? const Center(child: Text("No data"))
-        : _BusinessBarChart(
-            data: _financialChartData.map((d) => _BarGroup(
+        : _SimpleLineChart(
+            data: _financialChartData.map((d) => _ChartPoint(
               label: d.label,
-              values: [
-                _BarValue(d.income, AppTheme.success),
-                _BarValue(d.expense, AppTheme.error),
-              ]
+              values: [d.income, d.expense],
+              colors: [AppTheme.success, AppTheme.error],
+              tooltips: ['Income: ${NumberFormat.simpleCurrency(name: 'PHP').format(d.income)}', 'Expense: ${NumberFormat.simpleCurrency(name: 'PHP').format(d.expense)}'],
             )).toList(),
+            legendItems: [
+              _LegendItem('Income', AppTheme.success),
+              _LegendItem('Expenses', AppTheme.error),
+            ],
+            leftPadding: 50.0, // Wider padding for currency values
           ),
     );
   }
+
+// ... (omitting Top Customers layout as it doesn't change)
 
   Widget _buildTopCustomers() {
     return _ChartContainer(
       title: 'Top Customers (by Volume)',
       child: _topCustomers.isEmpty
         ? const Center(child: Text("No data"))
-        : Column(
-            children: _topCustomers.map((c) => Padding(
-              padding: const EdgeInsets.symmetric(vertical: 8),
-              child: Row(
-                children: [
-                  CircleAvatar(
-                    radius: 16,
-                    backgroundColor: AppTheme.primary.withOpacity(0.1),
-                    child: Text(c.name[0].toUpperCase(), style: const TextStyle(fontSize: 12, color: AppTheme.primary, fontWeight: FontWeight.bold)),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(child: Text(c.name, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13))),
-                  Text('${c.jobCount} Jobs', style: const TextStyle(color: AppTheme.textSecondary, fontSize: 12)),
-                ],
-              ),
-            )).toList(),
+        : SingleChildScrollView(
+            child: Column(
+              children: _topCustomers.map((c) => Padding(
+                padding: const EdgeInsets.symmetric(vertical: 8),
+                child: Row(
+                  children: [
+                    CircleAvatar(
+                      radius: 16,
+                      backgroundColor: AppTheme.primary.withOpacity(0.1),
+                      child: Text(c.name[0].toUpperCase(), style: const TextStyle(fontSize: 12, color: AppTheme.primary, fontWeight: FontWeight.bold)),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(child: Text(c.name, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13))),
+                    Text('${c.jobCount} Jobs', style: const TextStyle(color: AppTheme.textSecondary, fontSize: 12)),
+                  ],
+                ),
+              )).toList(),
+            ),
           ),
     );
   }
@@ -563,7 +964,7 @@ class _ChartContainer extends StatelessWidget {
         children: [
           Text(title, style: AppTheme.heading3),
           const SizedBox(height: 24),
-          SizedBox(height: 250, child: child), 
+          SizedBox(height: 300, child: child), 
         ],
       ),
     );
@@ -590,9 +991,7 @@ class _KpiCard extends StatelessWidget {
     return Container(
       width: width,
       padding: const EdgeInsets.all(16),
-      decoration: AppTheme.cardDecoration.copyWith(
-        boxShadow: AppTheme.glow(color), // Add glow based on card color
-      ),
+      decoration: AppTheme.cardDecoration, 
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
@@ -615,6 +1014,135 @@ class _KpiCard extends StatelessWidget {
           const SizedBox(height: 4),
           Text(title, style: AppTheme.caption),
         ],
+      ),
+    );
+  }
+}
+
+class _InsightCard extends StatelessWidget {
+  final String title;
+  final String value;
+  final IconData icon;
+  final Color color;
+  final Color backgroundColor;
+  final double width;
+
+  const _InsightCard({
+    required this.title,
+    required this.value,
+    required this.icon,
+    required this.color,
+    required this.backgroundColor,
+    required this.width,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: width,
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
+      decoration: BoxDecoration(
+        color: backgroundColor,
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Row(
+        children: [
+          Icon(icon, color: color, size: 32),
+          const SizedBox(width: 16),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  value,
+                  style: TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.bold,
+                    color: color,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  title,
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: color.withOpacity(0.8),
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _InsightCardClickable extends StatelessWidget {
+  final String title;
+  final String value;
+  final IconData icon;
+  final Color color;
+  final Color backgroundColor;
+  final double width;
+  final VoidCallback onTap;
+
+  const _InsightCardClickable({
+    required this.title,
+    required this.value,
+    required this.icon,
+    required this.color,
+    required this.backgroundColor,
+    required this.width,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        width: width,
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
+        decoration: BoxDecoration(
+          color: backgroundColor,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: color.withOpacity(0.3), width: 1.5),
+        ),
+        child: Row(
+          children: [
+            Icon(icon, color: color, size: 32),
+            const SizedBox(width: 16),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    value,
+                    style: TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.bold,
+                      color: color,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    title,
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: color.withOpacity(0.8),
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Icon(Icons.info_outline, color: color.withOpacity(0.5), size: 18),
+          ],
+        ),
       ),
     );
   }
@@ -676,187 +1204,262 @@ class _FinancialCard extends StatelessWidget {
   }
 }
 
-class _InsightCard extends StatelessWidget {
-  final String title;
-  final String value;
-  final IconData icon;
-  final Color color;
-  final double width;
+// --- Simple Line Chart ---
 
-  const _InsightCard({
-    required this.title,
-    required this.value,
-    required this.icon,
-    required this.color,
-    required this.width,
+class _ChartPoint {
+  final String label;
+  final List<double> values;
+  final List<Color> colors;
+  final List<String> tooltips;
+
+  _ChartPoint({required this.label, required this.values, required this.colors, required this.tooltips});
+}
+
+class _SimpleLineChart extends StatefulWidget {
+  final List<_ChartPoint> data;
+  final List<_LegendItem> legendItems;
+  final double leftPadding;
+  
+  const _SimpleLineChart({
+    required this.data, 
+    required this.legendItems,
+    this.leftPadding = 40.0,
   });
 
   @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: width,
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: color.withOpacity(0.05),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: color.withOpacity(0.1)),
-      ),
-      child: Row(
-        children: [
-          Icon(icon, color: color, size: 28),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                FittedBox(
-                  fit: BoxFit.scaleDown,
-                  alignment: Alignment.centerLeft,
-                  child: Text(value, style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: color)),
-                ),
-                Text(title, style: TextStyle(fontSize: 12, color: color.withOpacity(0.8), fontWeight: FontWeight.w600)),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
+  State<_SimpleLineChart> createState() => _SimpleLineChartState();
 }
 
-// --- Improved Business Chart ---
-
-class _BusinessBarChart extends StatelessWidget {
-  final List<_BarGroup> data;
-  const _BusinessBarChart({required this.data});
+class _SimpleLineChartState extends State<_SimpleLineChart> {
+  int? _selectedIndex;
 
   @override
   Widget build(BuildContext context) {
-    if (data.isEmpty) return const SizedBox();
+    if (widget.data.isEmpty) return const SizedBox();
 
     double maxVal = 0;
-    for (var group in data) {
-      for (var val in group.values) {
-        if (val.value > maxVal) maxVal = val.value;
+    for (var point in widget.data) {
+      for (var val in point.values) {
+        if (val > maxVal) maxVal = val;
       }
     }
     if (maxVal == 0) maxVal = 1;
 
-    // Grid lines count
-    const int gridLines = 5;
+    return Column(
+      children: [
+        Expanded(
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              final double leftPadding = widget.leftPadding; 
+              final width = constraints.maxWidth - leftPadding;
+              final step = width / (widget.data.length > 1 ? widget.data.length - 1 : 1);
+              final chartHeight = constraints.maxHeight;
 
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final double height = constraints.maxHeight;
-        // Use a fixed height for labels to ensure they don't overflow
-        const double labelHeight = 24.0;
-        
-        return Column(
-          children: [
-            // Chart Area
-            Expanded(
-              child: Stack(
+              return Stack(
+                clipBehavior: Clip.none,
                 children: [
-                  // Grid Lines & Y-Axis Labels
-                  Column(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: List.generate(gridLines + 1, (index) {
-                      final double value = maxVal - (maxVal * (index / gridLines));
-                      return Row(
-                        children: [
-                          SizedBox(
-                            width: 40,
-                            child: Text(
-                              value >= 1000 ? '${(value/1000).toStringAsFixed(1)}k' : value.toStringAsFixed(0),
-                              style: const TextStyle(fontSize: 10, color: AppTheme.textSecondary),
-                              textAlign: TextAlign.right,
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          Expanded(child: Container(height: 1, color: AppTheme.borderColor.withOpacity(0.5))),
-                        ],
-                      );
-                    }),
-                  ),
-                  
-                  // Bars
-                  Padding(
-                    padding: const EdgeInsets.only(left: 48, top: 8), // Align with grid
-                    child: Row(
-                      crossAxisAlignment: CrossAxisAlignment.end,
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: data.map((group) {
-                        return Expanded(
-                          child: Row(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            crossAxisAlignment: CrossAxisAlignment.end,
-                            children: group.values.map((val) {
-                              // Calculate height relative to the chart area
-                              // Ensure we don't divide by zero or get negative
-                              final double relativeHeight = (val.value / maxVal);
-                              return Flexible(
-                                child: FractionallySizedBox(
-                                  heightFactor: relativeHeight == 0 ? 0.01 : relativeHeight, 
-                                  child: Container(
-                                    width: 16, // Wider bars
-                                    margin: const EdgeInsets.symmetric(horizontal: 2),
-                                    decoration: BoxDecoration(
-                                      color: val.color,
-                                      borderRadius: const BorderRadius.vertical(top: Radius.circular(4)),
-                                    ),
-                                  ),
-                                ),
-                              );
-                            }).toList(),
-                          ),
-                        );
-                      }).toList(),
+                  GestureDetector(
+                    onTapUp: (details) {
+                      final renderBox = context.findRenderObject() as RenderBox;
+                      final localPos = renderBox.globalToLocal(details.globalPosition);
+                      
+                      // Find closest index
+                      double dx = localPos.dx - leftPadding;
+                      int index = (dx / step).round();
+                      
+                      if (index < 0) index = 0;
+                      if (index >= widget.data.length) index = widget.data.length - 1;
+
+                      setState(() {
+                        _selectedIndex = index;
+                      });
+                    },
+                    child: CustomPaint(
+                      size: Size(constraints.maxWidth, constraints.maxHeight),
+                      painter: _LineChartPainter(
+                        data: widget.data,
+                        maxVal: maxVal,
+                        selectedIndex: _selectedIndex,
+                        leftPadding: leftPadding,
+                      ),
                     ),
                   ),
-                ],
-              ),
-            ),
-            
-            // Labels Area
-            SizedBox(
-              height: labelHeight,
-              child: Padding(
-                padding: const EdgeInsets.only(left: 48),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: data.map((group) {
-                    return Expanded(
-                      child: Center(
-                        child: Text(
-                          group.label,
-                          style: const TextStyle(fontSize: 10, color: AppTheme.textSecondary, fontWeight: FontWeight.w500),
-                          textAlign: TextAlign.center,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
+
+
+                  // Floating Window for Details
+                  if (_selectedIndex != null)
+                   Positioned(
+                     left: (leftPadding + (_selectedIndex! * step)) - 75, // Center box on point
+                     top: chartHeight / 2 - 50, // Floating somewhat centrally or near point
+                     child: Container(
+                        width: 150,
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: AppTheme.surface,
+                          borderRadius: BorderRadius.circular(12),
+                          boxShadow: [
+                            BoxShadow(color: Colors.black.withOpacity(0.1), blurRadius: 10, offset: const Offset(0, 4)),
+                          ],
+                          border: Border.all(color: AppTheme.borderColor),
                         ),
-                      ),
-                    );
-                  }).toList(),
-                ),
-              ),
-            ),
-          ],
-        );
-      },
-    );
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(widget.data[_selectedIndex!].label, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                            const SizedBox(height: 8),
+                             ...List.generate(widget.data[_selectedIndex!].tooltips.length, (i) {
+                                return Padding(
+                                  padding: const EdgeInsets.only(bottom: 4),
+                                  child: Text(widget.data[_selectedIndex!].tooltips[i], style: const TextStyle(fontSize: 12)),
+                                );
+                             }),
+                          ],
+                        ),
+                     ),
+                   ),
+                ],
+              );
+            },
+          ),
+        ),
+         const SizedBox(height: 16),
+         // Legend
+         Wrap(
+           spacing: 16,
+           runSpacing: 8,
+           alignment: WrapAlignment.center,
+           children: widget.legendItems.map((item) => Row(
+             mainAxisSize: MainAxisSize.min,
+             children: [
+               Container(width: 12, height: 12, decoration: BoxDecoration(color: item.color, shape: BoxShape.circle)),
+               const SizedBox(width: 8),
+               Text(item.label, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w500)),
+             ],
+           )).toList(),
+         ),
+       ],
+     );
   }
 }
 
-class _BarGroup {
+class _LegendItem {
   final String label;
-  final List<_BarValue> values;
-  _BarGroup({required this.label, required this.values});
+  final Color color;
+  _LegendItem(this.label, this.color);
 }
 
-class _BarValue {
-  final double value;
-  final Color color;
-  _BarValue(this.value, this.color);
+class _LineChartPainter extends CustomPainter {
+  final List<_ChartPoint> data;
+  final double maxVal;
+  final int? selectedIndex;
+  final double leftPadding;
+
+  _LineChartPainter({required this.data, required this.maxVal, this.selectedIndex, this.leftPadding = 40.0});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..strokeWidth = 3.0
+      ..style = PaintingStyle.stroke
+      ..strokeCap = StrokeCap.round;
+
+    final dotPaint = Paint()
+      ..style = PaintingStyle.fill;
+
+    // Grid and Axis properties
+    const int gridLines = 5;
+    const double bottomPadding = 24.0; 
+    
+    final double chartWidth = size.width - leftPadding;
+    final double chartHeight = size.height - bottomPadding;
+    
+    final double stepX = chartWidth / (data.length > 1 ? data.length - 1 : 1);
+    
+    // Draw Grid and Y-Axis Labels
+    final gridPaint = Paint()
+      ..color = Colors.grey.withOpacity(0.2)
+      ..strokeWidth = 1.0;
+
+    final textPainter = TextPainter(
+      textDirection: TextDirection.ltr,
+    );
+
+    for (int i = 0; i <= gridLines; i++) {
+        final double normalizedValue = i / gridLines;
+        final double y = chartHeight - (chartHeight * normalizedValue);
+        
+        // Draw horizontal grid line
+        canvas.drawLine(Offset(leftPadding, y), Offset(size.width, y), gridPaint);
+        
+        // Draw Y-Axis Label
+        final double labelValue = maxVal * normalizedValue;
+        String labelText;
+        if (maxVal > 1000) {
+           labelText = '${(labelValue / 1000).toStringAsFixed(1)}k';
+        } else {
+           labelText = labelValue.toStringAsFixed(0);
+        }
+        
+        textPainter.text = TextSpan(
+          text: labelText,
+          style: TextStyle(color: Colors.grey[600], fontSize: 10),
+        );
+        textPainter.layout();
+        textPainter.paint(canvas, Offset(leftPadding - textPainter.width - 8, y - textPainter.height / 2));
+    }
+
+    // Determine number of lines (series) based on first point
+    int seriesCount = data.first.values.length;
+
+    for (int s = 0; s < seriesCount; s++) {
+       paint.color = data.first.colors[s];
+       dotPaint.color = data.first.colors[s];
+
+       final path = Path();
+       for (int i = 0; i < data.length; i++) {
+         final x = leftPadding + (i * stepX);
+         final y = chartHeight - ((data[i].values[s] / maxVal) * chartHeight);
+         
+         if (i == 0) path.moveTo(x, y);
+         else path.lineTo(x, y);
+
+         // Draw dots
+         canvas.drawCircle(Offset(x, y), 4, dotPaint);
+
+         // Draw X-Axis Label (only specific indices to avoid overlapping)
+         bool shouldDrawLabel = true;
+         if (data.length > 6) {
+            int skip = (data.length / 5).ceil();
+            shouldDrawLabel = (i == 0) || (i == data.length - 1) || (i % skip == 0);
+         }
+
+         if (s == 0 && shouldDrawLabel) { 
+            textPainter.text = TextSpan(
+              text: data[i].label,
+              style: TextStyle(color: Colors.grey[600], fontSize: 10),
+            );
+            textPainter.layout();
+            textPainter.paint(canvas, Offset(x - textPainter.width / 2, chartHeight + 8));
+         }
+       }
+       canvas.drawPath(path, paint);
+    }
+
+    // Highlight selected index
+    if (selectedIndex != null) {
+      final x = leftPadding + (selectedIndex! * stepX);
+      final linePaint = Paint()
+        ..color = Colors.black.withOpacity(0.5)
+        ..strokeWidth = 1
+        ..style = PaintingStyle.stroke;
+      
+      canvas.drawLine(Offset(x, 0), Offset(x, chartHeight), linePaint);
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => true;
 }
 
 // --- Data Models ---

@@ -203,6 +203,25 @@ class DashboardProvider extends ChangeNotifier {
         0,
         (sum, row) => sum + (row['amount'] ?? 0.0),
       );
+
+      // ADD: Fetch "Cash In" (General Income) from expenses table
+      var incomeQuery = supabase
+          .from('expenses')
+          .select('amount')
+          .eq('is_income', true);
+
+      if (startDate != null) {
+        incomeQuery = incomeQuery.gte('date', startDate.toIso8601String());
+      }
+      
+      final incomeResponse = await incomeQuery;
+      final incomeSum = incomeResponse.fold<double>(
+        0, 
+        (sum, row) => sum + (row['amount'] ?? 0.0)
+      );
+
+      _totalRevenue += incomeSum;
+
     } catch (e) {
       debugPrint('Error fetching total revenue: $e');
       _totalRevenue = 0.0;
@@ -233,7 +252,8 @@ class DashboardProvider extends ChangeNotifier {
           startDate = null; // All time
       }
 
-      var query = supabase.from('expenses').select('amount');
+      // FIX: Only fetch expenses where is_income IS NOT true (false or null)
+      var query = supabase.from('expenses').select('amount').neq('is_income', true);
 
       if (startDate != null) {
         query = query.gte('date', startDate.toIso8601String());
@@ -292,13 +312,20 @@ class DashboardProvider extends ChangeNotifier {
       // B. Overdue Jobs
       final overdueJobs = await supabase
           .from('job_orders')
-          .select('id, client_jo_number, date_scheduled')
+          .select('id, client_jo_number, date_scheduled, customers(company_name, first_name, last_name), job_types(job_type_name)')
           .neq('status', 'Completed')
           .neq('status', 'Cancelled')
           .lt('date_scheduled', now.toUtc().toIso8601String())
           .order('date_scheduled', ascending: true);
 
       for (var job in overdueJobs) {
+        final customer = job['customers'];
+        final customerName = customer?['company_name'] ?? 
+            '${customer?['first_name'] ?? ''} ${customer?['last_name'] ?? ''}'.trim();
+        final serviceType = job['job_types']?['job_type_name'] ?? 'N/A';
+        final dateScheduled = DateTime.parse(job['date_scheduled']).toLocal();
+        final dateStr = '${dateScheduled.month}/${dateScheduled.day}/${dateScheduled.year}';
+        
         _notificationItems.add(
           AttentionItem(
             title: 'Job order overdue',
@@ -308,6 +335,9 @@ class DashboardProvider extends ChangeNotifier {
             type: AttentionType.scheduling,
             relatedId: job['id'],
             searchContext: job['client_jo_number'],
+            customerName: customerName,
+            serviceType: serviceType,
+            date: dateStr,
           ),
         );
       }
@@ -316,7 +346,7 @@ class DashboardProvider extends ChangeNotifier {
       final upcomingJobs = await supabase
           .from('job_orders')
           .select(
-            'id, client_jo_number, date_scheduled, job_order_technicians(count), job_order_aircons(count)',
+            'id, client_jo_number, date_scheduled, job_order_technicians(count), job_order_aircons(count), customers(company_name, first_name, last_name), job_types(job_type_name)',
           )
           .neq('status', 'Completed')
           .neq('status', 'Cancelled')
@@ -329,18 +359,24 @@ class DashboardProvider extends ChangeNotifier {
 
         if (techCount == 0 || unitCount == 0) {
           final date = DateTime.parse(job['date_scheduled']).toLocal();
-          final dateStr =
-              "${date.month}/${date.day} ${date.hour}:${date.minute.toString().padLeft(2, '0')}";
+          final dateStr = "${date.month}/${date.day}/${date.year}";
+          final customer = job['customers'];
+          final customerName = customer?['company_name'] ?? 
+              '${customer?['first_name'] ?? ''} ${customer?['last_name'] ?? ''}'.trim();
+          final serviceType = job['job_types']?['job_type_name'] ?? 'N/A';
 
           _notificationItems.add(
             AttentionItem(
               title: 'Upcoming Job Incomplete',
-              reference: '${job['client_jo_number']} ($dateStr)',
+              reference: job['client_jo_number'],
               priority: 'Medium',
               color: Colors.amber.shade700,
               type: AttentionType.scheduling,
               relatedId: job['id'],
               searchContext: job['client_jo_number'],
+              customerName: customerName,
+              serviceType: serviceType,
+              date: dateStr,
             ),
           );
         }
@@ -348,11 +384,24 @@ class DashboardProvider extends ChangeNotifier {
 
       // Notify only if High Priority exists
       if (_notificationItems.any((i) => i.priority == 'High')) {
+        final highPriorityItems = _notificationItems.where((i) => i.priority == 'High').toList();
+        final buffer = StringBuffer();
+        
+        // Take up to 3 high priority items to list details
+        final itemsToShow = highPriorityItems.take(3).toList();
+        for (var item in itemsToShow) {
+          buffer.writeln('• ${item.title}: ${item.reference}');
+        }
+        
+        final remaining = highPriorityItems.length - itemsToShow.length;
+        if (remaining > 0) {
+          buffer.writeln('... and $remaining more items.');
+        }
+
         NotificationService().showNotification(
           id: 1,
-          title: 'Action Required',
-          body:
-              'You have ${_notificationItems.length} items pending attention.',
+          title: 'Action Required (${highPriorityItems.length})',
+          body: buffer.toString().trim(),
         );
       }
     } catch (e) {
@@ -429,6 +478,18 @@ class DashboardProvider extends ChangeNotifier {
     _pendingDocsCount = count;
     notifyListeners();
   }
+
+  /// Clear a single notification
+  void clearNotification(AttentionItem item) {
+    _notificationItems.remove(item);
+    notifyListeners();
+  }
+
+  /// Clear all notifications
+  void clearAllNotifications() {
+    _notificationItems.clear();
+    notifyListeners();
+  }
 }
 
 // Data models
@@ -460,6 +521,9 @@ class AttentionItem {
   final AttentionType type;
   final int? relatedId;
   final String? searchContext; // Added searchContext for passing JO#
+  final String? customerName;
+  final String? serviceType;
+  final String? date;
 
   AttentionItem({
     required this.title,
@@ -469,5 +533,8 @@ class AttentionItem {
     required this.type,
     this.relatedId,
     this.searchContext,
+    this.customerName,
+    this.serviceType,
+    this.date,
   });
 }
