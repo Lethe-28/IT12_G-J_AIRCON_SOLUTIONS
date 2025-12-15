@@ -948,6 +948,271 @@ class _JobBillingManagerState extends State<_JobBillingManager>
   double _totalAmount = 0.0;
   double _totalPaid = 0.0;
 
+  List<int> _linkedAirconIds = []; // NEW: To store unit IDs for the next job
+
+  // inside _JobBillingManagerState
+
+  Future<void> _showFollowUpDialog() async {
+    int monthsToAdd = 3; // Default recommendation
+
+    await showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => StatefulBuilder(
+        builder: (context, setDialogState) {
+          final nextDate = DateTime(
+            widget.job.startDateTime.year,
+            widget.job.startDateTime.month + monthsToAdd,
+            widget.job.startDateTime.day,
+          );
+
+          return AlertDialog(
+            title: const Row(
+              children: [
+                Icon(Icons.update, color: Colors.blue),
+                SizedBox(width: 8),
+                Text("Schedule Next Maintenance?"),
+              ],
+            ),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Text(
+                  "Job completed! Would you like to schedule the next cleaning/maintenance now?",
+                  style: TextStyle(fontSize: 13, color: Colors.grey),
+                ),
+                const SizedBox(height: 24),
+
+                // THE COUNTER UI
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    _CircleButton(
+                      icon: Icons.remove,
+                      onTap: () {
+                        if (monthsToAdd > 1) {
+                          setDialogState(() => monthsToAdd--);
+                        }
+                      },
+                    ),
+                    Container(
+                      margin: const EdgeInsets.symmetric(horizontal: 24),
+                      child: Column(
+                        children: [
+                          Text(
+                            "$monthsToAdd",
+                            style: const TextStyle(
+                              fontSize: 32,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.blue,
+                            ),
+                          ),
+                          const Text(
+                            "Months",
+                            style: TextStyle(fontWeight: FontWeight.bold),
+                          ),
+                        ],
+                      ),
+                    ),
+                    _CircleButton(
+                      icon: Icons.add,
+                      onTap: () {
+                        if (monthsToAdd < 12) {
+                          setDialogState(() => monthsToAdd++);
+                        }
+                      },
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: Colors.blue[50],
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      const Icon(
+                        Icons.calendar_today,
+                        size: 16,
+                        color: Colors.blue,
+                      ),
+                      const SizedBox(width: 8),
+                      Text(
+                        // Simple date display
+                        "${nextDate.month}/${nextDate.day}/${nextDate.year}",
+                        style: const TextStyle(
+                          fontWeight: FontWeight.bold,
+                          color: Colors.blue,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: () {
+                  Navigator.pop(ctx); // Close Dialog
+                  Navigator.pop(context); // Close Billing Screen
+                  widget.onJobUpdated(); // Refresh List
+                },
+                child: const Text("Skip", style: TextStyle(color: Colors.grey)),
+              ),
+              ElevatedButton(
+                style: ElevatedButton.styleFrom(backgroundColor: Colors.blue),
+                onPressed: () async {
+                  // CREATE THE FUTURE JOB
+                  await _createFollowUpJob(monthsToAdd);
+
+                  if (mounted) {
+                    Navigator.pop(ctx); // Close Dialog
+                    Navigator.pop(context); // Close Billing Screen
+                    widget.onJobUpdated(); // Refresh List
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text(
+                          "Success! Next schedule set for $monthsToAdd months from now.",
+                        ),
+                      ),
+                    );
+                  }
+                },
+                child: const Text("Confirm Schedule"),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  Future<void> _createFollowUpJob(int monthsToAdd) async {
+    try {
+      // 1. Calculate Target Date
+      final nextDate = DateTime(
+        widget.job.startDateTime.year,
+        widget.job.startDateTime.month + monthsToAdd,
+        widget.job.startDateTime.day,
+        9,
+        0, // Default to 9:00 AM
+      );
+
+      // 2. Get 'Maintenance' Type ID
+      final typeRes = await _supabase
+          .from('job_types')
+          .select('id')
+          .eq('job_type_name', 'Maintenance')
+          .maybeSingle();
+
+      final typeId = typeRes != null
+          ? typeRes['id']
+          : (await _supabase
+                .from('job_types')
+                .select('id')
+                .eq('job_type_name', widget.job.jobType)
+                .single())['id'];
+
+      // --- 3. GENERATE ID (Exact Logic from Wizard) ---
+      const months = [
+        'JAN',
+        'FEB',
+        'MAR',
+        'APR',
+        'MAY',
+        'JUN',
+        'JUL',
+        'AUG',
+        'SEP',
+        'OCT',
+        'NOV',
+        'DEC',
+      ];
+      final monthStr = months[nextDate.month - 1];
+      final dayStr = nextDate.day.toString().padLeft(2, '0');
+      final yearStr = nextDate.year.toString().substring(2);
+
+      String basePattern = "$monthStr$dayStr$yearStr";
+
+      // Prefix Logic: If NOT corporate (Residential), add GJ-
+      if (!widget.job.isCorporate) {
+        basePattern = "GJ-$basePattern";
+      }
+
+      // Check Duplicates in DB
+      String finalJoNumber = basePattern;
+
+      final existingJos = await _supabase
+          .from('job_orders')
+          .select('client_jo_number')
+          .ilike('client_jo_number', '$basePattern%');
+
+      final existingList = List<String>.from(
+        existingJos.map((e) => e['client_jo_number'] as String),
+      );
+
+      if (existingList.contains(basePattern)) {
+        // Find next letter (A, B, C...)
+        String suffix = "A";
+        bool found = false;
+
+        for (int i = 0; i < 26; i++) {
+          String candidate = "$basePattern$suffix";
+          if (!existingList.contains(candidate)) {
+            finalJoNumber = candidate;
+            found = true;
+            break;
+          }
+          int nextCode = suffix.codeUnitAt(0) + 1;
+          suffix = String.fromCharCode(nextCode);
+        }
+
+        if (!found) {
+          finalJoNumber = "$basePattern-${DateTime.now().millisecond}";
+        }
+      }
+      // ------------------------------------------------
+
+      // 4. Insert Job
+      final res = await _supabase
+          .from('job_orders')
+          .insert({
+            'customer_id': widget.job.customerId,
+            'job_type_id': typeId,
+            'date_scheduled': nextDate.toUtc().toIso8601String(),
+            'status': 'Pending',
+            'notes': 'Auto-scheduled follow-up from JO ${widget.job.displayId}',
+            'client_jo_number': finalJoNumber,
+            'user_id': _supabase.auth.currentUser?.id,
+          })
+          .select('id')
+          .single();
+
+      final newJobId = res['id'];
+
+      // 5. COPY AIRCONS (Using the IDs we saved in _fetchBillingData)
+      if (_linkedAirconIds.isNotEmpty) {
+        final List<Map<String, dynamic>> links = _linkedAirconIds
+            .map((acId) => {'job_order_id': newJobId, 'aircon_id': acId})
+            .toList();
+
+        await _supabase.from('job_order_aircons').insert(links);
+      }
+
+      await ActivityLogger.log(
+        type: 'Create',
+        details:
+            'Auto-scheduled maintenance ($finalJoNumber) for ${widget.job.clientName}',
+      );
+    } catch (e) {
+      print("Error creating follow-up: $e");
+      throw e;
+    }
+  }
+
   @override
   void initState() {
     super.initState();
@@ -1011,11 +1276,20 @@ class _JobBillingManagerState extends State<_JobBillingManager>
           .eq('id', widget.job.dbId);
 
       if (mounted) {
-        Navigator.pop(context); // Close dialog
-        widget.onJobUpdated();
+        // --- UPDATED LOGIC START ---
+
+        // 1. Show success message (but don't close window yet)
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text("Job Completed Successfully!")),
+          const SnackBar(
+            content: Text("Job Completed!"),
+            duration: Duration(seconds: 1),
+          ),
         );
+
+        // 2. Trigger the "Schedule Next Maintenance" popup
+        _showFollowUpDialog();
+
+        // --- UPDATED LOGIC END ---
       }
     } catch (e) {
       ScaffoldMessenger.of(
@@ -1156,30 +1430,30 @@ class _JobBillingManagerState extends State<_JobBillingManager>
             .from('job_order_technicians')
             .select('technicians(first_name, last_name)')
             .eq('job_order_id', jobId),
-        // 4: Aircons (UPDATED QUERY)
+        // 4: Aircons
         _supabase
             .from('job_order_aircons')
             .select(
-              // FIX: Added horse_power and is_inverter to the select
-              'aircons(remarks, horse_power, is_inverter, brands(brand_name), aircon_types(type_name))',
+              'aircon_id, aircons(remarks, horse_power, is_inverter, brands(brand_name), aircon_types(type_name))',
             )
             .eq('job_order_id', jobId),
       ]);
 
-      // ... (Rest of variable parsing remains same) ...
+      // Parse Results
       final items = List<Map<String, dynamic>>.from(results[0] as List);
       final payments = List<Map<String, dynamic>>.from(results[1] as List);
       final catalog = List<Map<String, dynamic>>.from(results[2] as List);
       final techRes = List<Map<String, dynamic>>.from(results[3] as List);
       final acRes = List<Map<String, dynamic>>.from(results[4] as List);
 
-      // ... (Calculations remain same) ...
+      // Calculations
       double total = 0;
       for (var i in items) total += (i['actual_price'] * i['quantity']);
 
       double paid = 0;
       for (var p in payments) paid += p['amount'];
 
+      // Process Techs
       final List<String> loadedTechs = [];
       for (var row in techRes) {
         if (row['technicians'] != null) {
@@ -1188,16 +1462,23 @@ class _JobBillingManagerState extends State<_JobBillingManager>
         }
       }
 
-      // --- UPDATED UNIT FORMATTING LOGIC ---
+      // --- PROCESS UNITS (Text + ID Capture) ---
       final List<String> loadedUnits = [];
+      final List<int> loadedIds = []; // <--- 1. NEW LIST FOR IDs
+
       for (var row in acRes) {
+        // 2. CAPTURE ID (Crucial for Follow-up feature)
+        if (row['aircon_id'] != null) {
+          loadedIds.add(row['aircon_id'] as int);
+        }
+
         final a = row['aircons'];
         if (a != null) {
           final brand = a['brands']?['brand_name'] ?? 'Unknown Brand';
           final type = a['aircon_types']?['type_name'] ?? 'Unit';
           final remark = a['remarks'] ?? '';
 
-          // 1. Build Tech Specs
+          // Tech Specs
           final hp =
               a['horse_power'] != null && a['horse_power'].toString().isNotEmpty
               ? "${a['horse_power']} HP"
@@ -1206,7 +1487,6 @@ class _JobBillingManagerState extends State<_JobBillingManager>
 
           final specs = [hp, inverter].where((s) => s.isNotEmpty).join(' • ');
 
-          // 2. Combine into one clean line
           // Format: "Samsung Split Type • 1.5 HP • Inverter (Master Bedroom)"
           String fullText = "$brand $type";
           if (specs.isNotEmpty) fullText += " • $specs";
@@ -1215,7 +1495,6 @@ class _JobBillingManagerState extends State<_JobBillingManager>
           loadedUnits.add(fullText);
         }
       }
-      // -------------------------------------
 
       if (mounted) {
         setState(() {
@@ -1223,12 +1502,12 @@ class _JobBillingManagerState extends State<_JobBillingManager>
           _serviceCatalog = catalog;
           _assignedTechNames = loadedTechs;
           _assignedUnitDetails = loadedUnits;
+          _linkedAirconIds = loadedIds; // <--- 3. SAVE IDs TO STATE
           _totalAmount = total;
           _totalPaid = paid;
         });
       }
     } catch (e) {
-      // ... (Error handling remains same) ...
       debugPrint('Error loading details: $e');
       if (mounted) {
         ScaffoldMessenger.of(
@@ -2252,6 +2531,30 @@ class _JobBillingManagerState extends State<_JobBillingManager>
           const SizedBox(width: 8),
           Expanded(child: Text(text)),
         ],
+      ),
+    );
+  }
+}
+
+class _CircleButton extends StatelessWidget {
+  final IconData icon;
+  final VoidCallback onTap;
+  const _CircleButton({required this.icon, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(50),
+      child: Container(
+        width: 40,
+        height: 40,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          border: Border.all(color: Colors.grey.shade300),
+          color: Colors.white,
+        ),
+        child: Icon(icon, color: Colors.grey[700]),
       ),
     );
   }
