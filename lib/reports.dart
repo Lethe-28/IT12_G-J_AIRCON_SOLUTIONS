@@ -26,6 +26,21 @@ class _TimeBucket {
   bool contains(DateTime date) => !date.isBefore(start) && date.isBefore(end);
 }
 
+class _PeriodDetail {
+  final String period;
+  final double value;
+  final int? count;
+
+  _PeriodDetail({required this.period, required this.value, this.count});
+}
+
+class _ServiceDetail {
+  final String name;
+  final int count;
+
+  _ServiceDetail({required this.name, required this.count});
+}
+
 class _ReportsScreenState extends State<ReportsScreen> {
   _ReportRange _selectedRange = _ReportRange.monthly;
   
@@ -34,6 +49,10 @@ class _ReportsScreenState extends State<ReportsScreen> {
   List<_ChartDataPoint> _serviceChartData = [];
   List<_FinancialChartPoint> _financialChartData = [];
   List<_TopCustomer> _topCustomers = [];
+  List<_PeriodDetail> _jobValueDetails = [];
+  List<_PeriodDetail> _completionRateDetails = [];
+  List<_ServiceDetail> _serviceDetails = [];
+  Map<String, int> _dayCountsMap = {};
 
   @override
   void initState() {
@@ -75,10 +94,10 @@ class _ReportsScreenState extends State<ReportsScreen> {
       final startStr = startDate.toIso8601String();
       final endStr = endDate.toIso8601String();
 
-      // 1. Fetch Job Orders
+      // 1. Fetch Job Orders with payments
       final jobsResponse = await supabase
           .from('job_orders')
-          .select('id, status, date_scheduled, customer_id, customers(company_name, first_name, last_name), job_types(job_type_name)')
+          .select('id, status, date_scheduled, customer_id, customers(company_name, first_name, last_name), job_types(job_type_name), payments(amount, status)')
           .gte('date_scheduled', startStr)
           .lte('date_scheduled', endStr);
 
@@ -118,6 +137,16 @@ class _ReportsScreenState extends State<ReportsScreen> {
       // For Business Insights
       Map<String, int> jobTypeCounts = {};
       Map<String, int> dayCounts = {};
+      Map<String, List<double>> jobValuesByPeriod = {};
+      Map<String, int> completedJobsByPeriod = {};
+      Map<String, int> totalJobsByPeriod = {};
+      
+      // Initialize period maps
+      for (final bucket in buckets) {
+        jobValuesByPeriod[bucket.label] = [];
+        completedJobsByPeriod[bucket.label] = 0;
+        totalJobsByPeriod[bucket.label] = 0;
+      }
 
       for (var job in jobsResponse) {
         final typeName = (job['job_types']?['job_type_name'] ?? 'Unknown').toString();
@@ -144,6 +173,25 @@ class _ReportsScreenState extends State<ReportsScreen> {
           if (typeKey.contains('install')) serviceMap[bucketLabel]!.installations++;
           else if (typeKey.contains('maintenance') || typeKey.contains('clean')) serviceMap[bucketLabel]!.maintenance++;
           else if (typeKey.contains('repair')) serviceMap[bucketLabel]!.repairs++;
+          
+          // Track job values per period
+          totalJobsByPeriod[bucketLabel] = (totalJobsByPeriod[bucketLabel] ?? 0) + 1;
+          
+          // Calculate job payment value
+          double jobValue = 0;
+          if (job['payments'] != null && (job['payments'] as List).isNotEmpty) {
+            for (var payment in (job['payments'] as List)) {
+              if ((payment['status'] ?? '').toString().toLowerCase() == 'verified') {
+                jobValue += ((payment['amount'] as num?) ?? 0).toDouble();
+              }
+            }
+          }
+          jobValuesByPeriod[bucketLabel]!.add(jobValue);
+          
+          // Track completion rate per period
+          if (status == 'completed') {
+            completedJobsByPeriod[bucketLabel] = (completedJobsByPeriod[bucketLabel] ?? 0) + 1;
+          }
         }
 
         // Top Customers
@@ -212,6 +260,39 @@ class _ReportsScreenState extends State<ReportsScreen> {
       _topCustomers = customerAggMap.values.toList()
         ..sort((a, b) => b.jobCount.compareTo(a.jobCount));
       if (_topCustomers.length > 5) _topCustomers = _topCustomers.sublist(0, 5);
+
+      // Build detailed breakdown lists
+      _jobValueDetails = [];
+      _completionRateDetails = [];
+      for (final bucket in buckets) {
+        final label = bucket.label;
+        
+        // Job value per period
+        double avgValue = 0;
+        if (jobValuesByPeriod[label]!.isNotEmpty) {
+          avgValue = jobValuesByPeriod[label]!.reduce((a, b) => a + b) / jobValuesByPeriod[label]!.length;
+        }
+        _jobValueDetails.add(_PeriodDetail(period: label, value: avgValue, count: totalJobsByPeriod[label]));
+        
+        // Completion rate per period
+        double completionRate = 0;
+        if ((totalJobsByPeriod[label] ?? 0) > 0) {
+          completionRate = ((completedJobsByPeriod[label] ?? 0) / (totalJobsByPeriod[label]!)) * 100;
+        }
+        _completionRateDetails.add(_PeriodDetail(period: label, value: completionRate, count: completedJobsByPeriod[label]));
+      }
+      
+      // Sort by value descending
+      _jobValueDetails.sort((a, b) => b.value.compareTo(a.value));
+      _completionRateDetails.sort((a, b) => b.value.compareTo(a.value));
+      
+      // Build service details sorted by count descending
+      _serviceDetails = jobTypeCounts.entries
+          .map((e) => _ServiceDetail(name: e.key, count: e.value))
+          .toList()
+        ..sort((a, b) => b.count.compareTo(a.count));
+      
+      _dayCountsMap = dayCounts;
 
       if (mounted) {
         setState(() {
@@ -519,7 +600,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
               color: const Color(0xFF5C6BC0),
               backgroundColor: const Color(0xFFE8EAF6),
               width: width,
-              onTap: () => _showInsightModal(context, 'Avg. Job Value', report.avgJobValue, 'Average amount per job completed.\nTotal Revenue: ${report.totalPaymentsFormatted}\nTotal Jobs: ${report.totalJobs}'),
+              onTap: () => _showInsightModal(context, 'Avg. Job Value', report.avgJobValue, 'Average amount per job completed.\nTotal Revenue: ${report.totalPaymentsFormatted}\nTotal Jobs: ${report.totalJobs}', periodDetails: _jobValueDetails),
             ),
             _InsightCardClickable(
               title: 'Completion Rate',
@@ -528,7 +609,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
               color: const Color(0xFF66BB6A),
               backgroundColor: const Color(0xFFE8F5E9),
               width: width,
-              onTap: () => _showInsightModal(context, 'Completion Rate', report.completionRate, 'Completed Jobs: ${report.completedJobs}\nTotal Jobs: ${report.totalJobs}'),
+              onTap: () => _showInsightModal(context, 'Completion Rate', report.completionRate, 'Completed Jobs: ${report.completedJobs}\nTotal Jobs: ${report.totalJobs}', periodDetails: _completionRateDetails),
             ),
             _InsightCardClickable(
               title: 'Top Service',
@@ -537,7 +618,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
               color: const Color(0xFFFFA726),
               backgroundColor: const Color(0xFFFFF3E0),
               width: width,
-              onTap: () => _showInsightModal(context, 'Top Service', report.topService, 'Most requested service type across the selected period.'),
+              onTap: () => _showInsightModal(context, 'Top Service', report.topService, 'Most requested service type across the selected period.', serviceDetails: _serviceDetails),
             ),
             _InsightCardClickable(
               title: 'Busiest Day',
@@ -546,7 +627,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
               color: const Color(0xFFAB47BC),
               backgroundColor: const Color(0xFFF3E5F5),
               width: width,
-              onTap: () => _showInsightModal(context, 'Busiest Day', report.busiestDay, 'Day with the highest number of scheduled jobs.'),
+              onTap: () => _showInsightModal(context, 'Busiest Day', report.busiestDay, 'Day with the highest number of scheduled jobs.', dayDetails: _dayCountsMap),
             ),
           ],
         );
@@ -554,29 +635,176 @@ class _ReportsScreenState extends State<ReportsScreen> {
     );
   }
 
-  void _showInsightModal(BuildContext context, String title, String value, String details) {
+  void _showInsightModal(BuildContext context, String title, String value, String details, {List<_PeriodDetail>? periodDetails, List<_ServiceDetail>? serviceDetails, Map<String, int>? dayDetails}) {
+    final isJobValue = title == 'Avg. Job Value';
+    final isCompletionRate = title == 'Completion Rate';
+    final isTopService = title == 'Top Service';
+    final isBusiestDay = title == 'Busiest Day';
+    
+    Widget buildDetailsList() {
+      if (isJobValue && periodDetails != null) {
+        return Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('Job Value by Period (Highest to Lowest):', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+            const SizedBox(height: 12),
+            SizedBox(
+              height: 200,
+              child: ListView.builder(
+                itemCount: periodDetails.length,
+                itemBuilder: (ctx, idx) {
+                  final detail = periodDetails[idx];
+                  return Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 4),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text('${detail.period}:', style: const TextStyle(fontSize: 13)),
+                        Text('₱${detail.value.toStringAsFixed(2)} (${detail.count} jobs)', style: const TextStyle(fontSize: 13, color: Colors.blue, fontWeight: FontWeight.w600)),
+                      ],
+                    ),
+                  );
+                },
+              ),
+            ),
+          ],
+        );
+      } else if (isCompletionRate && periodDetails != null) {
+        return Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('Completion Rate by Period (Highest to Lowest):', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+            const SizedBox(height: 12),
+            SizedBox(
+              height: 200,
+              child: ListView.builder(
+                itemCount: periodDetails.length,
+                itemBuilder: (ctx, idx) {
+                  final detail = periodDetails[idx];
+                  return Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 4),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text('${detail.period}:', style: const TextStyle(fontSize: 13)),
+                        Text('${detail.value.toStringAsFixed(1)}% (${detail.count} completed)', style: const TextStyle(fontSize: 13, color: Colors.green, fontWeight: FontWeight.w600)),
+                      ],
+                    ),
+                  );
+                },
+              ),
+            ),
+          ],
+        );
+      } else if (isTopService && serviceDetails != null) {
+        return Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('Services Ranking (Highest to Lowest):', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+            const SizedBox(height: 12),
+            SizedBox(
+              height: 200,
+              child: ListView.builder(
+                itemCount: serviceDetails.length,
+                itemBuilder: (ctx, idx) {
+                  final detail = serviceDetails[idx];
+                  return Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 6),
+                    child: Row(
+                      children: [
+                        Text('${idx + 1}.', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Text(detail.name, style: const TextStyle(fontSize: 13)),
+                        ),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                          decoration: BoxDecoration(color: Colors.orange.withOpacity(0.2), borderRadius: BorderRadius.circular(6)),
+                          child: Text('${detail.count}', style: const TextStyle(fontSize: 13, color: Colors.orange, fontWeight: FontWeight.w600)),
+                        ),
+                      ],
+                    ),
+                  );
+                },
+              ),
+            ),
+          ],
+        );
+      } else if (isBusiestDay && dayDetails != null) {
+        final sortedDays = dayDetails.entries.toList()..sort((a, b) => b.value.compareTo(a.value));
+        final dayOrder = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+        sortedDays.sort((a, b) {
+          int aIdx = dayOrder.indexOf(a.key);
+          int bIdx = dayOrder.indexOf(b.key);
+          if (aIdx < 0) aIdx = 999;
+          if (bIdx < 0) bIdx = 999;
+          return sortedDays.indexOf(a).compareTo(sortedDays.indexOf(b));
+        });
+        
+        return Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('Jobs by Day (Highest to Lowest):', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+            const SizedBox(height: 12),
+            SizedBox(
+              height: 200,
+              child: ListView.builder(
+                itemCount: sortedDays.length,
+                itemBuilder: (ctx, idx) {
+                  final day = sortedDays[idx];
+                  return Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 6),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(day.key, style: const TextStyle(fontSize: 13)),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                          decoration: BoxDecoration(color: Colors.purple.withOpacity(0.2), borderRadius: BorderRadius.circular(6)),
+                          child: Text('${day.value} jobs', style: const TextStyle(fontSize: 13, color: Colors.purple, fontWeight: FontWeight.w600)),
+                        ),
+                      ],
+                    ),
+                  );
+                },
+              ),
+            ),
+          ],
+        );
+      }
+      
+      return Text(details, style: const TextStyle(fontSize: 14, color: Colors.grey));
+    }
+    
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
         title: Text(title),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Container(
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: Colors.blue.withOpacity(0.1),
-                borderRadius: BorderRadius.circular(12),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                width: double.maxFinite,
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: Colors.blue.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Text(
+                  value,
+                  style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Colors.blue),
+                ),
               ),
-              child: Text(
-                value,
-                style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Colors.blue),
-              ),
-            ),
-            const SizedBox(height: 16),
-            Text(details, style: const TextStyle(fontSize: 14, color: Colors.grey)),
-          ],
+              const SizedBox(height: 20),
+              buildDetailsList(),
+            ],
+          ),
         ),
         actions: [
           TextButton(
