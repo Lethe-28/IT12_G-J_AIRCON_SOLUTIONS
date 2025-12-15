@@ -24,7 +24,7 @@ class _AirconsScreenState extends State<AirconsScreen> {
 
   // Filter State
   String _searchQuery = '';
-  int? _filterCustomerId;
+  int? _filterTypeId; // CHANGED: Now filtering by Type ID
 
   @override
   void initState() {
@@ -41,10 +41,10 @@ class _AirconsScreenState extends State<AirconsScreen> {
           .select(
             '*, brands(brand_name), aircon_types(type_name), customers(first_name, last_name, company_name)',
           )
-          .eq('is_active', true) // <--- ONLY SHOW ACTIVE UNITS
+          .eq('is_active', true)
           .order('id', ascending: false);
 
-      // 2. Fetch Reference Data for Filters/Dialogs
+      // 2. Fetch Reference Data
       final brandsRes = await _supabase
           .from('brands')
           .select()
@@ -56,7 +56,7 @@ class _AirconsScreenState extends State<AirconsScreen> {
       final custRes = await _supabase
           .from('customers')
           .select('id, first_name, last_name, company_name')
-          .eq('is_active', true) // Only show active customers in dropdown
+          .eq('is_active', true)
           .order('last_name');
 
       final List<AirconUnit> loaded = [];
@@ -114,7 +114,7 @@ class _AirconsScreenState extends State<AirconsScreen> {
     }
   }
 
-  // --- CHANGED: DELETE IS NOW ARCHIVE ---
+  // --- ARCHIVE LOGIC ---
   Future<void> _onArchive(AirconUnit unit) async {
     final confirmed = await showDialog<bool>(
       context: context,
@@ -140,16 +140,13 @@ class _AirconsScreenState extends State<AirconsScreen> {
 
     if (confirmed == true) {
       try {
-        // Soft delete
         await _supabase
             .from('aircons')
             .update({'is_active': false})
             .eq('id', unit.id);
-
         setState(() {
           _aircons.removeWhere((a) => a.id == unit.id);
         });
-
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
@@ -171,17 +168,16 @@ class _AirconsScreenState extends State<AirconsScreen> {
     }
   }
 
+  // --- FILTER LOGIC ---
   List<AirconUnit> get _filteredAircons {
     var filtered = _aircons;
 
-    // Filter by Customer Dropdown
-    if (_filterCustomerId != null) {
-      filtered = filtered
-          .where((a) => a.customerId == _filterCustomerId)
-          .toList();
+    // CHANGED: Filter by Type ID instead of Customer ID
+    if (_filterTypeId != null) {
+      filtered = filtered.where((a) => a.typeId == _filterTypeId).toList();
     }
 
-    // Filter by Search Text
+    // Filter by Search Text (Brand, Customer, Remarks)
     if (_searchQuery.isNotEmpty) {
       final q = _searchQuery.toLowerCase();
       filtered = filtered.where((a) {
@@ -195,21 +191,13 @@ class _AirconsScreenState extends State<AirconsScreen> {
     return filtered;
   }
 
-  String _formatCustomerName(Map<String, dynamic> c) {
-    if (c['company_name'] != null && c['company_name'].toString().isNotEmpty) {
-      return c['company_name'];
-    }
-    return "${c['first_name']} ${c['last_name']}".trim();
-  }
-
   @override
   Widget build(BuildContext context) {
     final filteredList = _filteredAircons;
     final isMobileView = MediaQuery.of(context).size.width < 800;
 
     return AppShell(
-      selectedIndex: 7, // 7 = Aircons Tab
-      // Pass FAB to Shell
+      selectedIndex: 7,
       floatingActionButton: isMobileView
           ? FloatingActionButton(
               onPressed: () => _onAddOrEdit(),
@@ -270,6 +258,7 @@ class _AirconsScreenState extends State<AirconsScreen> {
                   // Filter Row
                   Row(
                     children: [
+                      // SEARCH FIELD
                       Expanded(
                         flex: 2,
                         child: TextField(
@@ -291,6 +280,8 @@ class _AirconsScreenState extends State<AirconsScreen> {
                         ),
                       ),
                       const SizedBox(width: 12),
+
+                      // TYPE DROPDOWN (Replaced Customer Dropdown)
                       Expanded(
                         flex: 1,
                         child: Container(
@@ -301,26 +292,27 @@ class _AirconsScreenState extends State<AirconsScreen> {
                           ),
                           child: DropdownButtonHideUnderline(
                             child: DropdownButton<int?>(
-                              value: _filterCustomerId,
-                              hint: const Text("All Customers"),
+                              value: _filterTypeId,
+                              hint: const Text("All Types"),
                               isExpanded: true,
                               items: [
                                 const DropdownMenuItem(
                                   value: null,
-                                  child: Text("All Customers"),
+                                  child: Text("All Types"),
                                 ),
-                                ..._customers.map(
-                                  (c) => DropdownMenuItem(
-                                    value: c['id'] as int,
+                                // Map Types from DB to Dropdown Items
+                                ..._types.map(
+                                  (t) => DropdownMenuItem(
+                                    value: t['id'] as int,
                                     child: Text(
-                                      _formatCustomerName(c),
+                                      t['type_name'],
                                       overflow: TextOverflow.ellipsis,
                                     ),
                                   ),
                                 ),
                               ],
                               onChanged: (v) =>
-                                  setState(() => _filterCustomerId = v),
+                                  setState(() => _filterTypeId = v),
                             ),
                           ),
                         ),
@@ -824,245 +816,246 @@ class _AirconDialogState extends State<_AirconDialog> {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      constraints: BoxConstraints(
-        maxHeight: MediaQuery.of(context).size.height * 0.9,
-      ),
-      decoration: const BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      child: Column(
-        children: [
-          // Header
-          Container(
-            padding: const EdgeInsets.all(20),
-            decoration: const BoxDecoration(
-              border: Border(bottom: BorderSide(color: Color(0xFFE2E8F0))),
-            ),
-            child: Row(
-              children: [
-                const Icon(Icons.ac_unit, color: Colors.purple),
-                const SizedBox(width: 12),
-                Text(
-                  widget.unit == null ? 'Add Unit' : 'Edit Unit',
-                  style: const TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-                const Spacer(),
-                IconButton(
-                  onPressed: () => Navigator.pop(context),
-                  icon: const Icon(Icons.close),
-                ),
-              ],
-            ),
-          ),
+    final isMobile = MediaQuery.of(context).size.width < 600;
+    // 1. KEYBOARD HEIGHT
+    final bottomPadding = MediaQuery.of(context).viewInsets.bottom;
 
-          // Form
-          Expanded(
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.all(24),
-              child: Form(
-                key: _formKey,
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    // CUSTOMER: SEARCH & SELECT (Autocomplete)
-                    Autocomplete<Map<String, dynamic>>(
-                      initialValue: TextEditingValue(
-                        text:
-                            _selectedCustId != null &&
-                                _findCustomerById(_selectedCustId!) != null
-                            ? _custName(_findCustomerById(_selectedCustId!)!)
-                            : '',
-                      ),
-                      optionsBuilder: (TextEditingValue textEditingValue) {
-                        if (textEditingValue.text.isEmpty) {
-                          // Option: Return empty to force typing, or return all.
-                          // Returning empty is cleaner for large lists.
-                          return const Iterable<Map<String, dynamic>>.empty();
-                        }
-                        return widget.customers.where((
-                          Map<String, dynamic> option,
-                        ) {
-                          return _custName(option).toLowerCase().contains(
-                            textEditingValue.text.toLowerCase(),
-                          );
-                        });
-                      },
-                      displayStringForOption: _custName,
-                      onSelected: (Map<String, dynamic> selection) {
-                        setState(() {
-                          _selectedCustId = selection['id'];
-                        });
-                      },
-                      fieldViewBuilder:
-                          (
-                            context,
-                            textEditingController,
-                            focusNode,
-                            onFieldSubmitted,
-                          ) {
-                            return TextFormField(
-                              controller: textEditingController,
-                              focusNode: focusNode,
-                              // FIX: Consistent Styling
-                              decoration: _inputDeco(
-                                'Owner / Customer (Search)',
-                                Icons.person_search,
-                                isRequired: true,
-                              ),
-                              validator: (val) {
-                                if (_selectedCustId == null) {
-                                  return 'You must select a customer from the list';
-                                }
-                                return null;
-                              },
-                              // FIX: Reset selection if user changes text
-                              onChanged: (text) {
-                                if (_selectedCustId != null) {
-                                  setState(() {
-                                    _selectedCustId = null;
-                                  });
-                                }
-                              },
-                            );
-                          },
+    return Padding(
+      // 2. PUSH UP
+      padding: EdgeInsets.only(bottom: bottomPadding),
+      child: Container(
+        constraints: BoxConstraints(
+          maxHeight: MediaQuery.of(context).size.height * 0.9,
+        ),
+        decoration: const BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min, // Shrink to fit content
+          children: [
+            // --- HEADER ---
+            Container(
+              padding: EdgeInsets.all(isMobile ? 16 : 20),
+              decoration: const BoxDecoration(
+                border: Border(bottom: BorderSide(color: Color(0xFFE2E8F0))),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.ac_unit, color: Colors.purple),
+                  const SizedBox(width: 12),
+                  Text(
+                    widget.unit == null ? 'Add Unit' : 'Edit Unit',
+                    style: const TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
                     ),
+                  ),
+                  const Spacer(),
+                  IconButton(
+                    onPressed: () => Navigator.pop(context),
+                    icon: const Icon(Icons.close),
+                  ),
+                ],
+              ),
+            ),
 
-                    const SizedBox(height: 16),
-                    Row(
-                      children: [
-                        // BRAND: Autocomplete (Type to add new)
-                        Expanded(
-                          child: LayoutBuilder(
-                            builder: (context, constraints) {
-                              return Autocomplete<String>(
-                                initialValue: TextEditingValue(
-                                  text: _brandName,
+            // --- SCROLLABLE FORM ---
+            Expanded(
+              child: SingleChildScrollView(
+                padding: EdgeInsets.all(isMobile ? 16 : 24),
+                child: Form(
+                  key: _formKey,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      // CUSTOMER SEARCH
+                      Autocomplete<Map<String, dynamic>>(
+                        initialValue: TextEditingValue(
+                          text:
+                              _selectedCustId != null &&
+                                  _findCustomerById(_selectedCustId!) != null
+                              ? _custName(_findCustomerById(_selectedCustId!)!)
+                              : '',
+                        ),
+                        optionsBuilder: (TextEditingValue textEditingValue) {
+                          if (textEditingValue.text.isEmpty) {
+                            return const Iterable<Map<String, dynamic>>.empty();
+                          }
+                          return widget.customers.where((
+                            Map<String, dynamic> option,
+                          ) {
+                            return _custName(option).toLowerCase().contains(
+                              textEditingValue.text.toLowerCase(),
+                            );
+                          });
+                        },
+                        displayStringForOption: _custName,
+                        onSelected: (Map<String, dynamic> selection) {
+                          setState(() {
+                            _selectedCustId = selection['id'];
+                          });
+                        },
+                        fieldViewBuilder:
+                            (
+                              context,
+                              textEditingController,
+                              focusNode,
+                              onFieldSubmitted,
+                            ) {
+                              return TextFormField(
+                                controller: textEditingController,
+                                focusNode: focusNode,
+                                decoration: _inputDeco(
+                                  'Owner / Customer (Search)',
+                                  Icons.person_search,
+                                  isRequired: true,
                                 ),
-                                optionsBuilder: (v) {
-                                  if (v.text.isEmpty)
-                                    return const Iterable<String>.empty();
-                                  return widget.brands
-                                      .map((b) => b['brand_name'] as String)
-                                      .where(
-                                        (name) => name.toLowerCase().contains(
-                                          v.text.toLowerCase(),
-                                        ),
-                                      );
+                                validator: (val) {
+                                  if (_selectedCustId == null)
+                                    return 'You must select a customer from the list';
+                                  return null;
                                 },
-                                onSelected: (val) => _brandName = val,
-                                fieldViewBuilder: (ctx, ctrl, focus, submit) {
-                                  ctrl.addListener(
-                                    () => _brandName = ctrl.text,
-                                  );
-                                  return TextFormField(
-                                    controller: ctrl,
-                                    focusNode: focus,
-                                    // FIX: Consistent Styling
-                                    decoration: _inputDeco(
-                                      'Brand (Type new to create)',
-                                      null,
-                                      isRequired: true,
-                                    ),
-                                    validator: (v) =>
-                                        v!.isEmpty ? 'Required' : null,
-                                  );
+                                onChanged: (text) {
+                                  if (_selectedCustId != null)
+                                    setState(() => _selectedCustId = null);
                                 },
                               );
                             },
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        // TYPE: Dropdown with Add Button
-                        Expanded(
-                          child: Row(
-                            children: [
-                              Expanded(
-                                child: DropdownButtonFormField<int>(
-                                  value: _selectedTypeId,
-                                  isExpanded: true,
-                                  // FIX: Consistent Styling
-                                  decoration: _inputDeco(
-                                    'Type',
-                                    null,
-                                    isRequired: true,
-                                  ),
-                                  items: widget.types
-                                      .map(
-                                        (t) => DropdownMenuItem(
-                                          value: t['id'] as int,
-                                          child: Text(t['type_name']),
-                                        ),
-                                      )
-                                      .toList(),
-                                  onChanged: (v) =>
-                                      setState(() => _selectedTypeId = v),
-                                  validator: (v) =>
-                                      v == null ? 'Required' : null,
-                                ),
-                              ),
-                              IconButton(
-                                onPressed: _addNewType,
-                                icon: const Icon(
-                                  Icons.add_circle_outline,
-                                  color: Colors.blue,
-                                ),
-                                tooltip: "Add New Type",
-                              ),
-                            ],
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 16),
-                    TextFormField(
-                      controller: _remarksCtrl,
-                      // FIX: Consistent Styling (Optional = no isRequired flag)
-                      decoration: _inputDeco('Location / Remarks', null),
-                      maxLines: 3,
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
+                      ),
 
-          // Footer
-          Container(
-            padding: const EdgeInsets.all(24),
-            decoration: const BoxDecoration(
-              border: Border(top: BorderSide(color: Color(0xFFE2E8F0))),
-            ),
-            child: SizedBox(
-              width: double.infinity,
-              child: ElevatedButton(
-                onPressed: _isSubmitting ? null : _submit,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.purple,
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(vertical: 16),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
+                      const SizedBox(height: 16),
+
+                      Row(
+                        children: [
+                          // BRAND
+                          Expanded(
+                            child: LayoutBuilder(
+                              builder: (context, constraints) {
+                                return Autocomplete<String>(
+                                  initialValue: TextEditingValue(
+                                    text: _brandName,
+                                  ),
+                                  optionsBuilder: (v) {
+                                    if (v.text.isEmpty)
+                                      return const Iterable<String>.empty();
+                                    return widget.brands
+                                        .map((b) => b['brand_name'] as String)
+                                        .where(
+                                          (name) => name.toLowerCase().contains(
+                                            v.text.toLowerCase(),
+                                          ),
+                                        );
+                                  },
+                                  onSelected: (val) => _brandName = val,
+                                  fieldViewBuilder: (ctx, ctrl, focus, submit) {
+                                    ctrl.addListener(
+                                      () => _brandName = ctrl.text,
+                                    );
+                                    return TextFormField(
+                                      controller: ctrl,
+                                      focusNode: focus,
+                                      decoration: _inputDeco(
+                                        'Brand (Type to create)',
+                                        null,
+                                        isRequired: true,
+                                      ),
+                                      validator: (v) =>
+                                          v!.isEmpty ? 'Required' : null,
+                                    );
+                                  },
+                                );
+                              },
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          // TYPE
+                          Expanded(
+                            child: Row(
+                              children: [
+                                Expanded(
+                                  child: DropdownButtonFormField<int>(
+                                    value: _selectedTypeId,
+                                    isExpanded: true,
+                                    decoration: _inputDeco(
+                                      'Type',
+                                      null,
+                                      isRequired: true,
+                                    ),
+                                    items: widget.types
+                                        .map(
+                                          (t) => DropdownMenuItem(
+                                            value: t['id'] as int,
+                                            child: Text(t['type_name']),
+                                          ),
+                                        )
+                                        .toList(),
+                                    onChanged: (v) =>
+                                        setState(() => _selectedTypeId = v),
+                                    validator: (v) =>
+                                        v == null ? 'Required' : null,
+                                  ),
+                                ),
+                                IconButton(
+                                  onPressed: _addNewType,
+                                  icon: const Icon(
+                                    Icons.add_circle_outline,
+                                    color: Colors.blue,
+                                  ),
+                                  tooltip: "Add New Type",
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 16),
+
+                      TextFormField(
+                        controller: _remarksCtrl,
+                        decoration: _inputDeco('Location / Remarks', null),
+                        maxLines: 3,
+                      ),
+                    ],
                   ),
                 ),
-                child: _isSubmitting
-                    ? const SizedBox(
-                        height: 20,
-                        width: 20,
-                        child: CircularProgressIndicator(
-                          color: Colors.white,
-                          strokeWidth: 2,
-                        ),
-                      )
-                    : Text(widget.unit == null ? 'Save Unit' : 'Update Unit'),
               ),
             ),
-          ),
-        ],
+
+            // --- FOOTER ---
+            Container(
+              padding: EdgeInsets.all(isMobile ? 16 : 24),
+              decoration: const BoxDecoration(
+                color: Colors.white,
+                border: Border(top: BorderSide(color: Color(0xFFE2E8F0))),
+              ),
+              child: SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  onPressed: _isSubmitting ? null : _submit,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.purple,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 16),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                  child: _isSubmitting
+                      ? const SizedBox(
+                          height: 20,
+                          width: 20,
+                          child: CircularProgressIndicator(
+                            color: Colors.white,
+                            strokeWidth: 2,
+                          ),
+                        )
+                      : Text(widget.unit == null ? 'Save Unit' : 'Update Unit'),
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
