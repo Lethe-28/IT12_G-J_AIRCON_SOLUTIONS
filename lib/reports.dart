@@ -16,6 +16,16 @@ class ReportsScreen extends StatefulWidget {
 
 enum _ReportRange { today, weekly, monthly, last6Months, yearly }
 
+class _TimeBucket {
+  final String label;
+  final DateTime start;
+  final DateTime end;
+
+  const _TimeBucket({required this.label, required this.start, required this.end});
+
+  bool contains(DateTime date) => !date.isBefore(start) && date.isBefore(end);
+}
+
 class _ReportsScreenState extends State<ReportsScreen> {
   _ReportRange _selectedRange = _ReportRange.monthly;
   
@@ -60,6 +70,8 @@ class _ReportsScreenState extends State<ReportsScreen> {
           break;
       }
 
+      final buckets = _buildBuckets(startDate, endDate, now);
+
       final startStr = startDate.toIso8601String();
       final endStr = endDate.toIso8601String();
 
@@ -93,23 +105,19 @@ class _ReportsScreenState extends State<ReportsScreen> {
       int repairs = 0;
       int completedJobs = 0;
 
-      Map<String, _ChartDataPoint> serviceMap = {};
-      Map<String, _FinancialChartPoint> financialMap = {};
+      Map<String, _ChartDataPoint> serviceMap = {
+        for (final bucket in buckets)
+          bucket.label: _ChartDataPoint(label: bucket.label, installations: 0, maintenance: 0, repairs: 0),
+      };
+      Map<String, _FinancialChartPoint> financialMap = {
+        for (final bucket in buckets)
+          bucket.label: _FinancialChartPoint(label: bucket.label, income: 0, expense: 0),
+      };
       Map<int, _TopCustomer> customerAggMap = {};
       
       // For Business Insights
       Map<String, int> jobTypeCounts = {};
       Map<String, int> dayCounts = {};
-
-      String getKey(DateTime date) {
-        if (_selectedRange == _ReportRange.today || _selectedRange == _ReportRange.weekly) {
-          return DateFormat('EEE').format(date);
-        } else if (_selectedRange == _ReportRange.monthly) {
-          return DateFormat('dd').format(date);
-        } else {
-          return DateFormat('MMM').format(date);
-        }
-      }
 
       for (var job in jobsResponse) {
         final typeName = (job['job_types']?['job_type_name'] ?? 'Unknown').toString();
@@ -131,14 +139,12 @@ class _ReportsScreenState extends State<ReportsScreen> {
         final dayName = DateFormat('EEEE').format(date);
         dayCounts[dayName] = (dayCounts[dayName] ?? 0) + 1;
 
-        final key = getKey(date);
-
-        if (!serviceMap.containsKey(key)) {
-          serviceMap[key] = _ChartDataPoint(label: key, installations: 0, maintenance: 0, repairs: 0);
+        final bucketLabel = _bucketLabelFor(date, buckets);
+        if (bucketLabel != null) {
+          if (typeKey.contains('install')) serviceMap[bucketLabel]!.installations++;
+          else if (typeKey.contains('maintenance') || typeKey.contains('clean')) serviceMap[bucketLabel]!.maintenance++;
+          else if (typeKey.contains('repair')) serviceMap[bucketLabel]!.repairs++;
         }
-        if (typeKey.contains('install')) serviceMap[key]!.installations++;
-        else if (typeKey.contains('maintenance') || typeKey.contains('clean')) serviceMap[key]!.maintenance++;
-        else if (typeKey.contains('repair')) serviceMap[key]!.repairs++;
 
         // Top Customers
         if (job['customer_id'] != null && job['customers'] != null) {
@@ -183,12 +189,10 @@ class _ReportsScreenState extends State<ReportsScreen> {
         final amount = (p['amount'] as num).toDouble();
         totalPayments += amount;
         final date = DateTime.parse(p['payment_date']);
-        final key = getKey(date);
-
-        if (!financialMap.containsKey(key)) {
-          financialMap[key] = _FinancialChartPoint(label: key, income: 0, expense: 0);
+        final bucketLabel = _bucketLabelFor(date, buckets);
+        if (bucketLabel != null) {
+          financialMap[bucketLabel]!.income += amount;
         }
-        financialMap[key]!.income += amount;
       }
 
       double totalExpenses = 0;
@@ -196,16 +200,14 @@ class _ReportsScreenState extends State<ReportsScreen> {
         final amount = (e['amount'] as num).toDouble();
         totalExpenses += amount;
         final date = DateTime.parse(e['date']);
-        final key = getKey(date);
-
-        if (!financialMap.containsKey(key)) {
-          financialMap[key] = _FinancialChartPoint(label: key, income: 0, expense: 0);
+        final bucketLabel = _bucketLabelFor(date, buckets);
+        if (bucketLabel != null) {
+          financialMap[bucketLabel]!.expense += amount;
         }
-        financialMap[key]!.expense += amount;
       }
 
-      _serviceChartData = serviceMap.values.toList();
-      _financialChartData = financialMap.values.toList();
+      _serviceChartData = buckets.map((b) => serviceMap[b.label]!).toList();
+      _financialChartData = buckets.map((b) => financialMap[b.label]!).toList();
       
       _topCustomers = customerAggMap.values.toList()
         ..sort((a, b) => b.jobCount.compareTo(a.jobCount));
@@ -327,6 +329,12 @@ class _ReportsScreenState extends State<ReportsScreen> {
                       // Kpis
                       _buildKpiGrid(_reportData, mobile),
                       SizedBox(height: mobile ? 16 : 32),
+
+                      // Business Insights
+                      Text("Business Insights", style: AppTheme.heading2),
+                      const SizedBox(height: 12),
+                      _buildBusinessInsights(_reportData, mobile),
+                      SizedBox(height: mobile ? 16 : 32),
                       
                       // Charts (Moved to Top)
                       if (_selectedRange != _ReportRange.today) ...[
@@ -387,6 +395,60 @@ class _ReportsScreenState extends State<ReportsScreen> {
     _fetchReportData();
   }
 
+  List<_TimeBucket> _buildBuckets(DateTime startDate, DateTime endDate, DateTime now) {
+    switch (_selectedRange) {
+      case _ReportRange.today:
+        final start = DateTime(now.year, now.month, now.day);
+        final end = start.add(const Duration(days: 1));
+        return [
+          _TimeBucket(label: 'Today', start: start, end: end),
+        ];
+      case _ReportRange.weekly:
+        final monday = DateTime(startDate.year, startDate.month, startDate.day);
+        return List.generate(7, (i) {
+          final dayStart = monday.add(Duration(days: i));
+          final dayEnd = dayStart.add(const Duration(days: 1));
+          return _TimeBucket(label: DateFormat('EEE').format(dayStart), start: dayStart, end: dayEnd);
+        });
+      case _ReportRange.monthly:
+        final buckets = <_TimeBucket>[];
+        DateTime cursor = DateTime(startDate.year, startDate.month, startDate.day);
+        final monthEnd = DateTime(startDate.year, startDate.month + 1, 1);
+        int week = 1;
+        while (cursor.isBefore(monthEnd)) {
+          final next = cursor.add(const Duration(days: 7));
+          final bucketEnd = next.isAfter(monthEnd) ? monthEnd : next;
+          buckets.add(_TimeBucket(label: 'Week $week', start: cursor, end: bucketEnd));
+          cursor = bucketEnd;
+          week++;
+        }
+        return buckets;
+      case _ReportRange.last6Months:
+        final buckets = <_TimeBucket>[];
+        for (int i = 0; i < 6; i++) {
+          final monthStart = DateTime(startDate.year, startDate.month + i, 1);
+          final monthEnd = DateTime(monthStart.year, monthStart.month + 1, 1);
+          buckets.add(_TimeBucket(label: DateFormat('MMM').format(monthStart), start: monthStart, end: monthEnd));
+        }
+        return buckets;
+      case _ReportRange.yearly:
+        final buckets = <_TimeBucket>[];
+        for (int m = 1; m <= 12; m++) {
+          final monthStart = DateTime(startDate.year, m, 1);
+          final monthEnd = DateTime(startDate.year, m + 1, 1);
+          buckets.add(_TimeBucket(label: DateFormat('MMM').format(monthStart), start: monthStart, end: monthEnd));
+        }
+        return buckets;
+    }
+  }
+
+  String? _bucketLabelFor(DateTime date, List<_TimeBucket> buckets) {
+    for (final bucket in buckets) {
+      if (bucket.contains(date)) return bucket.label;
+    }
+    return null;
+  }
+
   Widget _buildKpiGrid(_ReportData report, bool mobile) {
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -428,6 +490,58 @@ class _ReportsScreenState extends State<ReportsScreen> {
               value: report.repairs.toString(),
               icon: Icons.build_circle_outlined,
               color: AppTheme.warning,
+              width: width,
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _buildBusinessInsights(_ReportData report, bool mobile) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        int crossAxisCount = 4;
+        if (constraints.maxWidth < 1200) crossAxisCount = 2;
+        if (mobile) crossAxisCount = 1;
+
+        final gap = mobile ? 12.0 : 24.0;
+        final width = crossAxisCount == 1 ? constraints.maxWidth : (constraints.maxWidth - (gap * (crossAxisCount - 1))) / crossAxisCount;
+
+        return Wrap(
+          spacing: gap,
+          runSpacing: gap,
+          children: [
+            _InsightCard(
+              title: 'Avg. Job Value',
+              value: report.avgJobValue,
+              icon: Icons.attach_money,
+              color: const Color(0xFF5C6BC0), // Indigo
+              backgroundColor: const Color(0xFFE8EAF6),
+              width: width,
+            ),
+            _InsightCard(
+              title: 'Completion Rate',
+              value: report.completionRate,
+              icon: Icons.check_circle_outline,
+              color: const Color(0xFF66BB6A), // Green
+              backgroundColor: const Color(0xFFE8F5E9),
+              width: width,
+            ),
+            _InsightCard(
+              title: 'Top Service',
+              value: report.topService,
+              icon: Icons.star_outline,
+              color: const Color(0xFFFFA726), // Orange
+              backgroundColor: const Color(0xFFFFF3E0),
+              width: width,
+            ),
+            _InsightCard(
+              title: 'Busiest Day',
+              value: report.busiestDay,
+              icon: Icons.calendar_today,
+              color: const Color(0xFFAB47BC), // Purple
+              backgroundColor: const Color(0xFFF3E5F5),
               width: width,
             ),
           ],
@@ -619,6 +733,67 @@ class _KpiCard extends StatelessWidget {
           ),
           const SizedBox(height: 4),
           Text(title, style: AppTheme.caption),
+        ],
+      ),
+    );
+  }
+}
+
+class _InsightCard extends StatelessWidget {
+  final String title;
+  final String value;
+  final IconData icon;
+  final Color color;
+  final Color backgroundColor;
+  final double width;
+
+  const _InsightCard({
+    required this.title,
+    required this.value,
+    required this.icon,
+    required this.color,
+    required this.backgroundColor,
+    required this.width,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: width,
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
+      decoration: BoxDecoration(
+        color: backgroundColor,
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Row(
+        children: [
+          Icon(icon, color: color, size: 32),
+          const SizedBox(width: 16),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  value,
+                  style: TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.bold,
+                    color: color,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  title,
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: color.withOpacity(0.8),
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ],
+            ),
+          ),
         ],
       ),
     );

@@ -203,6 +203,25 @@ class DashboardProvider extends ChangeNotifier {
         0,
         (sum, row) => sum + (row['amount'] ?? 0.0),
       );
+
+      // ADD: Fetch "Cash In" (General Income) from expenses table
+      var incomeQuery = supabase
+          .from('expenses')
+          .select('amount')
+          .eq('is_income', true);
+
+      if (startDate != null) {
+        incomeQuery = incomeQuery.gte('date', startDate.toIso8601String());
+      }
+      
+      final incomeResponse = await incomeQuery;
+      final incomeSum = incomeResponse.fold<double>(
+        0, 
+        (sum, row) => sum + (row['amount'] ?? 0.0)
+      );
+
+      _totalRevenue += incomeSum;
+
     } catch (e) {
       debugPrint('Error fetching total revenue: $e');
       _totalRevenue = 0.0;
@@ -233,7 +252,8 @@ class DashboardProvider extends ChangeNotifier {
           startDate = null; // All time
       }
 
-      var query = supabase.from('expenses').select('amount');
+      // FIX: Only fetch expenses where is_income IS NOT true (false or null)
+      var query = supabase.from('expenses').select('amount').neq('is_income', true);
 
       if (startDate != null) {
         query = query.gte('date', startDate.toIso8601String());
