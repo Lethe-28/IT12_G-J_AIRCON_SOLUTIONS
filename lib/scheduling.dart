@@ -2801,8 +2801,11 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
 
   // --- ONE BAR INPUTS ---
   final _fullNameController = TextEditingController();
+  final _contactPersonController = TextEditingController(); // <--- ADD THIS
   final _addressController =
       TextEditingController(); // Maps to address_complete
+  final _jobPositionController = TextEditingController(); // <--- ADD THIS
+  final _landmarkController = TextEditingController();
   final _phoneController = TextEditingController();
   final _emailController = TextEditingController();
 
@@ -3438,6 +3441,9 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
           'last_name': lastName,
           'company_name': companyName,
           'address_complete': _addressController.text.trim(),
+          'landmark': _landmarkController.text.trim().isEmpty
+              ? null
+              : _landmarkController.text.trim(), // <--- SAVES HERE
           'contact_number': _phoneController.text.trim(),
           'email': _emailController.text.trim().isEmpty
               ? null
@@ -4316,16 +4322,52 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
                     controller: _fullNameController,
                     hint: _customerType == 'Residential'
                         ? "Full Name (e.g. Juan Cruz)"
-                        : "Company Name / Contact Person",
-                    icon: Icons.person_outline,
+                        : "Company Name (e.g. Jollibee)",
+                    icon: _customerType == 'Residential'
+                        ? Icons.person_outline
+                        : Icons.business_outlined,
                     isRequired: true, // Red Asterisk
                   ),
+
+                  // --- 2. NEW: CONTACT PERSON (Commercial Only) ---
+                  if (_customerType != 'Residential') ...[
+                    const SizedBox(height: 12),
+                    Row(
+                      children: [
+                        Expanded(
+                          flex: 3,
+                          child: _SimpleInput(
+                            controller: _contactPersonController,
+                            hint: "Contact Person",
+                            icon: Icons.badge_outlined,
+                            isRequired: true,
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          flex: 2,
+                          child: _SimpleInput(
+                            controller: _jobPositionController,
+                            hint: "Job Position",
+                            icon: Icons.work_outline,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                  // ------------------------------------------------
                   const SizedBox(height: 12),
                   _SimpleInput(
                     controller: _addressController,
                     hint: "Complete Address (Unit, Street, Brgy, City)",
                     icon: Icons.location_on_outlined,
                     isRequired: true, // Red Asterisk
+                  ),
+                  const SizedBox(height: 12),
+                  _SimpleInput(
+                    controller: _landmarkController,
+                    hint: "Landmark / Instructions",
+                    icon: Icons.map_outlined,
                   ),
                   const SizedBox(height: 12),
                   Row(
