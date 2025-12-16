@@ -34,8 +34,6 @@ class ExpensesScreen extends StatefulWidget {
   State<ExpensesScreen> createState() => _ExpensesScreenState();
 }
 
-enum _ExpenseRange { today, weekly, monthly, last6Months, yearly }
-
 class _ExpensesScreenState extends State<ExpensesScreen> {
   bool _isLoading = true;
   final _supabase = Supabase.instance.client;
@@ -46,12 +44,12 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
 
   // FILTER STATE
   String _selectedFilter = 'All'; // All, Operational, Personal, Revenue/In
-  _ExpenseRange _selectedRange = _ExpenseRange.monthly;
+  // Removed range selector, default to daily
 
-  double _totalIn = 0;
-  double _totalOut = 0;
+  double _displayIn = 0;
+  double _displayOut = 0;
 
-  DateTime _selectedMonth = DateTime.now();
+  DateTime _selectedDate = DateTime.now();
 
   // PAGINATION STATE
   int _itemsPerPage = 10;
@@ -89,6 +87,8 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
         if (_selectedFilter == 'Expenses / Out') return txn.type == 'OUT'; // Added Filter
         if (_selectedFilter == 'Operational')
           return txn.category == 'Operational';
+        if (_selectedFilter == 'Petty Cash')
+          return txn.category == 'Petty Cash';
         if (_selectedFilter == 'Personal') return txn.category == 'Personal';
 
         return true;
@@ -96,18 +96,39 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
 
       // Reset to page 1 when filter changes
       _currentPage = 1;
+
+      // 3. Recalculate Totals based on Filter
+      double tempIn = 0;
+      double tempOut = 0;
+
+      for (var txn in _filteredTransactions) {
+        if (txn.type == 'IN') {
+           // Rule: Only count Personal Income if explicitly filtering for Personal
+           // Otherwise, "Cash In" means Business Revenue
+           if (txn.category == 'Personal') {
+             if (_selectedFilter == 'Personal') {
+               tempIn += txn.amount;
+             }
+           } else {
+             // Normal Business Revenue
+             tempIn += txn.amount;
+           }
+        } else {
+           // Expenses (OUT)
+           tempOut += txn.amount;
+        }
+      }
+      
+      _displayIn = tempIn;
+      _displayOut = tempOut;
+
       debugPrint(
         "Filtered transactions: ${_filteredTransactions.length} (from ${_allTransactions.length})",
       );
     });
   }
 
-  void _onRangeChanged(_ExpenseRange range) {
-    setState(() {
-      _selectedRange = range;
-    });
-    _fetchCashFlow();
-  }
+
 
   Future<void> _fetchCashFlow() async {
     setState(() => _isLoading = true);
@@ -180,7 +201,10 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
         final isIncome = e['is_income'] == true;
 
         if (isIncome) {
-          inSum += amt;
+          // FIX: Exclude 'Personal' income from "Cash In" (Revenue)
+          if (e['expense_type'] != 'Personal') {
+             inSum += amt;
+          }
         } else {
           outSum += amt;
         }
@@ -224,8 +248,7 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
       if (mounted) {
         setState(() {
           _allTransactions = loaded;
-          _totalIn = inSum;
-          _totalOut = outSum;
+          // Note: Initial totals are now handled by _onFilterChanged
         });
         debugPrint("Fetched ${loaded.length} transactions");
         _onFilterChanged(); // Apply filters immediately
@@ -245,38 +268,18 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
     }
   }
 
-  void _changeMonth(int offset) {
+  void _changeDate(int offset) {
     setState(() {
-      _selectedMonth = DateTime(
-        _selectedMonth.year,
-        _selectedMonth.month + offset,
-      );
+      _selectedDate = _selectedDate.add(Duration(days: offset));
     });
     _fetchCashFlow();
   }
 
   DateTimeRange _computeRange() {
-    final now = DateTime.now();
-    switch (_selectedRange) {
-      case _ExpenseRange.today:
-        final start = DateTime(now.year, now.month, now.day);
-        return DateTimeRange(start: start, end: start.add(const Duration(days: 1)));
-      case _ExpenseRange.weekly:
-        final monday = DateTime(now.year, now.month, now.day).subtract(Duration(days: now.weekday - 1));
-        return DateTimeRange(start: monday, end: monday.add(const Duration(days: 7)));
-      case _ExpenseRange.monthly:
-        final start = DateTime(_selectedMonth.year, _selectedMonth.month, 1);
-        final end = DateTime(_selectedMonth.year, _selectedMonth.month + 1, 1);
-        return DateTimeRange(start: start, end: end);
-      case _ExpenseRange.last6Months:
-        final start = DateTime(now.year, now.month - 5, 1);
-        final end = DateTime(now.year, now.month + 1, 1);
-        return DateTimeRange(start: start, end: end);
-      case _ExpenseRange.yearly:
-        final start = DateTime(now.year, 1, 1);
-        final end = DateTime(now.year + 1, 1, 1);
-        return DateTimeRange(start: start, end: end);
-    }
+    // Fixed: Always Daily
+    final start = DateTime(_selectedDate.year, _selectedDate.month, _selectedDate.day);
+    final end = start.add(const Duration(days: 1));
+    return DateTimeRange(start: start, end: end);
   }
 
   // Pagination Helpers
@@ -300,7 +303,7 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final netCash = _totalIn - _totalOut;
+    final netCash = _displayIn - _displayOut;
 
     return AppShell(
       selectedIndex: 2,
@@ -332,13 +335,13 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
                           children: [
                             IconButton(
                               icon: const Icon(Icons.chevron_left, size: 20),
-                              onPressed: () => _changeMonth(-1),
+                              onPressed: () => _changeDate(-1),
                               padding: EdgeInsets.zero,
                               constraints: const BoxConstraints(),
                             ),
                             const SizedBox(width: 8),
                             Text(
-                              _formatMonthYear(_selectedMonth),
+                              _formatDate(_selectedDate),
                               style: const TextStyle(
                                 fontSize: 16,
                                 fontWeight: FontWeight.bold,
@@ -348,7 +351,7 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
                             const SizedBox(width: 8),
                             IconButton(
                               icon: const Icon(Icons.chevron_right, size: 20),
-                              onPressed: () => _changeMonth(1),
+                              onPressed: () => _changeDate(1),
                               padding: EdgeInsets.zero,
                               constraints: const BoxConstraints(),
                             ),
@@ -393,8 +396,8 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
                         SizedBox(
                           width: 115,
                           child: _SummaryCard(
-                            label: "Cash In",
-                            amount: _totalIn,
+                            label: _selectedFilter == 'Personal' ? "Personal In" : "Cash In",
+                            amount: _displayIn,
                             color: Colors.green.shade600,
                             icon: Icons.arrow_downward,
                             onTap: () {
@@ -409,8 +412,8 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
                         SizedBox(
                           width: 115,
                           child: _SummaryCard(
-                            label: "Cash Out",
-                            amount: _totalOut,
+                            label: _selectedFilter == 'Personal' ? "Personal Out" : "Cash Out",
+                            amount: _displayOut,
                             color: Colors.red.shade600,
                             icon: Icons.arrow_upward,
                             onTap: () {
@@ -439,9 +442,9 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
                                   content: Column(
                                     mainAxisSize: MainAxisSize.min,
                                     children: [
-                                      _buildBreakdownRow("Total Cash In", _totalIn, Colors.green),
+                                      _buildBreakdownRow("Total Cash In", _displayIn, Colors.green),
                                       const SizedBox(height: 8),
-                                      _buildBreakdownRow("Total Cash Out", _totalOut, Colors.red),
+                                      _buildBreakdownRow("Total Cash Out", _displayOut, Colors.red),
                                       const Divider(),
                                       _buildBreakdownRow("Net Cash", netCash, Colors.blue, isBold: true),
                                     ],
@@ -504,42 +507,7 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
                           ),
                         ),
                       ),
-                      const SizedBox(width: 12),
-                      // Range Dropdown
-                      Container(
-                        height: 48,
-                        padding: const EdgeInsets.symmetric(horizontal: 14),
-                        decoration: BoxDecoration(
-                          border: Border.all(color: Colors.grey.shade300),
-                          borderRadius: BorderRadius.circular(12),
-                          color: Colors.white,
-                        ),
-                        child: DropdownButton<_ExpenseRange>(
-                          value: _selectedRange,
-                          underline: const SizedBox.shrink(),
-                          icon: Icon(
-                            Icons.arrow_drop_down,
-                            color: Colors.grey.shade700,
-                          ),
-                          style: const TextStyle(
-                            color: Colors.black87,
-                            fontSize: 14,
-                            fontWeight: FontWeight.w500,
-                          ),
-                          items: const [
-                            DropdownMenuItem(value: _ExpenseRange.today, child: Text('Today')),
-                            DropdownMenuItem(value: _ExpenseRange.weekly, child: Text('Weekly')),
-                            DropdownMenuItem(value: _ExpenseRange.monthly, child: Text('Monthly')),
-                            DropdownMenuItem(value: _ExpenseRange.last6Months, child: Text('Last 6 Months')),
-                            DropdownMenuItem(value: _ExpenseRange.yearly, child: Text('Yearly')),
-                          ],
-                          onChanged: (val) {
-                            if (val != null) {
-                              _onRangeChanged(val);
-                            }
-                          },
-                        ),
-                      ),
+
                       const SizedBox(width: 12),
                       // Filter Dropdown
                       Container(
@@ -563,7 +531,7 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
                             fontWeight: FontWeight.w500,
                           ),
                           items:
-                              ['All', 'Revenue / In', 'Expenses / Out', 'Operational', 'Personal']
+                              ['All', 'Revenue / In', 'Expenses / Out', 'Operational', 'Petty Cash', 'Personal']
                                   .map(
                                     (filter) => DropdownMenuItem(
                                       value: filter,
@@ -772,22 +740,12 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
     );
   }
 
-  String _formatMonthYear(DateTime date) {
+  String _formatDate(DateTime date) {
     const months = [
-      "Jan",
-      "Feb",
-      "Mar",
-      "Apr",
-      "May",
-      "Jun",
-      "Jul",
-      "Aug",
-      "Sep",
-      "Oct",
-      "Nov",
-      "Dec",
+      "Jan", "Feb", "Mar", "Apr", "May", "Jun", 
+      "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
     ];
-    return "${months[date.month - 1]} ${date.year}";
+    return "${months[date.month - 1]} ${date.day}, ${date.year}";
   }
 
   Widget _buildBreakdownRow(String label, double amount, Color color, {bool isBold = false}) {
@@ -949,7 +907,9 @@ class _TransactionCard extends StatelessWidget {
                               ? Icons.home
                               : (isIncome
                                     ? Icons.attach_money
-                                    : Icons.shopping_bag),
+                                    : (txn.category == 'Petty Cash' 
+                                        ? Icons.monetization_on_outlined 
+                                        : Icons.shopping_bag)),
                           color: color,
                           size: 18,
                         ),
@@ -1111,7 +1071,7 @@ class _AddTransactionDialogState extends State<_AddTransactionDialog> {
         'expense_type': _category,
         'is_income': _isIncome,
         'user_id': Supabase.instance.client.auth.currentUser?.id,
-        'job_order_id': (_category == 'Operational' && !_isIncome)
+        'job_order_id': ((_category == 'Operational' || _category == 'Petty Cash') && !_isIncome)
             ? _selectedJobId
             : null,
       };
@@ -1210,31 +1170,42 @@ class _AddTransactionDialogState extends State<_AddTransactionDialog> {
               ),
               const SizedBox(height: 16),
 
-              // 2. Category Switcher (Only show if Money Out)
-              if (!_isIncome) ...[
-                Row(
-                  children: [
+              // 2. Category Switcher (Now available for BOTH In and Out)
+              const SizedBox(height: 16),
+              Row(
+                children: [
+                  Expanded(
+                    child: _CategoryChip(
+                      label: _isIncome ? "General" : "Operational",
+                      icon: Icons.business,
+                      isSelected: _category == (_isIncome ? 'General Income' : 'Operational'),
+                      onTap: () => setState(() => _category = _isIncome ? 'General Income' : 'Operational'),
+                    ),
+                  ),
+                  const SizedBox(width: 8), 
+                  // Petty Cash only for Expenses (Money Out)
+                  if (!_isIncome) ...[
                     Expanded(
                       child: _CategoryChip(
-                        label: "Operational",
-                        icon: Icons.business,
-                        isSelected: _category == 'Operational',
-                        onTap: () => setState(() => _category = 'Operational'),
+                        label: "Petty Cash",
+                        icon: Icons.monetization_on_outlined,
+                        isSelected: _category == 'Petty Cash',
+                        onTap: () => setState(() => _category = 'Petty Cash'),
                       ),
                     ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: _CategoryChip(
-                        label: "Personal",
-                        icon: Icons.home,
-                        isSelected: _category == 'Personal',
-                        onTap: () => setState(() => _category = 'Personal'),
-                      ),
-                    ),
+                    const SizedBox(width: 8), 
                   ],
-                ),
-                const SizedBox(height: 16),
-              ],
+                  Expanded(
+                    child: _CategoryChip(
+                      label: "Personal",
+                      icon: Icons.home,
+                      isSelected: _category == 'Personal',
+                      onTap: () => setState(() => _category = 'Personal'),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
 
               // 3. Name & Amount
               TextFormField(
@@ -1300,8 +1271,8 @@ class _AddTransactionDialogState extends State<_AddTransactionDialog> {
 
               const SizedBox(height: 12),
 
-              // 5. Smart Job Search (Only for Operational Expenses)
-              if (!_isIncome && _category == 'Operational') ...[
+              // 5. Smart Job Search (Only for Operational/Petty Cash Expenses)
+              if (!_isIncome && (_category == 'Operational' || _category == 'Petty Cash')) ...[
                 LayoutBuilder(
                   builder: (context, constraints) {
                     return Autocomplete<Map<String, dynamic>>(

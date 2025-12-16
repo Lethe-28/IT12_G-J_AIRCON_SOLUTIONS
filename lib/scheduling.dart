@@ -854,8 +854,10 @@ class _SchedulingScreenState extends State<SchedulingScreen> {
                   (j) => j.status == 'Completed' || j.status == 'Cancelled',
                 );
 
+            final isPast = DateUtils.isSameDay(currentDay, DateTime.now()) == false && currentDay.isBefore(DateTime.now());
+            
             return GestureDetector(
-              onTap: () {
+              onTap: isPast ? null : () {
                 // 1. Select the date visually
                 setState(() => _selectedDate = currentDay);
 
@@ -878,28 +880,31 @@ class _SchedulingScreenState extends State<SchedulingScreen> {
                       ? Border.all(color: AppTheme.primary)
                       : null,
                 ),
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Text(
-                      "$dayInt",
-                      style: TextStyle(
-                        fontWeight: FontWeight.bold,
-                        color: isSelected ? Colors.white : AppTheme.textPrimary,
-                      ),
-                    ),
-                    if (hasJobs) ...[
-                      const SizedBox(height: 4),
-                      Container(
-                        width: 6,
-                        height: 6,
-                        decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          color: isResolved ? Colors.green : AppTheme.warning,
+                child: Opacity( // Fade out past dates
+                  opacity: isPast ? 0.3 : 1.0,
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Text(
+                        "$dayInt",
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          color: isSelected ? Colors.white : AppTheme.textPrimary,
                         ),
                       ),
+                      if (hasJobs) ...[
+                        const SizedBox(height: 4),
+                        Container(
+                          width: 6,
+                          height: 6,
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            color: isResolved ? Colors.green : AppTheme.warning,
+                          ),
+                        ),
+                      ],
                     ],
-                  ],
+                  ),
                 ),
               ),
             );
@@ -3364,6 +3369,29 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
   // --- SUBMIT LOGIC (One Bar Parse) ---
   // --- SUBMIT LOGIC (With Duplicate Check) ---
   Future<void> _submit() async {
+    final scheduleDateTime = DateTime(
+        _scheduleDate.year,
+        _scheduleDate.month,
+        _scheduleDate.day,
+        _scheduleTime.hour,
+        _scheduleTime.minute,
+      );
+
+      // --- VALIDATION: PAST TIME CHECK ---
+      // We allow a small 1-minute buffer for "just now" clicks
+      if (widget.existingJob == null && scheduleDateTime.isBefore(DateTime.now().subtract(const Duration(minutes: 1)))) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text("Cannot schedule a job in the past. Please check the time."),
+            backgroundColor: Colors.red,
+          ),
+        );
+        setState(() => _isSubmitting = false);
+        return;
+      }
+      // -----------------------------------
+
     final hasConflict = await _checkScheduleConflict(
       _scheduleDate,
       _scheduleTime,
@@ -4581,10 +4609,12 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
                   leading: const Icon(Icons.calendar_month, color: Colors.blue),
                   title: Text("${_scheduleDate.toLocal()}".split(' ')[0]),
                   onTap: () async {
+                    final now = DateTime.now();
+                    final startOfToday = DateTime(now.year, now.month, now.day);
                     final d = await showDatePicker(
                       context: context,
                       initialDate: _scheduleDate,
-                      firstDate: DateTime(2020),
+                      firstDate: startOfToday, // Today at 00:00:00
                       lastDate: DateTime(2030),
                     );
                     if (d != null) setState(() => _scheduleDate = d);

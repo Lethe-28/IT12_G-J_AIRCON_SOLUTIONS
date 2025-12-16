@@ -109,10 +109,10 @@ class _ReportsScreenState extends State<ReportsScreen> {
           .gte('payment_date', startStr)
           .lte('payment_date', endStr);
 
-      // 3. Fetch Expenses
+      // 3. Fetch Expenses (and Income Records)
       final expensesResponse = await supabase
           .from('expenses')
-          .select('amount, date')
+          .select('amount, date, is_income, category')
           .gte('date', startStr)
           .lte('date', endStr);
 
@@ -246,11 +246,25 @@ class _ReportsScreenState extends State<ReportsScreen> {
       double totalExpenses = 0;
       for (var e in expensesResponse) {
         final amount = (e['amount'] as num).toDouble();
-        totalExpenses += amount;
+        final isIncome = e['is_income'] == true;
+        final category = e['category'];
         final date = DateTime.parse(e['date']);
         final bucketLabel = _bucketLabelFor(date, buckets);
-        if (bucketLabel != null) {
-          financialMap[bucketLabel]!.expense += amount;
+        
+        if (isIncome) {
+          // It's extra revenue (e.g. Scraps, Tips), but exclude Personal
+          if (category != 'Personal') {
+             totalPayments += amount; // Add to Revenue
+             if (bucketLabel != null) {
+               financialMap[bucketLabel]!.income += amount;
+             }
+          }
+        } else {
+          // It's a real expense
+          totalExpenses += amount;
+          if (bucketLabel != null) {
+            financialMap[bucketLabel]!.expense += amount;
+          }
         }
       }
 

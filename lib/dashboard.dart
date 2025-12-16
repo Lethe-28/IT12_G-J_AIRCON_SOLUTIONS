@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import 'data/app_state.dart';
 import 'data/dashboard_provider.dart';
 import 'ui_app_shell.dart';
@@ -20,6 +21,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   bool _isLoading = true;
   String _searchQuery = '';
   String _dateRange = 'Today'; // Today, Weekly, Monthly, Yearly
+  RealtimeChannel? _subscription;
 
   bool get _isServiceManager => AppState.currentRole == UserRole.serviceManager;
 
@@ -27,22 +29,60 @@ class _DashboardScreenState extends State<DashboardScreen> {
   void initState() {
     super.initState();
     _loadData();
+    _setupRealtimeSubscription();
 
     // Mark welcome as shown after the first build
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!AppState.hasShownWelcome) {
         AppState.hasShownWelcome = true;
-        // We don't need to setState here because the next rebuild (e.g. from navigation) will pick it up,
-        // or if we want it to change immediately we could, but usually "pop up" implies initial state.
-        // If the user wants it to disappear *while* looking at it, we'd need a timer or interaction.
-        // For now, "everytime the user login" implies session start.
-        // So next time they come to dashboard in this session, it will say "Dashboard".
       }
     });
   }
 
+  @override
+  void dispose() {
+    _subscription?.unsubscribe();
+    super.dispose();
+  }
+
+  void _setupRealtimeSubscription() {
+    final supabase = Supabase.instance.client;
+    // Listen to changes in key tables to auto-refresh the dashboard
+    _subscription = supabase.channel('dashboard_updates')
+      .onPostgresChanges(
+        event: PostgresChangeEvent.all,
+        schema: 'public',
+        table: 'job_orders',
+        callback: (payload) => _loadData(),
+      )
+      .onPostgresChanges(
+        event: PostgresChangeEvent.all,
+        schema: 'public',
+        table: 'expenses',
+        callback: (payload) => _loadData(),
+      )
+      .onPostgresChanges(
+        event: PostgresChangeEvent.all,
+        schema: 'public',
+        table: 'payments',
+        callback: (payload) => _loadData(),
+      )
+      .subscribe();
+  }
+
   Future<void> _loadData() async {
-    setState(() => _isLoading = true);
+    // Avoid setting loading to true on background refreshes if desired, 
+    // but here we keep it simple or maybe just don't set isLoading if it's a silent refresh?
+    // For now, let's just refresh. To avoid flickering, we can skip setting isLoading=true
+    // if we already have data.
+    
+    // Only show loader on first load
+    if (_dashboardProvider.todayJobs.isEmpty && _isLoading) {
+        // Keep _isLoading = true
+    } else {
+        // Silent refresh
+    }
+
     await _dashboardProvider.fetchDashboardData(dateRange: _dateRange);
     if (mounted) setState(() => _isLoading = false);
   }
@@ -432,97 +472,38 @@ class _DashboardScreenState extends State<DashboardScreen> {
                               ),
                             ),
                             const Spacer(),
-                            PopupMenuButton<String>(
-                              initialValue: _dateRange,
-                              onSelected: (value) {
-                                setState(() => _dateRange = value);
-                                _loadData();
-                              },
-                              offset: const Offset(0, 40),
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(8),
+                            const Spacer(),
+                            // Date Range Picker Removed - Enforced 'Today' view
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 12,
+                                vertical: 6,
                               ),
-                              itemBuilder: (context) => [
-                                const PopupMenuItem(
-                                  value: 'Today',
-                                  child: Row(
-                                    children: [
-                                      Icon(Icons.today, size: 18),
-                                      SizedBox(width: 12),
-                                      Text('Today'),
-                                    ],
+                              decoration: BoxDecoration(
+                                color: Colors.white,
+                                borderRadius: BorderRadius.circular(8),
+                                border: Border.all(
+                                  color: const Color(0xFFE2E8F0),
+                                ),
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  const Icon(
+                                    Icons.today, // Changed logic to strictly Today
+                                    size: 14,
+                                    color: Colors.black54,
                                   ),
-                                ),
-                                const PopupMenuItem(
-                                  value: 'Weekly',
-                                  child: Row(
-                                    children: [
-                                      Icon(Icons.date_range, size: 18),
-                                      SizedBox(width: 12),
-                                      Text('This Week'),
-                                    ],
-                                  ),
-                                ),
-                                const PopupMenuItem(
-                                  value: 'Monthly',
-                                  child: Row(
-                                    children: [
-                                      Icon(Icons.calendar_month, size: 18),
-                                      SizedBox(width: 12),
-                                      Text('This Month'),
-                                    ],
-                                  ),
-                                ),
-                                const PopupMenuItem(
-                                  value: 'Yearly',
-                                  child: Row(
-                                    children: [
-                                      Icon(Icons.calendar_today, size: 18),
-                                      SizedBox(width: 12),
-                                      Text('This Year'),
-                                    ],
-                                  ),
-                                ),
-                              ],
-                              child: Container(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 12,
-                                  vertical: 6,
-                                ),
-                                decoration: BoxDecoration(
-                                  color: Colors.white,
-                                  borderRadius: BorderRadius.circular(8),
-                                  border: Border.all(
-                                    color: const Color(0xFFE2E8F0),
-                                  ),
-                                ),
-                                child: Row(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    const Icon(
-                                      Icons.calendar_today,
-                                      size: 14,
+                                  const SizedBox(width: 8),
+                                  Text(
+                                    'Today',
+                                    style: TextStyle(
+                                      fontSize:titleFontSize * 0.7, // scaled relative to title
+                                      fontWeight: FontWeight.w600,
                                       color: Colors.black54,
                                     ),
-                                    const SizedBox(width: 8),
-                                    Text(
-                                      _dateRange,
-                                      style: TextStyle(
-                                        fontSize: _isServiceManager
-                                            ? 14.0
-                                            : 12.0,
-                                        fontWeight: FontWeight.w600,
-                                        color: Colors.black54,
-                                      ),
-                                    ),
-                                    const SizedBox(width: 4),
-                                    const Icon(
-                                      Icons.arrow_drop_down,
-                                      size: 18,
-                                      color: Colors.black54,
-                                    ),
-                                  ],
-                                ),
+                                  ),
+                                ],
                               ),
                             ),
                           ],

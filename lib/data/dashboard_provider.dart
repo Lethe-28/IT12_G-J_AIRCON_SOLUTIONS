@@ -208,7 +208,8 @@ class DashboardProvider extends ChangeNotifier {
       var incomeQuery = supabase
           .from('expenses')
           .select('amount')
-          .eq('is_income', true);
+          .eq('is_income', true)
+          .neq('category', 'Personal');
 
       if (startDate != null) {
         incomeQuery = incomeQuery.gte('date', startDate.toIso8601String());
