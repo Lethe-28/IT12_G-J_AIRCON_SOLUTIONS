@@ -861,6 +861,17 @@ class _CustomerDialogState extends State<_CustomerDialog> {
                       ),
                       const SizedBox(height: 12),
 
+                      if (isB2B) ...[
+                        TextFormField(
+                          controller: _jobCtrl,
+                          decoration: _inputDeco(
+                            'Job Position',
+                            Icons.work_outline,
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                      ],
+
                       TextFormField(
                         controller: _phoneCtrl,
                         decoration: _inputDeco(
@@ -874,6 +885,16 @@ class _CustomerDialogState extends State<_CustomerDialog> {
                       ),
 
                       const SizedBox(height: 24),
+
+                      // 5. Email Address (Added)
+                      TextFormField(
+                        controller: _emailCtrl,
+                        decoration: _inputDeco(
+                          'Email Address',
+                          Icons.email_outlined,
+                        ),
+                        keyboardType: TextInputType.emailAddress,
+                      ),
                       const Text(
                         'Location Details',
                         style: TextStyle(

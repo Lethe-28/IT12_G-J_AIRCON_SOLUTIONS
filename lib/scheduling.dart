@@ -3413,26 +3413,36 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
 
       // 1. CREATE CUSTOMER (Parsing "One Bar" Name)
       if (_isNewClient) {
-        String firstName = '-';
-        String lastName = '-';
+        String firstName = "";
+        String lastName = "";
         String? companyName;
+        String? jobPosition; // <--- VAR FOR JOB POSITION
 
-        final fullName = _fullNameController.text.trim();
+        final isCommercial = _customerType != 'Residential';
 
-        // A. Parse Name
-        if (_customerType == 'Commercial') {
-          companyName = fullName;
-          firstName = "Contact";
-          lastName = "Person";
-        } else {
-          List<String> parts = fullName.split(' ');
-          if (parts.isNotEmpty) {
+        if (isCommercial) {
+          // --- COMMERCIAL LOGIC ---
+          companyName = _fullNameController.text.trim();
+          jobPosition = _jobPositionController.text.trim(); // <--- CAPTURE IT
+
+          final rawContact = _contactPersonController.text.trim();
+          if (rawContact.isNotEmpty) {
+            final parts = rawContact.split(' ');
             firstName = parts.first;
-            if (parts.length > 1) {
-              lastName = parts.sublist(1).join(' ');
-            } else {
-              lastName = '';
-            }
+            lastName = parts.length > 1 ? parts.sublist(1).join(' ') : '';
+          } else {
+            firstName = "Contact";
+            lastName = "Person";
+          }
+        } else {
+          // --- RESIDENTIAL LOGIC ---
+          final rawName = _fullNameController.text.trim();
+          final nameParts = rawName.split(' ');
+          if (nameParts.isNotEmpty) {
+            firstName = nameParts.first;
+            lastName = nameParts.length > 1
+                ? nameParts.sublist(1).join(' ')
+                : '.';
           }
         }
 
