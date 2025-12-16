@@ -615,7 +615,7 @@ class _CustomerDialog extends StatefulWidget {
 class _CustomerDialogState extends State<_CustomerDialog> {
   final _formKey = GlobalKey<FormState>();
 
-  // Controllers
+  // Basic Info Controllers
   final _companyCtrl = TextEditingController();
   final _firstCtrl = TextEditingController();
   final _middleCtrl = TextEditingController();
@@ -624,15 +624,11 @@ class _CustomerDialogState extends State<_CustomerDialog> {
   final _phoneCtrl = TextEditingController();
   final _emailCtrl = TextEditingController();
 
-  // Address
-  final _unitCtrl = TextEditingController();
-  final _streetCtrl = TextEditingController();
-  final _villageCtrl = TextEditingController();
-  final _brgyCtrl = TextEditingController();
-  final _cityCtrl = TextEditingController();
-  final _landmarkCtrl = TextEditingController();
+  // Address Controllers
+  final _addressCtrl = TextEditingController(); // The new "Complete Address"
+  final _landmarkCtrl = TextEditingController(); // Restored Landmark
 
-  int _typeId = 2; // Default to B2C (2), B2B is (1)
+  int _typeId = 2; // Default to B2C (2)
   bool _isSubmitting = false;
 
   @override
@@ -648,180 +644,61 @@ class _CustomerDialogState extends State<_CustomerDialog> {
       _jobCtrl.text = c.jobPosition ?? '';
       _phoneCtrl.text = c.contactNumber;
       _emailCtrl.text = c.email ?? '';
-      _unitCtrl.text = c.unitNo ?? '';
-      _streetCtrl.text = c.street ?? '';
-      _villageCtrl.text = c.village ?? '';
-      _brgyCtrl.text = c.barangay ?? '';
-      _cityCtrl.text = c.city ?? '';
-      _landmarkCtrl.text = c.landmark ?? '';
+      _landmarkCtrl.text = c.landmark ?? ''; // Load Landmark
+
+      // --- SMART ADDRESS LOADING ---
+      if (c.addressComplete != null && c.addressComplete!.isNotEmpty) {
+        // 1. Prefer the new Complete Address if it exists
+        _addressCtrl.text = c.addressComplete!;
+      } else {
+        // 2. Fallback: Combine legacy fields (excluding landmark, since it has its own box)
+        final parts = [
+          c.unitNo,
+          c.street,
+          c.village,
+          c.barangay,
+          c.city,
+        ].where((s) => s != null && s.trim().isNotEmpty).join(', ');
+
+        _addressCtrl.text = parts;
+      }
     }
   }
 
   Future<void> _submit() async {
-    // 1. Basic Form Validation
     if (!_formKey.currentState!.validate()) return;
-
     setState(() => _isSubmitting = true);
-
-    // Prepare clean data variables
-    final typeId = _typeId;
-    final company = _companyCtrl.text.trim();
-    final first = _firstCtrl.text.trim();
-    final last = _lastCtrl.text.trim();
-    final phone = _phoneCtrl.text.trim();
 
     final supabase = Supabase.instance.client;
 
     try {
-      // 2. DUPLICATE CHECKING LOGIC (With Active/Inactive check)
-      Map<String, dynamic>? duplicate;
+      // --- PREPARE DATA ---
+      final data = {
+        'customer_type_id': _typeId,
+        'company_name': _companyCtrl.text.trim().isEmpty
+            ? null
+            : _companyCtrl.text.trim(),
+        'first_name': _firstCtrl.text.trim(),
+        'middle_name': _middleCtrl.text.trim().isEmpty
+            ? null
+            : _middleCtrl.text.trim(),
+        'last_name': _lastCtrl.text.trim(),
+        'job_position': _jobCtrl.text.trim().isEmpty
+            ? null
+            : _jobCtrl.text.trim(),
+        'contact_number': _phoneCtrl.text.trim(),
+        'email': _emailCtrl.text.trim().isEmpty ? null : _emailCtrl.text.trim(),
 
-      // Note: We SELECT 'is_active' to know if we can resurrect
-      if (typeId == 1) {
-        // --- B2B CHECK ---
-        // Check 1: Company Name
-        if (company.isNotEmpty) {
-          final res = await supabase
-              .from('customers')
-              .select('id, is_active, company_name') // Include is_active
-              .ilike('company_name', company)
-              .neq('id', widget.customer?.id ?? -1)
-              .limit(1)
-              .maybeSingle();
-          if (res != null) duplicate = res;
-        }
+        // --- SAVE ADDRESS & LANDMARK SEPARATELY ---
+        'address_complete': _addressCtrl.text.trim(),
+        'landmark': _landmarkCtrl.text.trim().isEmpty
+            ? null
+            : _landmarkCtrl.text.trim(),
 
-        // Check 2: Phone
-        if (duplicate == null && phone.isNotEmpty) {
-          final res = await supabase
-              .from('customers')
-              .select('id, is_active, company_name') // Include is_active
-              .eq('contact_number', phone)
-              .neq('id', widget.customer?.id ?? -1)
-              .limit(1)
-              .maybeSingle();
-          if (res != null) duplicate = res;
-        }
-      } else {
-        // --- B2C CHECK ---
-        // Check 1: Name Combination
-        final nameRes = await supabase
-            .from('customers')
-            .select('id, is_active, first_name, last_name') // Include is_active
-            .eq('customer_type_id', 2)
-            .ilike('first_name', first)
-            .ilike('last_name', last)
-            .neq('id', widget.customer?.id ?? -1)
-            .limit(1)
-            .maybeSingle();
-
-        if (nameRes != null) {
-          duplicate = nameRes;
-        } else if (phone.isNotEmpty) {
-          // Check 2: Phone Match
-          final phoneRes = await supabase
-              .from('customers')
-              .select(
-                'id, is_active, first_name, last_name',
-              ) // Include is_active
-              .eq('contact_number', phone)
-              .neq('id', widget.customer?.id ?? -1)
-              .limit(1)
-              .maybeSingle();
-          if (phoneRes != null) duplicate = phoneRes;
-        }
-      }
-
-      // 3. HANDLING DUPLICATES (Resurrection Logic)
-      if (duplicate != null) {
-        final bool isActive = duplicate['is_active'] ?? true;
-        final int duplicateId = duplicate['id'];
-
-        if (isActive) {
-          // CASE A: REAL DUPLICATE (Active User)
-          if (mounted) {
-            await showDialog(
-              context: context,
-              builder: (ctx) => AlertDialog(
-                title: const Row(
-                  children: [
-                    Icon(Icons.warning_amber_rounded, color: Colors.orange),
-                    SizedBox(width: 8),
-                    Text('Duplicate Found'),
-                  ],
-                ),
-                content: const Text(
-                  'A customer with this Name or Phone Number already exists and is active.',
-                ),
-                actions: [
-                  TextButton(
-                    onPressed: () => Navigator.pop(ctx),
-                    child: const Text('OK'),
-                  ),
-                ],
-              ),
-            );
-          }
-          setState(() => _isSubmitting = false);
-          return; // Stop.
-        } else {
-          // CASE B: RESURRECTION (Archived User)
-          bool restore = false;
-          if (mounted) {
-            restore =
-                await showDialog<bool>(
-                  context: context,
-                  builder: (ctx) => AlertDialog(
-                    title: const Text('Found in Archive'),
-                    content: const Text(
-                      'This customer exists but was archived. Would you like to restore their profile with these new details?',
-                    ),
-                    actions: [
-                      TextButton(
-                        onPressed: () => Navigator.pop(ctx, false),
-                        child: const Text('Cancel'),
-                      ),
-                      TextButton(
-                        onPressed: () => Navigator.pop(ctx, true),
-                        child: const Text('Restore Profile'),
-                      ),
-                    ],
-                  ),
-                ) ??
-                false;
-          }
-
-          if (!restore) {
-            setState(() => _isSubmitting = false);
-            return; // User cancelled
-          }
-
-          // Proceed to update the ARCHIVED record instead of inserting new
-          // We set widget.customer temporarily to null logic below handles updates if we had the ID,
-          // but here we have the duplicateId. We will execute the update explicitly here.
-
-          final data = _prepareData();
-          data['is_active'] = true; // REACTIVATE!
-
-          final response = await supabase
-              .from('customers')
-              .update(data)
-              .eq('id', duplicateId) // Update the old ghost record
-              .select('*, customer_types(type_name)')
-              .single();
-
-          if (mounted) Navigator.pop(context, Customer.fromMap(response));
-          return;
-        }
-      }
-
-      // 4. NORMAL INSERT / UPDATE (No Duplicates found)
-      final data = _prepareData();
-      // Ensure new records are active
-      data['is_active'] = true;
+        'is_active': true,
+      };
 
       if (widget.customer == null) {
-        // Insert
         final response = await supabase
             .from('customers')
             .insert(data)
@@ -829,7 +706,6 @@ class _CustomerDialogState extends State<_CustomerDialog> {
             .single();
         if (mounted) Navigator.pop(context, Customer.fromMap(response));
       } else {
-        // Update existing
         final response = await supabase
             .from('customers')
             .update(data)
@@ -839,67 +715,25 @@ class _CustomerDialogState extends State<_CustomerDialog> {
         if (mounted) Navigator.pop(context, Customer.fromMap(response));
       }
     } catch (e) {
-      if (mounted) {
-        showDialog(
-          context: context,
-          builder: (ctx) => AlertDialog(
-            title: const Text('System Error'),
-            content: Text('Failed to save record: $e'),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(ctx),
-                child: const Text('OK'),
-              ),
-            ],
-          ),
+      if (mounted)
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
         );
-      }
     } finally {
       if (mounted) setState(() => _isSubmitting = false);
     }
-  }
-
-  // Helper to bundle form data
-  Map<String, dynamic> _prepareData() {
-    return {
-      'customer_type_id': _typeId,
-      'company_name': _companyCtrl.text.trim().isEmpty
-          ? null
-          : _companyCtrl.text.trim(),
-      'first_name': _firstCtrl.text.trim(),
-      'middle_name': _middleCtrl.text.trim().isEmpty
-          ? null
-          : _middleCtrl.text.trim(),
-      'last_name': _lastCtrl.text.trim(),
-      'job_position': _jobCtrl.text.trim().isEmpty
-          ? null
-          : _jobCtrl.text.trim(),
-      'contact_number': _phoneCtrl.text.trim(),
-      'email': _emailCtrl.text.trim().isEmpty ? null : _emailCtrl.text.trim(),
-      'unit_building_house_no': _unitCtrl.text.trim(),
-      'street': _streetCtrl.text.trim(),
-      'subdivision_village': _villageCtrl.text.trim(),
-      'barangay': _brgyCtrl.text.trim(),
-      'city': _cityCtrl.text.trim(),
-      'landmark': _landmarkCtrl.text.trim().isEmpty
-          ? null
-          : _landmarkCtrl.text.trim(),
-    };
   }
 
   @override
   Widget build(BuildContext context) {
     final isB2B = _typeId == 1;
     final isMobile = MediaQuery.of(context).size.width < 600;
-    // 1. GET KEYBOARD HEIGHT
     final bottomPadding = MediaQuery.of(context).viewInsets.bottom;
 
     return Padding(
-      // 2. APPLY KEYBOARD PADDING TO THE BOTTOM SHEET
       padding: EdgeInsets.only(bottom: bottomPadding),
       child: Container(
         constraints: BoxConstraints(
-          // Limit height to 90% of screen to keep it looking like a sheet
           maxHeight: MediaQuery.of(context).size.height * 0.9,
         ),
         decoration: const BoxDecoration(
@@ -907,9 +741,9 @@ class _CustomerDialogState extends State<_CustomerDialog> {
           borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
         ),
         child: Column(
-          mainAxisSize: MainAxisSize.min, // Shrink to fit content if small
+          mainAxisSize: MainAxisSize.min,
           children: [
-            // --- HEADER (Fixed) ---
+            // --- HEADER ---
             Container(
               padding: EdgeInsets.all(isMobile ? 16 : 20),
               decoration: const BoxDecoration(
@@ -935,10 +769,9 @@ class _CustomerDialogState extends State<_CustomerDialog> {
               ),
             ),
 
-            // --- SCROLLABLE CONTENT (Flexible) ---
+            // --- SCROLLABLE CONTENT ---
             Expanded(
               child: SingleChildScrollView(
-                // Use tighter padding on mobile
                 padding: EdgeInsets.all(isMobile ? 16 : 24),
                 child: Form(
                   key: _formKey,
@@ -1028,17 +861,6 @@ class _CustomerDialogState extends State<_CustomerDialog> {
                       ),
                       const SizedBox(height: 12),
 
-                      if (isB2B) ...[
-                        TextFormField(
-                          controller: _jobCtrl,
-                          decoration: _inputDeco(
-                            'Job Position',
-                            Icons.badge_outlined,
-                          ),
-                        ),
-                        const SizedBox(height: 12),
-                      ],
-
                       TextFormField(
                         controller: _phoneCtrl,
                         decoration: _inputDeco(
@@ -1053,7 +875,7 @@ class _CustomerDialogState extends State<_CustomerDialog> {
 
                       const SizedBox(height: 24),
                       const Text(
-                        'Address',
+                        'Location Details',
                         style: TextStyle(
                           fontWeight: FontWeight.bold,
                           fontSize: 16,
@@ -1061,53 +883,27 @@ class _CustomerDialogState extends State<_CustomerDialog> {
                       ),
                       const SizedBox(height: 16),
 
+                      // --- COMPLETE ADDRESS FIELD ---
                       TextFormField(
-                        controller: _unitCtrl,
-                        decoration: _inputDeco('Unit / House #', null),
+                        controller: _addressCtrl,
+                        decoration: _inputDeco(
+                          'Complete Address',
+                          Icons.location_on,
+                        ),
+                        maxLines: 3,
+                        textCapitalization: TextCapitalization.sentences,
                       ),
-                      const SizedBox(height: 12),
-                      TextFormField(
-                        controller: _streetCtrl,
-                        decoration: _inputDeco('Street Name', null),
-                      ),
+
                       const SizedBox(height: 12),
 
-                      // On mobile, stack these vertically if needed, but row is usually fine
-                      Row(
-                        children: [
-                          Expanded(
-                            child: TextFormField(
-                              controller: _brgyCtrl,
-                              decoration: _inputDeco(
-                                'Barangay',
-                                null,
-                                isRequired: true,
-                              ),
-                              validator: (v) => v == null || v.trim().isEmpty
-                                  ? 'Required'
-                                  : null,
-                            ),
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: TextFormField(
-                              controller: _cityCtrl,
-                              decoration: _inputDeco(
-                                'City',
-                                Icons.location_city,
-                                isRequired: true,
-                              ),
-                              validator: (v) => v == null || v.trim().isEmpty
-                                  ? 'Required'
-                                  : null,
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 12),
+                      // --- LANDMARK FIELD (RESTORED) ---
                       TextFormField(
                         controller: _landmarkCtrl,
-                        decoration: _inputDeco('Landmark', Icons.flag),
+                        decoration: _inputDeco(
+                          'Landmark / Instructions',
+                          Icons.flag,
+                        ),
+                        textCapitalization: TextCapitalization.sentences,
                       ),
                     ],
                   ),
@@ -1115,7 +911,7 @@ class _CustomerDialogState extends State<_CustomerDialog> {
               ),
             ),
 
-            // --- FOOTER (Fixed above keyboard) ---
+            // --- FOOTER ---
             Container(
               padding: EdgeInsets.all(isMobile ? 16 : 24),
               decoration: const BoxDecoration(
@@ -1163,7 +959,6 @@ class _CustomerDialogState extends State<_CustomerDialog> {
     bool isRequired = false,
   }) {
     const labelStyle = TextStyle(color: Color(0xFF757575), fontSize: 16);
-
     return InputDecoration(
       label: isRequired
           ? RichText(
@@ -1196,7 +991,7 @@ class _CustomerDialogState extends State<_CustomerDialog> {
       contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
       filled: true,
       fillColor: const Color(0xFFFAFAFA),
-      floatingLabelBehavior: FloatingLabelBehavior.auto,
+      alignLabelWithHint: true,
     );
   }
 }
@@ -1266,6 +1061,7 @@ class Customer {
   final String? barangay;
   final String? city;
   final String? landmark;
+  final String? addressComplete;
 
   Customer({
     required this.id,
@@ -1284,6 +1080,7 @@ class Customer {
     this.barangay,
     this.city,
     this.landmark,
+    this.addressComplete,
   });
 
   factory Customer.fromMap(Map<String, dynamic> map) {
@@ -1307,6 +1104,7 @@ class Customer {
       barangay: map['barangay'],
       city: map['city'],
       landmark: map['landmark'],
+      addressComplete: map['address_complete'],
     );
   }
 
@@ -1320,7 +1118,20 @@ class Customer {
   String get contactPersonName => "$firstName $lastName";
 
   String get fullAddress {
-    final parts = [unitNo, street, village, barangay, city];
-    return parts.where((p) => p != null && p.isNotEmpty).join(', ');
+    // 1. If we have the new complete address, use it immediately.
+    if (addressComplete != null && addressComplete!.isNotEmpty) {
+      return addressComplete!;
+    }
+
+    // 2. Fallback: Try to build it from legacy fields
+    final parts = [
+      unitNo,
+      street,
+      village,
+      barangay,
+      city,
+    ].where((s) => s != null && s.trim().isNotEmpty).join(', ');
+
+    return parts.isEmpty ? 'No address provided' : parts;
   }
 }
