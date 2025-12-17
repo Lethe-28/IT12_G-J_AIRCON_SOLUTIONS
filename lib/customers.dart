@@ -884,7 +884,7 @@ class _CustomerDialogState extends State<_CustomerDialog> {
                             v == null || v.trim().isEmpty ? 'Required' : null,
                       ),
 
-                      const SizedBox(height: 24),
+                      const SizedBox(height: 12),
 
                       // 5. Email Address (Added)
                       TextFormField(
@@ -895,6 +895,7 @@ class _CustomerDialogState extends State<_CustomerDialog> {
                         ),
                         keyboardType: TextInputType.emailAddress,
                       ),
+                      const SizedBox(height: 16),
                       const Text(
                         'Location Details',
                         style: TextStyle(

@@ -1785,6 +1785,7 @@ class _JobBillingManagerState extends State<_JobBillingManager>
   }
 
   // NEW: Add Expense Dialog locked to this Job
+  // NEW: Add Expense Dialog locked to this Job
   void _addJobExpenseDialog() {
     final nameController = TextEditingController();
     final amountController = TextEditingController();
@@ -1815,12 +1816,29 @@ class _JobBillingManagerState extends State<_JobBillingManager>
               const SizedBox(height: 12),
               TextFormField(
                 controller: amountController,
-                keyboardType: TextInputType.number,
+                // Use numberWithOptions to allow decimals, but text works too for copy-paste
+                keyboardType: const TextInputType.numberWithOptions(
+                  decimal: true,
+                ),
                 decoration: const InputDecoration(
-                  labelText: "Amount (₱)",
+                  labelText: "Amount",
+                  hintText: "e.g. 1,500.00",
+                  prefixText: "₱ ",
                   border: OutlineInputBorder(),
                 ),
-                validator: (v) => v!.isEmpty ? "Required" : null,
+                validator: (v) {
+                  if (v == null || v.trim().isEmpty) return "Required";
+
+                  // Clean before validating
+                  final clean = v
+                      .replaceAll(',', '')
+                      .replaceAll('₱', '')
+                      .replaceAll(' ', '')
+                      .trim();
+
+                  if (double.tryParse(clean) == null) return "Invalid amount";
+                  return null;
+                },
               ),
             ],
           ),
@@ -1834,10 +1852,19 @@ class _JobBillingManagerState extends State<_JobBillingManager>
             onPressed: () async {
               if (!formKey.currentState!.validate()) return;
 
+              // --- SMART CLEANING LOGIC ---
+              final cleanAmount = amountController.text
+                  .replaceAll(',', '')
+                  .replaceAll('₱', '')
+                  .replaceAll(' ', '')
+                  .trim();
+
+              final finalAmount = double.parse(cleanAmount);
+
               try {
                 await _supabase.from('expenses').insert({
                   'expense_name': nameController.text.trim(),
-                  'amount': double.parse(amountController.text),
+                  'amount': finalAmount, // Save the clean number
                   'date': DateTime.now().toString().split(' ')[0],
                   'expense_type': 'Operational',
                   'is_income': false,
@@ -3613,6 +3640,7 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
           'first_name': firstName,
           'last_name': lastName,
           'company_name': companyName,
+          'job_position': jobPosition,
           'address_complete': _addressController.text.trim(),
           'landmark': _landmarkController.text.trim().isEmpty
               ? null
@@ -4560,6 +4588,7 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
                           controller: _emailController,
                           hint: "Email (Opt)",
                           icon: Icons.email_outlined,
+                          validator: _validateEmail,
                         ),
                       ),
                     ],
