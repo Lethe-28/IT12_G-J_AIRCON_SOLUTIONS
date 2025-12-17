@@ -267,7 +267,7 @@ class _SchedulingScreenState extends State<SchedulingScreen> {
       final response = await supabase
           .from('job_orders')
           .select(
-            '*, customers(id, first_name, last_name, company_name, city, barangay, address_complete, customer_type_id), job_types(job_type_name), job_order_line_items(count), payments(count), job_order_technicians(count), job_order_aircons(count)',
+            '*, customers(id, first_name, last_name, company_name, city, barangay, address_complete, customer_type_id), job_types(job_type_name), job_order_line_items(quantity, actual_price), payments(amount), job_order_technicians(count), job_order_aircons(count)',
           )
           .order('date_scheduled', ascending: false);
 
@@ -316,10 +316,31 @@ class _SchedulingScreenState extends State<SchedulingScreen> {
           actualEnd = DateTime.parse(row['date_completed']).toLocal();
         }
 
-        final int itemsCount = row['job_order_line_items'][0]['count'] as int;
-        final bool unbilled = itemsCount == 0;
-        final int payCount = row['payments'][0]['count'] as int;
-        final bool unpaid = itemsCount > 0 && payCount == 0;
+        // NEW LOGIC (Paste this)
+        final lineItems = List<Map<String, dynamic>>.from(
+          row['job_order_line_items'] ?? [],
+        );
+        final payments = List<Map<String, dynamic>>.from(row['payments'] ?? []);
+
+        // 1. Calculate Total Bill
+        double totalBill = 0;
+        for (var item in lineItems) {
+          final qty = (item['quantity'] as num?)?.toDouble() ?? 0;
+          final price = (item['actual_price'] as num?)?.toDouble() ?? 0;
+          totalBill += (qty * price);
+        }
+
+        // 2. Calculate Total Paid
+        double totalPaid = 0;
+        for (var pay in payments) {
+          totalPaid += (pay['amount'] as num?)?.toDouble() ?? 0;
+        }
+
+        final bool unbilled = lineItems.isEmpty;
+
+        // 3. Logic: Status is UNPAID if billed AND Total Paid is less than Total Bill
+        // (We subtract 0.1 to handle tiny decimal rounding errors)
+        final bool unpaid = !unbilled && (totalPaid < (totalBill - 0.1));
         final int techCount = row['job_order_technicians'][0]['count'] as int;
         final int unitCount = row['job_order_aircons'][0]['count'] as int;
 
@@ -2018,95 +2039,199 @@ class _JobBillingManagerState extends State<_JobBillingManager>
   }
 
   void _recordPaymentDialog() {
+    final balance = _totalAmount - _totalPaid;
+
+    // Default text is empty if balance is <= 0 (overpaid/credit)
     final amountController = TextEditingController(
-      text: (_totalAmount - _totalPaid).toString(),
+      text: balance > 0 ? balance.toStringAsFixed(2) : '',
     );
+    final refController = TextEditingController();
+    final orController = TextEditingController();
+
     String method = 'Cash';
     final _paymentFormKey = GlobalKey<FormState>();
 
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text("Record Payment"),
-        content: Form(
-          key: _paymentFormKey,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Text("Record cash-in from client."),
-              const SizedBox(height: 16),
-              TextFormField(
-                controller: amountController,
-                decoration: const InputDecoration(
-                  labelText: "Amount Received",
-                  prefixText: "₱ ",
-                  border: OutlineInputBorder(),
-                ),
-                keyboardType: const TextInputType.numberWithOptions(
-                  decimal: true,
-                ),
-                validator: (value) {
-                  if (value == null || value.isEmpty) return 'Required';
-                  if (double.tryParse(value) == null) return 'Invalid amount';
-                  if (double.parse(value) <= 0) return 'Must be > 0';
-                  return null;
-                },
+      builder: (context) => StatefulBuilder(
+        builder: (context, setState) {
+          return AlertDialog(
+            title: const Text("Record Payment"),
+            content: Form(
+              key: _paymentFormKey,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Text("Record cash-in from client."),
+                  const SizedBox(height: 16),
+
+                  // --- 1. FLEXIBLE AMOUNT FIELD ---
+                  TextFormField(
+                    controller: amountController,
+                    decoration: const InputDecoration(
+                      labelText: "Amount Received",
+                      hintText: "e.g. 1,500.00", // Helpful hint
+                      prefixText: "₱ ",
+                      border: OutlineInputBorder(),
+                    ),
+                    // Allow text keyboard to support copy-pasting symbols easily,
+                    // or numberWithOptions if you prefer numeric pad priority
+                    keyboardType: const TextInputType.numberWithOptions(
+                      decimal: true,
+                    ),
+
+                    // VALIDATOR: Cleans input before checking
+                    validator: (value) {
+                      if (value == null || value.trim().isEmpty)
+                        return 'Required';
+
+                      // 1. Remove commas, spaces, and ₱ sign
+                      final cleanValue = value
+                          .replaceAll(',', '')
+                          .replaceAll('₱', '')
+                          .replaceAll(' ', '')
+                          .trim();
+
+                      // 2. Parse the clean string
+                      final parsed = double.tryParse(cleanValue);
+                      if (parsed == null) return 'Invalid amount format';
+                      if (parsed <= 0) return 'Must be > 0';
+                      if (parsed > 10000000)
+                        return 'Amount is too large'; // 10M cap
+
+                      // 3. Check decimal places on the clean string
+                      if (cleanValue.contains('.')) {
+                        final parts = cleanValue.split('.');
+                        if (parts.length > 2)
+                          return 'Invalid format (multiple dots)';
+                        if (parts[1].length > 2) return 'Max 2 decimal places';
+                      }
+
+                      return null;
+                    },
+                  ),
+                  const SizedBox(height: 12),
+
+                  // 2. Payment Method
+                  DropdownButtonFormField<String>(
+                    value: method,
+                    decoration: const InputDecoration(
+                      labelText: "Payment Method",
+                      border: OutlineInputBorder(),
+                    ),
+                    items: ['Cash', 'GCash', 'Bank Transfer']
+                        .map((m) => DropdownMenuItem(value: m, child: Text(m)))
+                        .toList(),
+                    onChanged: (v) {
+                      setState(() {
+                        method = v!;
+                        refController.clear();
+                        orController.clear();
+                      });
+                    },
+                  ),
+
+                  // 3. Conditional Fields
+                  if (method == 'GCash') ...[
+                    const SizedBox(height: 12),
+                    TextFormField(
+                      controller: refController,
+                      decoration: const InputDecoration(
+                        labelText: "GCash Reference No.",
+                        border: OutlineInputBorder(),
+                        prefixIcon: Icon(Icons.qr_code, color: Colors.blue),
+                      ),
+                      keyboardType: TextInputType.number,
+                      validator: (v) =>
+                          v!.trim().isEmpty ? "Ref No. required" : null,
+                    ),
+                  ],
+
+                  if (method == 'Bank Transfer') ...[
+                    const SizedBox(height: 12),
+                    TextFormField(
+                      controller: orController,
+                      decoration: const InputDecoration(
+                        labelText: "Official Receipt (OR) No.",
+                        border: OutlineInputBorder(),
+                        prefixIcon: Icon(Icons.receipt, color: Colors.orange),
+                      ),
+                      textCapitalization: TextCapitalization.characters,
+                      validator: (v) =>
+                          v!.trim().isEmpty ? "OR No. required" : null,
+                    ),
+                  ],
+                ],
               ),
-              const SizedBox(height: 12),
-              DropdownButtonFormField<String>(
-                value: method,
-                decoration: const InputDecoration(
-                  labelText: "Payment Method",
-                  border: OutlineInputBorder(),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text("Cancel"),
+              ),
+              ElevatedButton(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.green,
+                  foregroundColor: Colors.white,
                 ),
-                items: ['Cash', 'GCash', 'Bank Transfer', 'Cheque']
-                    .map((m) => DropdownMenuItem(value: m, child: Text(m)))
-                    .toList(),
-                onChanged: (v) => method = v!,
+                onPressed: () async {
+                  if (!_paymentFormKey.currentState!.validate()) return;
+
+                  // --- CLEANING LOGIC BEFORE SAVE ---
+                  final cleanAmountStr = amountController.text
+                      .replaceAll(',', '')
+                      .replaceAll('₱', '')
+                      .replaceAll(' ', '')
+                      .trim();
+
+                  final finalAmount = double.parse(cleanAmountStr);
+
+                  try {
+                    await _supabase.from('payments').insert({
+                      'job_order_id': widget.job.dbId,
+                      'amount': finalAmount, // Save clean number
+                      'payment_method': method,
+                      'payment_date': DateTime.now().toIso8601String(),
+                      'status': 'Verified',
+                      'reference_number': method == 'GCash'
+                          ? refController.text.trim()
+                          : null,
+                      'or_number': method == 'Bank Transfer'
+                          ? orController.text.trim()
+                          : null,
+                    });
+
+                    // Log formatted amount
+                    await ActivityLogger.log(
+                      type: 'Payment',
+                      details:
+                          'Received ₱${finalAmount.toStringAsFixed(2)} via $method for ${widget.job.displayId}',
+                    );
+
+                    if (mounted) {
+                      Navigator.pop(context);
+                      widget.onJobUpdated();
+                      _fetchBillingData();
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text("Payment Recorded!")),
+                      );
+                    }
+                  } catch (e) {
+                    if (mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text("Error: $e"),
+                          backgroundColor: Colors.red,
+                        ),
+                      );
+                    }
+                  }
+                },
+                child: const Text("Confirm Payment"),
               ),
             ],
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text("Cancel"),
-          ),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.green,
-              foregroundColor: Colors.white,
-            ),
-            onPressed: () async {
-              if (!_paymentFormKey.currentState!.validate()) return;
-
-              await _supabase.from('payments').insert({
-                'job_order_id': widget.job.dbId,
-                'amount': double.parse(amountController.text),
-                'payment_method': method,
-                'payment_date': DateTime.now().toIso8601String(),
-                'status': 'Verified',
-              });
-
-              // LOG IT!
-              await ActivityLogger.log(
-                type: 'Payment',
-                details:
-                    'Received ₱${amountController.text} for ${widget.job.displayId}',
-              );
-
-              if (mounted) {
-                Navigator.pop(context);
-                widget.onJobUpdated();
-                _fetchBillingData();
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text("Payment Recorded!")),
-                );
-              }
-            },
-            child: const Text("Confirm Payment"),
-          ),
-        ],
+          );
+        },
       ),
     );
   }
