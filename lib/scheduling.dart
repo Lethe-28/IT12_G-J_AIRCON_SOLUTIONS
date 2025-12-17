@@ -854,15 +854,17 @@ class _SchedulingScreenState extends State<SchedulingScreen> {
                   (j) => j.status == 'Completed' || j.status == 'Cancelled',
                 );
 
-            final isPast = DateUtils.isSameDay(currentDay, DateTime.now()) == false && currentDay.isBefore(DateTime.now());
-            
+            final isPast =
+                DateUtils.isSameDay(currentDay, DateTime.now()) == false &&
+                currentDay.isBefore(DateTime.now());
+
             return GestureDetector(
-              onTap: isPast ? null : () {
+              onTap: () {
                 // 1. Select the date visually
                 setState(() => _selectedDate = currentDay);
 
                 // 2. NEW: Auto-Open "Add Job" dialog if day is empty
-                if (!hasJobs) {
+                if (!hasJobs && !isPast) {
                   _onAddOrEdit();
                 }
               },
@@ -880,8 +882,9 @@ class _SchedulingScreenState extends State<SchedulingScreen> {
                       ? Border.all(color: AppTheme.primary)
                       : null,
                 ),
-                child: Opacity( // Fade out past dates
-                  opacity: isPast ? 0.3 : 1.0,
+                child: Opacity(
+                  // Fade out past dates
+                  opacity: isPast ? 0.5 : 1.0,
                   child: Column(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
@@ -889,7 +892,9 @@ class _SchedulingScreenState extends State<SchedulingScreen> {
                         "$dayInt",
                         style: TextStyle(
                           fontWeight: FontWeight.bold,
-                          color: isSelected ? Colors.white : AppTheme.textPrimary,
+                          color: isSelected
+                              ? Colors.white
+                              : AppTheme.textPrimary,
                         ),
                       ),
                       if (hasJobs) ...[
@@ -3370,27 +3375,32 @@ class _JobOrderDialogState extends State<_JobOrderDialog> {
   // --- SUBMIT LOGIC (With Duplicate Check) ---
   Future<void> _submit() async {
     final scheduleDateTime = DateTime(
-        _scheduleDate.year,
-        _scheduleDate.month,
-        _scheduleDate.day,
-        _scheduleTime.hour,
-        _scheduleTime.minute,
-      );
+      _scheduleDate.year,
+      _scheduleDate.month,
+      _scheduleDate.day,
+      _scheduleTime.hour,
+      _scheduleTime.minute,
+    );
 
-      // --- VALIDATION: PAST TIME CHECK ---
-      // We allow a small 1-minute buffer for "just now" clicks
-      if (widget.existingJob == null && scheduleDateTime.isBefore(DateTime.now().subtract(const Duration(minutes: 1)))) {
-        if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text("Cannot schedule a job in the past. Please check the time."),
-            backgroundColor: Colors.red,
+    // --- VALIDATION: PAST TIME CHECK ---
+    // We allow a small 1-minute buffer for "just now" clicks
+    if (widget.existingJob == null &&
+        scheduleDateTime.isBefore(
+          DateTime.now().subtract(const Duration(minutes: 1)),
+        )) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            "Cannot schedule a job in the past. Please check the time.",
           ),
-        );
-        setState(() => _isSubmitting = false);
-        return;
-      }
-      // -----------------------------------
+          backgroundColor: Colors.red,
+        ),
+      );
+      setState(() => _isSubmitting = false);
+      return;
+    }
+    // -----------------------------------
 
     final hasConflict = await _checkScheduleConflict(
       _scheduleDate,
