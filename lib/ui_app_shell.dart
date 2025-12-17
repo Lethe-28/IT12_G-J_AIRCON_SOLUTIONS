@@ -376,7 +376,7 @@ class _DesktopSidebarHeader extends StatelessWidget {
             const SizedBox(width: 12),
             const Expanded(
               child: Text(
-                'G & J System',
+                'G&J Aircon Solutions',
                 style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
               ),
             ),
