@@ -12,6 +12,15 @@ import 'scheduling.dart';
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
 
+  // --- CHANGED: Static flag ensures this persists across navigation ---
+  // This stays true until the app is completely restarted.
+  static bool hasShownSessionNotifications = false;
+
+  // --- ADD THIS METHOD ---
+  static void resetSession() {
+    hasShownSessionNotifications = false;
+  }
+
   @override
   State<DashboardScreen> createState() => _DashboardScreenState();
 }
@@ -20,7 +29,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   final DashboardProvider _dashboardProvider = DashboardProvider();
   bool _isLoading = true;
   String _searchQuery = '';
-  String _dateRange = 'Today'; // Today, Weekly, Monthly, Yearly
+  String _dateRange = 'Today';
   RealtimeChannel? _subscription;
 
   bool get _isServiceManager => AppState.currentRole == UserRole.serviceManager;
@@ -31,7 +40,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
     _loadData();
     _setupRealtimeSubscription();
 
-    // Mark welcome as shown after the first build
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!AppState.hasShownWelcome) {
         AppState.hasShownWelcome = true;
@@ -47,45 +55,67 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   void _setupRealtimeSubscription() {
     final supabase = Supabase.instance.client;
-    // Listen to changes in key tables to auto-refresh the dashboard
-    _subscription = supabase.channel('dashboard_updates')
-      .onPostgresChanges(
-        event: PostgresChangeEvent.all,
-        schema: 'public',
-        table: 'job_orders',
-        callback: (payload) => _loadData(),
-      )
-      .onPostgresChanges(
-        event: PostgresChangeEvent.all,
-        schema: 'public',
-        table: 'expenses',
-        callback: (payload) => _loadData(),
-      )
-      .onPostgresChanges(
-        event: PostgresChangeEvent.all,
-        schema: 'public',
-        table: 'payments',
-        callback: (payload) => _loadData(),
-      )
-      .subscribe();
+    _subscription = supabase
+        .channel('dashboard_updates')
+        .onPostgresChanges(
+          event: PostgresChangeEvent.all,
+          schema: 'public',
+          table: 'job_orders',
+          callback: (payload) => _loadData(),
+        )
+        .onPostgresChanges(
+          event: PostgresChangeEvent.all,
+          schema: 'public',
+          table: 'expenses',
+          callback: (payload) => _loadData(),
+        )
+        .onPostgresChanges(
+          event: PostgresChangeEvent.all,
+          schema: 'public',
+          table: 'payments',
+          callback: (payload) => _loadData(),
+        )
+        .subscribe();
   }
 
   Future<void> _loadData() async {
-    // Avoid setting loading to true on background refreshes if desired, 
-    // but here we keep it simple or maybe just don't set isLoading if it's a silent refresh?
-    // For now, let's just refresh. To avoid flickering, we can skip setting isLoading=true
-    // if we already have data.
-    
     // Only show loader on first load
     if (_dashboardProvider.todayJobs.isEmpty && _isLoading) {
-        // Keep _isLoading = true
-    } else {
-        // Silent refresh
+      // keep isLoading true
     }
 
     await _dashboardProvider.fetchDashboardData(dateRange: _dateRange);
-    if (mounted) setState(() => _isLoading = false);
+
+    if (mounted) {
+      setState(() => _isLoading = false);
+
+      // --- UPDATED LOGIC: USE STATIC FLAG ---
+      // We check DashboardScreen.hasShownSessionNotifications instead of a local variable.
+      if (!DashboardScreen.hasShownSessionNotifications &&
+          _dashboardProvider.notificationItems.isNotEmpty) {
+        // Mark it as shown immediately so it doesn't trigger again
+        DashboardScreen.hasShownSessionNotifications = true;
+
+        // Slight delay for smooth UI entrance
+        Future.delayed(const Duration(milliseconds: 800), () {
+          if (mounted) {
+            _showNotificationsPanel();
+
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('You have pending items that require attention.'),
+                behavior: SnackBarBehavior.floating,
+                duration: Duration(seconds: 3),
+                backgroundColor: Colors.blue,
+              ),
+            );
+          }
+        });
+      }
+    }
   }
+
+  // ... (Rest of the file remains exactly the same as previous version) ...
 
   Future<void> _refreshData() async {
     await _dashboardProvider.fetchDashboardData(dateRange: _dateRange);
@@ -170,10 +200,16 @@ class _DashboardScreenState extends State<DashboardScreen> {
                           });
                         },
                         icon: const Icon(Icons.clear_all, size: 16),
-                        label: const Text('Clear All', style: TextStyle(fontSize: 12)),
+                        label: const Text(
+                          'Clear All',
+                          style: TextStyle(fontSize: 12),
+                        ),
                         style: TextButton.styleFrom(
                           foregroundColor: Colors.red,
-                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 4,
+                          ),
                         ),
                       ),
                     ],
@@ -264,11 +300,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
         color: Colors.transparent,
         child: InkWell(
           onTap: () {
-            Navigator.pop(context); // Close the notification panel
+            Navigator.pop(context);
 
             switch (item.type) {
               case AttentionType.payment:
-                Navigator.of(context).pushReplacementNamed('/payments');
+                Navigator.of(context).pushReplacementNamed('/expenses');
                 break;
               case AttentionType.expense:
                 Navigator.of(context).pushReplacementNamed('/expenses');
@@ -276,7 +312,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
               case AttentionType.scheduling:
                 final searchText =
                     item.searchContext ?? item.relatedId.toString();
-                // NEW LOGIC: Pass the Job ID to the Scheduling Screen
                 if (item.relatedId != null) {
                   Navigator.of(context).pushReplacement(
                     MaterialPageRoute(
@@ -296,27 +331,27 @@ class _DashboardScreenState extends State<DashboardScreen> {
           borderRadius: BorderRadius.circular(12),
           child: Container(
             padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            color: item.color.withOpacity(0.05),
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: item.color.withOpacity(0.2)),
-          ),
+            decoration: BoxDecoration(
+              color: item.color.withOpacity(0.05),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: item.color.withOpacity(0.2)),
+            ),
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Container(
-                padding: const EdgeInsets.all(10),
-                decoration: BoxDecoration(
-                  color: item.color.withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: Icon(
-                  item.priority == 'Info'
-                      ? Icons.info_outline_rounded
-                      : Icons.warning_amber_rounded,
-                  color: item.color,
-                  size: 24,
-                ),
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: item.color.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Icon(
+                    item.priority == 'Info'
+                        ? Icons.info_outline_rounded
+                        : Icons.warning_amber_rounded,
+                    color: item.color,
+                    size: 24,
+                  ),
                 ),
                 const SizedBox(width: 16),
                 Expanded(
@@ -343,7 +378,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
                         const SizedBox(height: 6),
                         Row(
                           children: [
-                            const Icon(Icons.person_outline, size: 14, color: Colors.black54),
+                            const Icon(
+                              Icons.person_outline,
+                              size: 14,
+                              color: Colors.black54,
+                            ),
                             const SizedBox(width: 4),
                             Expanded(
                               child: Text(
@@ -363,7 +402,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
                         const SizedBox(height: 4),
                         Row(
                           children: [
-                            const Icon(Icons.build_outlined, size: 14, color: Colors.black54),
+                            const Icon(
+                              Icons.build_outlined,
+                              size: 14,
+                              color: Colors.black54,
+                            ),
                             const SizedBox(width: 4),
                             Expanded(
                               child: Text(
@@ -383,7 +426,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
                         const SizedBox(height: 4),
                         Row(
                           children: [
-                            const Icon(Icons.calendar_today_outlined, size: 14, color: Colors.black54),
+                            const Icon(
+                              Icons.calendar_today_outlined,
+                              size: 14,
+                              color: Colors.black54,
+                            ),
                             const SizedBox(width: 4),
                             Text(
                               item.date!,
@@ -402,19 +449,22 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 Column(
                   children: [
                     Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                    decoration: BoxDecoration(
-                      color: item.color.withOpacity(0.1),
-                      borderRadius: BorderRadius.circular(6),
-                    ),
-                    child: Text(
-                      item.priority,
-                      style: TextStyle(
-                        fontSize: 10,
-                        color: item.color,
-                        fontWeight: FontWeight.w700,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 4,
                       ),
-                    ),
+                      decoration: BoxDecoration(
+                        color: item.color.withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: Text(
+                        item.priority,
+                        style: TextStyle(
+                          fontSize: 10,
+                          color: item.color,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
                     ),
                     const SizedBox(height: 4),
                     Icon(Icons.chevron_right, size: 20, color: Colors.black26),
@@ -451,7 +501,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
             child: _isLoading
                 ? const Center(child: CircularProgressIndicator())
                 : SingleChildScrollView(
-                    // FIX: Add bottom padding so content isn't cut off
                     padding: EdgeInsets.fromLTRB(
                       _isServiceManager ? 24 : 20,
                       20,
@@ -473,7 +522,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
                             ),
                             const Spacer(),
                             const Spacer(),
-                            // Date Range Picker Removed - Enforced 'Today' view
                             Container(
                               padding: const EdgeInsets.symmetric(
                                 horizontal: 12,
@@ -490,7 +538,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                 mainAxisSize: MainAxisSize.min,
                                 children: [
                                   const Icon(
-                                    Icons.today, // Changed logic to strictly Today
+                                    Icons.today,
                                     size: 14,
                                     color: Colors.black54,
                                   ),
@@ -498,7 +546,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                   Text(
                                     'Today',
                                     style: TextStyle(
-                                      fontSize:titleFontSize * 0.7, // scaled relative to title
+                                      fontSize: titleFontSize * 0.7,
                                       fontWeight: FontWeight.w600,
                                       color: Colors.black54,
                                     ),
@@ -511,7 +559,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
                         const SizedBox(height: 16),
 
-                        // 1. ACTIONABLE STATS (Robust Layout)
+                        // 1. ACTIONABLE STATS
                         _overviewCardsSection(),
 
                         const SizedBox(height: 24),
@@ -522,7 +570,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
                             final isWideScreen = constraints.maxWidth >= 1024;
 
                             if (isWideScreen) {
-                              // Desktop: Side-by-Side
                               return Row(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
@@ -544,7 +591,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                 ],
                               );
                             } else {
-                              // Mobile: Stacked
                               return Column(
                                 children: [
                                   AnimatedCard(
@@ -570,14 +616,14 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
-  // FIX: New robust layout engine for stats
+  // ... (The rest of your widgets: _overviewCardsSection, _todaysJobOrdersCard, etc. copy them from previous file or keep as is) ...
+
   Widget _overviewCardsSection() {
     return LayoutBuilder(
       builder: (context, constraints) {
         final isMobileView = isMobile(context);
         final fontSize = _isServiceManager ? 18.0 : 16.0;
 
-        // Define Cards
         final pendingCard = _OverviewCard(
           title: 'Pending Jobs',
           value: _dashboardProvider.pendingJobsCount.toString(),
@@ -610,7 +656,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
           onTap: () => Navigator.of(context).pushReplacementNamed('/expenses'),
         );
 
-        // MOBILE: Stacked Rectangle Bars
         if (isMobileView) {
           return Column(
             children: [
@@ -634,10 +679,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 delay: const Duration(milliseconds: 250),
                 child: _OverviewBarCard(
                   title: 'Revenue',
-                  value: '₱${_dashboardProvider.totalRevenue.toStringAsFixed(0)}',
+                  value:
+                      '₱${_dashboardProvider.totalRevenue.toStringAsFixed(0)}',
                   icon: Icons.payments,
                   color: Colors.green,
-                  onTap: () => Navigator.of(context).pushReplacementNamed('/expenses'),
+                  onTap: () =>
+                      Navigator.of(context).pushReplacementNamed('/expenses'),
                 ),
               ),
               const SizedBox(height: 12),
@@ -645,17 +692,18 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 delay: const Duration(milliseconds: 300),
                 child: _OverviewBarCard(
                   title: 'Expenses',
-                  value: '₱${_dashboardProvider.totalExpenses.toStringAsFixed(0)}',
+                  value:
+                      '₱${_dashboardProvider.totalExpenses.toStringAsFixed(0)}',
                   icon: Icons.money_off,
                   color: Colors.red,
-                  onTap: () => Navigator.of(context).pushReplacementNamed('/expenses'),
+                  onTap: () =>
+                      Navigator.of(context).pushReplacementNamed('/expenses'),
                 ),
               ),
             ],
           );
         }
 
-        // DESKTOP: Standard Row
         return Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -719,13 +767,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
             ListView.separated(
               shrinkWrap: true,
               physics: const NeverScrollableScrollPhysics(),
-              // 1. Correct Count
               itemCount: _dashboardProvider.activityItems.length,
               separatorBuilder: (_, __) => const SizedBox(height: 12),
-              itemBuilder: (ctx, i) => _activityItemRow(
-                // 2. FIX IS HERE: Use activityItems instead of _filteredAttentionItems
-                _dashboardProvider.activityItems[i],
-              ),
+              itemBuilder: (ctx, i) =>
+                  _activityItemRow(_dashboardProvider.activityItems[i]),
             ),
         ],
       ),
@@ -737,7 +782,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
     Color iconColor;
     Color bgColor;
 
-    // Icon Logic
     if (item.priority == 'High') {
       icon = Icons.warning_amber_rounded;
       iconColor = Colors.red;
@@ -770,24 +814,17 @@ class _DashboardScreenState extends State<DashboardScreen> {
       color: Colors.transparent,
       child: InkWell(
         onTap: () {
-          // --- UPDATED NAVIGATION LOGIC ---
           switch (item.type) {
             case AttentionType.payment:
-              // FIX: Cash In now redirects to Expenses instead of mock /payments
               Navigator.of(context).pushReplacementNamed('/expenses');
               break;
-
             case AttentionType.expense:
               Navigator.of(context).pushReplacementNamed('/expenses');
               break;
-
             case AttentionType.scheduling:
               Navigator.of(context).pushReplacementNamed('/scheduling');
               break;
-
             case AttentionType.document:
-              // FIX: Job updates/deletes (often logged as documents/logs)
-              // now redirect to Scheduling instead of Documents
               Navigator.of(context).pushReplacementNamed('/scheduling');
               break;
           }
@@ -921,11 +958,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         SizedBox(
-          width: 70, // Increased width to fit the date
+          width: 70,
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // 1. The Date (e.g., "Oct 24")
               Text(
                 job.date,
                 style: const TextStyle(
@@ -935,7 +971,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 ),
               ),
               const SizedBox(height: 2),
-              // 2. The Time (e.g., "9:00 AM")
               Text(
                 job.time,
                 style: const TextStyle(
@@ -947,7 +982,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
             ],
           ),
         ),
-        const SizedBox(width: 8), // Spacing between time/date and details
+        const SizedBox(width: 8),
         Expanded(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -988,8 +1023,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 }
 
-// --- Refactored Reusable Components ---
-
 class _OverviewCard extends StatelessWidget {
   final String title;
   final String value;
@@ -1016,11 +1049,11 @@ class _OverviewCard extends StatelessWidget {
         borderRadius: AppTheme.borderRadius,
         child: Container(
           padding: const EdgeInsets.all(20),
-          decoration: AppTheme.cardDecoration, // Removed glow
+          decoration: AppTheme.cardDecoration,
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             mainAxisAlignment: MainAxisAlignment.center,
-            mainAxisSize: MainAxisSize.min, // Use min size
+            mainAxisSize: MainAxisSize.min,
             children: [
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -1039,9 +1072,8 @@ class _OverviewCard extends StatelessWidget {
                   ),
                 ],
               ),
-              const SizedBox(height: 24), // Increased spacing
+              const SizedBox(height: 24),
               Flexible(
-                // Use Flexible to prevent overflow
                 child: Text(
                   value,
                   style: AppTheme.heading1.copyWith(fontSize: fontSize),

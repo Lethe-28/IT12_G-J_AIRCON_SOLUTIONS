@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:supabase_flutter/supabase_flutter.dart'; // <--- ADDED for Auth
 import 'data/app_state.dart';
+import 'dashboard.dart'; // <--- ADDED to access resetSession()
 
 class AppShell extends StatefulWidget {
   final int selectedIndex;
@@ -87,7 +89,6 @@ class _AppShellState extends State<AppShell> {
               width: 280,
               backgroundColor: Colors.white,
               child: SafeArea(
-                // FIX: Added SafeArea for Mobile Drawer
                 child: Column(
                   children: [
                     _MobileDrawerHeader(),
@@ -107,7 +108,6 @@ class _AppShellState extends State<AppShell> {
                 ),
               ),
             ),
-            // FIX: Pass the FAB here
             floatingActionButton: widget.floatingActionButton,
             body: widget.body,
           );
@@ -118,7 +118,6 @@ class _AppShellState extends State<AppShell> {
 
         return Scaffold(
           backgroundColor: const Color(0xFFF5F5F5),
-          // FIX: Pass the FAB here (even if rare on desktop, it's supported)
           floatingActionButton: widget.floatingActionButton,
           body: Row(
             children: [
@@ -127,8 +126,7 @@ class _AppShellState extends State<AppShell> {
                 width: sidebarWidth,
                 color: Colors.white,
                 child: SafeArea(
-                  right:
-                      false, // Don't pad the right side (internal border exists)
+                  right: false,
                   child: Column(
                     children: [
                       _DesktopSidebarHeader(
@@ -158,12 +156,7 @@ class _AppShellState extends State<AppShell> {
               ),
               const VerticalDivider(width: 1),
               Expanded(
-                child: SafeArea(
-                  top:
-                      false, // AppBars usually handle top; keep false to blend headers
-                  left: false,
-                  child: widget.body,
-                ),
+                child: SafeArea(top: false, left: false, child: widget.body),
               ),
             ],
           ),
@@ -174,7 +167,7 @@ class _AppShellState extends State<AppShell> {
 }
 
 // ==============================================================================
-// HELPER WIDGETS (Extracted to keep the main logic clean)
+// HELPER WIDGETS
 // ==============================================================================
 
 class _NavigationList extends StatelessWidget {
@@ -228,7 +221,6 @@ class _NavigationList extends StatelessWidget {
   Widget _navTile(int index, IconData icon, String label) {
     final bool isSelected = selectedIndex == index;
 
-    // If desktop is collapsed, we show a Tooltip. On mobile, we never need a tooltip.
     Widget content = ListTile(
       leading: Icon(
         icon,
@@ -271,7 +263,6 @@ class _NavigationList extends StatelessWidget {
 
   Widget _adminNavGroup(List<Widget> children) {
     if (isDesktopCollapsed) {
-      // In collapsed mode, we just list the items without the dropdown logic
       return Column(children: children);
     }
     return Column(
@@ -330,7 +321,7 @@ class _MobileDrawerHeader extends StatelessWidget {
             ),
           ),
           const SizedBox(width: 16),
-          Expanded(
+          const Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -446,14 +437,28 @@ class _UserFooter extends StatelessWidget {
               ],
             ),
           const SizedBox(height: 12),
+
+          // --- UPDATED LOGOUT BUTTON ---
           OutlinedButton.icon(
-            onPressed: () =>
-                Navigator.of(context).pushReplacementNamed('/login'),
+            onPressed: () async {
+              // 1. Reset the "Briefing" flag so the next login sees it
+              DashboardScreen.resetSession();
+
+              // 2. Sign out from Supabase (Backend)
+              await Supabase.instance.client.auth.signOut();
+
+              // 3. Navigate to Login Screen
+              if (context.mounted) {
+                Navigator.of(context).pushReplacementNamed('/login');
+              }
+            },
             icon: const Icon(Icons.logout, size: 16),
             label: isCollapsed ? const SizedBox.shrink() : const Text('Logout'),
             style: OutlinedButton.styleFrom(
               minimumSize: const Size(double.infinity, 40),
               padding: isCollapsed ? EdgeInsets.zero : null,
+              foregroundColor: Colors.red, // Optional: Make text red
+              side: const BorderSide(color: Colors.red), // Optional: Red border
             ),
           ),
         ],
@@ -502,7 +507,6 @@ class _MobileAppBarTitle extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final subtitle = _labelForIndex(selectedIndex);
-    // Show only the current section name on mobile (per user request).
     if (subtitle != null) {
       return Text(
         subtitle,
@@ -513,10 +517,8 @@ class _MobileAppBarTitle extends StatelessWidget {
         ),
       );
     }
-
-    // Fallback to company name if no section label is available.
     return const Text(
-      'G & J System',
+      'G&J Aircon Solutions',
       style: TextStyle(
         color: Colors.black87,
         fontSize: 18,
