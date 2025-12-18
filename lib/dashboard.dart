@@ -487,10 +487,29 @@ class _DashboardScreenState extends State<DashboardScreen> {
       body: Column(
         children: [
           SharedHeader(
-            welcomeText: AppState.hasShownWelcome
-                ? ''
-                : AppState.headerWelcomeText(),
-            subtitleText: AppState.headerSubtitle(),
+            customTitle: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  "Here's what's happening",
+                  style: TextStyle(
+                    fontSize: titleFontSize * 0.65,
+                    color: Colors.black45,
+                    fontWeight: FontWeight.w600,
+                    letterSpacing: 0.8,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  "In your business today",
+                  style: TextStyle(
+                    fontSize: titleFontSize * 1.1,
+                    fontWeight: FontWeight.w800,
+                    color: const Color(0xFF0F172A),
+                  ),
+                ),
+              ],
+            ),
             notificationCount: _dashboardProvider.notificationItems.length,
             onSearchChanged: (value) {
               setState(() => _searchQuery = value.toLowerCase());
@@ -510,55 +529,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        // Title Row
-                        Row(
-                          children: [
-                            Text(
-                              'Overview',
-                              style: TextStyle(
-                                fontSize: titleFontSize,
-                                fontWeight: FontWeight.w700,
-                              ),
-                            ),
-                            const Spacer(),
-                            const Spacer(),
-                            Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 12,
-                                vertical: 6,
-                              ),
-                              decoration: BoxDecoration(
-                                color: Colors.white,
-                                borderRadius: BorderRadius.circular(8),
-                                border: Border.all(
-                                  color: const Color(0xFFE2E8F0),
-                                ),
-                              ),
-                              child: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  const Icon(
-                                    Icons.today,
-                                    size: 14,
-                                    color: Colors.black54,
-                                  ),
-                                  const SizedBox(width: 8),
-                                  Text(
-                                    'Today',
-                                    style: TextStyle(
-                                      fontSize: titleFontSize * 0.7,
-                                      fontWeight: FontWeight.w600,
-                                      color: Colors.black54,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ],
-                        ),
-
-                        const SizedBox(height: 16),
-
                         // 1. ACTIONABLE STATS
                         _overviewCardsSection(),
 

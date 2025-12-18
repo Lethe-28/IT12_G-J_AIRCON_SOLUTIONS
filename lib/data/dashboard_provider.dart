@@ -194,7 +194,7 @@ class DashboardProvider extends ChangeNotifier {
           .eq('status', 'Verified');
 
       if (startDate != null) {
-        query = query.gte('payment_date', startDate.toIso8601String());
+        query = query.gte('payment_date', startDate.toString().split(' ')[0]);
       }
 
       final response = await query;
@@ -209,10 +209,10 @@ class DashboardProvider extends ChangeNotifier {
           .from('expenses')
           .select('amount')
           .eq('is_income', true)
-          .neq('category', 'Personal');
+          .neq('expense_type', 'Personal');
 
       if (startDate != null) {
-        incomeQuery = incomeQuery.gte('date', startDate.toIso8601String());
+        incomeQuery = incomeQuery.gte('date', startDate.toString().split(' ')[0]);
       }
       
       final incomeResponse = await incomeQuery;
@@ -257,7 +257,7 @@ class DashboardProvider extends ChangeNotifier {
       var query = supabase.from('expenses').select('amount').neq('is_income', true);
 
       if (startDate != null) {
-        query = query.gte('date', startDate.toIso8601String());
+        query = query.gte('date', startDate.toString().split(' ')[0]);
       }
 
       final response = await query;

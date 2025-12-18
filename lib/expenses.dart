@@ -339,7 +339,23 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
                               padding: EdgeInsets.zero,
                               constraints: const BoxConstraints(),
                             ),
-                            const SizedBox(width: 8),
+                            const SizedBox(width: 4),
+                            TextButton(
+                              onPressed: () {
+                                setState(() {
+                                  _selectedDate = DateTime.now();
+                                  _currentPage = 1;
+                                });
+                                _fetchCashFlow();
+                              },
+                              style: TextButton.styleFrom(
+                                padding: const EdgeInsets.symmetric(horizontal: 4),
+                                minimumSize: Size.zero,
+                                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                              ),
+                              child: const Text("Today", style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.blueAccent)),
+                            ),
+                            const SizedBox(width: 4),
                             Text(
                               _formatDate(_selectedDate),
                               style: const TextStyle(

@@ -42,7 +42,7 @@ class _ServiceDetail {
 }
 
 class _ReportsScreenState extends State<ReportsScreen> {
-  _ReportRange _selectedRange = _ReportRange.monthly;
+  _ReportRange _selectedRange = _ReportRange.today;
   
   bool _isLoading = false;
   _ReportData _reportData = _ReportData.empty();
@@ -89,10 +89,45 @@ class _ReportsScreenState extends State<ReportsScreen> {
           break;
       }
 
+      // Calculate Previous Period
+      DateTime prevStartDate;
+      DateTime prevEndDate;
+
+      switch (_selectedRange) {
+        case _ReportRange.today:
+          prevStartDate = startDate.subtract(const Duration(days: 1));
+          prevEndDate = startDate.subtract(const Duration(milliseconds: 1));
+          break;
+        case _ReportRange.weekly:
+          prevStartDate = startDate.subtract(const Duration(days: 7));
+          prevEndDate = startDate.subtract(const Duration(milliseconds: 1));
+          break;
+        case _ReportRange.monthly:
+          prevStartDate = DateTime(startDate.year, startDate.month - 1, 1);
+          prevEndDate = startDate.subtract(const Duration(milliseconds: 1));
+          break;
+        case _ReportRange.last6Months:
+          prevStartDate = DateTime(startDate.year, startDate.month - 6, 1);
+          prevEndDate = startDate.subtract(const Duration(milliseconds: 1));
+          break;
+        case _ReportRange.yearly:
+          prevStartDate = DateTime(startDate.year - 1, 1, 1);
+          prevEndDate = startDate.subtract(const Duration(milliseconds: 1));
+          break;
+      }
+
       final buckets = _buildBuckets(startDate, endDate, now);
 
-      final startStr = startDate.toIso8601String();
-      final endStr = endDate.toIso8601String();
+      final startStr = startDate.toUtc().toIso8601String();
+      final endStr = endDate.toUtc().toIso8601String();
+      final prevStartStr = prevStartDate.toUtc().toIso8601String();
+      final prevEndStr = prevEndDate.toUtc().toIso8601String();
+
+      // For DATE columns (expenses, payments), we need YYYY-MM-DD
+      final startDateOnly = startDate.toString().split(' ')[0];
+      final endDateOnly = endDate.toString().split(' ')[0];
+      final prevStartDateOnly = prevStartDate.toString().split(' ')[0];
+      final prevEndDateOnly = prevEndDate.toString().split(' ')[0];
 
       // 1. Fetch Job Orders with payments
       final jobsResponse = await supabase
@@ -101,23 +136,42 @@ class _ReportsScreenState extends State<ReportsScreen> {
           .gte('date_scheduled', startStr)
           .lte('date_scheduled', endStr);
 
+      // Fetch Previous Job Orders for comparison
+      final prevJobsResponse = await supabase
+          .from('job_orders')
+          .select('id, job_types(job_type_name)')
+          .gte('date_scheduled', prevStartStr)
+          .lte('date_scheduled', prevEndStr);
+
       // 2. Fetch Payments
       final paymentsResponse = await supabase
           .from('payments')
           .select('amount, payment_date')
           .eq('status', 'Verified')
-          .gte('payment_date', startStr)
-          .lte('payment_date', endStr);
+          .gte('payment_date', startDateOnly)
+          .lte('payment_date', endDateOnly);
 
       // 3. Fetch Expenses (and Income Records)
       final expensesResponse = await supabase
           .from('expenses')
-          .select('amount, date, is_income, category')
-          .gte('date', startStr)
-          .lte('date', endStr);
+          .select('amount, date, is_income, expense_type')
+          .gte('date', startDateOnly)
+          .lte('date', endDateOnly);
 
-      // --- Process Data ---
+      // --- Process Previous Data ---
+      int prevTotalJobs = prevJobsResponse.length;
+      int prevInstallations = 0;
+      int prevMaintenance = 0;
+      int prevRepairs = 0;
 
+      for (var job in prevJobsResponse) {
+        final typeName = (job['job_types']?['job_type_name'] ?? 'Unknown').toString().toLowerCase();
+        if (typeName.contains('install')) prevInstallations++;
+        else if (typeName.contains('maintenance') || typeName.contains('clean')) prevMaintenance++;
+        else if (typeName.contains('repair')) prevRepairs++;
+      }
+
+      // --- Process Current Data ---
       int totalJobs = jobsResponse.length;
       int installations = 0;
       int maintenance = 0;
@@ -134,12 +188,11 @@ class _ReportsScreenState extends State<ReportsScreen> {
       };
       Map<int, _TopCustomer> customerAggMap = {};
       
-      // For Business Insights
       Map<String, int> jobTypeCounts = {};
-      Map<String, int> dayCounts = {};
       Map<String, List<double>> jobValuesByPeriod = {};
       Map<String, int> completedJobsByPeriod = {};
       Map<String, int> totalJobsByPeriod = {};
+      Map<String, int> metricCounts = {}; // For busiest day/week/month logic
       
       // Initialize period maps
       for (final bucket in buckets) {
@@ -152,7 +205,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
         final typeName = (job['job_types']?['job_type_name'] ?? 'Unknown').toString();
         final typeKey = typeName.toLowerCase();
         final status = (job['status'] ?? '').toString().toLowerCase();
-        final date = DateTime.parse(job['date_scheduled']);
+        final date = DateTime.parse(job['date_scheduled']).toLocal();
 
         if (status == 'completed') completedJobs++;
         
@@ -164,20 +217,42 @@ class _ReportsScreenState extends State<ReportsScreen> {
         // Top Service Logic
         jobTypeCounts[typeName] = (jobTypeCounts[typeName] ?? 0) + 1;
 
-        // Busiest Day Logic
-        final dayName = DateFormat('EEEE').format(date);
-        dayCounts[dayName] = (dayCounts[dayName] ?? 0) + 1;
+        // Busiest Metric Logic (Context-aware)
+        String key = '';
+        switch (_selectedRange) {
+          case _ReportRange.today:
+            final hour = date.hour;
+            if (hour >= 5 && hour < 12) key = 'Morning';
+            else if (hour >= 12 && hour < 17) key = 'Afternoon';
+            else if (hour >= 17 && hour < 21) key = 'Evening';
+            else key = 'Night';
+            break;
+          case _ReportRange.weekly:
+            key = DateFormat('EEEE').format(date);
+            break;
+          case _ReportRange.monthly:
+            final firstDay = DateTime(date.year, date.month, 1);
+            final weekNum = ((date.day + firstDay.weekday - 2) / 7).floor() + 1;
+            key = 'Week $weekNum';
+            break;
+          case _ReportRange.last6Months:
+          case _ReportRange.yearly:
+            key = DateFormat('MMMM').format(date);
+            break;
+        }
+        if (key.isNotEmpty) {
+          metricCounts[key] = (metricCounts[key] ?? 0) + 1;
+        }
 
+        // Period-based stats (for charts and modals)
         final bucketLabel = _bucketLabelFor(date, buckets);
         if (bucketLabel != null) {
           if (typeKey.contains('install')) serviceMap[bucketLabel]!.installations++;
           else if (typeKey.contains('maintenance') || typeKey.contains('clean')) serviceMap[bucketLabel]!.maintenance++;
           else if (typeKey.contains('repair')) serviceMap[bucketLabel]!.repairs++;
           
-          // Track job values per period
           totalJobsByPeriod[bucketLabel] = (totalJobsByPeriod[bucketLabel] ?? 0) + 1;
           
-          // Calculate job payment value
           double jobValue = 0;
           if (job['payments'] != null && (job['payments'] as List).isNotEmpty) {
             for (var payment in (job['payments'] as List)) {
@@ -188,13 +263,12 @@ class _ReportsScreenState extends State<ReportsScreen> {
           }
           jobValuesByPeriod[bucketLabel]!.add(jobValue);
           
-          // Track completion rate per period
           if (status == 'completed') {
             completedJobsByPeriod[bucketLabel] = (completedJobsByPeriod[bucketLabel] ?? 0) + 1;
           }
         }
 
-        // Top Customers
+        // Top Customers Logic
         if (job['customer_id'] != null && job['customers'] != null) {
           final cid = job['customer_id'] as int;
           final cData = job['customers'];
@@ -217,26 +291,30 @@ class _ReportsScreenState extends State<ReportsScreen> {
         }
       });
 
-      // Determine Busiest Day
-      String busiestDay = 'N/A';
-      int maxDayCount = 0;
-      dayCounts.forEach((key, value) {
-        if (value > maxDayCount) {
-          maxDayCount = value;
-          busiestDay = key;
+      // Determine Busiest Metric
+      String busiestLabel = 'N/A';
+      int maxMetricCount = 0;
+      metricCounts.forEach((key, value) {
+        if (value > maxMetricCount) {
+          maxMetricCount = value;
+          busiestLabel = key;
         }
       });
-      
-      String busiestDayDisplay = busiestDay;
-      if (busiestDay != 'N/A') {
-         busiestDayDisplay = '$busiestDay ($maxDayCount)';
+
+      String busiestDisplay = busiestLabel == 'N/A' ? 'N/A' : '$busiestLabel ($maxMetricCount)';
+      String busiestTitle = '';
+      switch (_selectedRange) {
+        case _ReportRange.today: busiestTitle = 'Busiest Time'; break;
+        case _ReportRange.weekly: busiestTitle = 'Busiest Day'; break;
+        case _ReportRange.monthly: busiestTitle = 'Busiest Week'; break;
+        default: busiestTitle = 'Busiest Month'; break;
       }
 
       double totalPayments = 0;
       for (var p in paymentsResponse) {
         final amount = (p['amount'] as num).toDouble();
         totalPayments += amount;
-        final date = DateTime.parse(p['payment_date']);
+        final date = DateTime.parse(p['payment_date']).toLocal();
         final bucketLabel = _bucketLabelFor(date, buckets);
         if (bucketLabel != null) {
           financialMap[bucketLabel]!.income += amount;
@@ -247,20 +325,18 @@ class _ReportsScreenState extends State<ReportsScreen> {
       for (var e in expensesResponse) {
         final amount = (e['amount'] as num).toDouble();
         final isIncome = e['is_income'] == true;
-        final category = e['category'];
-        final date = DateTime.parse(e['date']);
+        final expenseType = e['expense_type'];
+        final date = DateTime.parse(e['date']).toLocal();
         final bucketLabel = _bucketLabelFor(date, buckets);
         
         if (isIncome) {
-          // It's extra revenue (e.g. Scraps, Tips), but exclude Personal
-          if (category != 'Personal') {
-             totalPayments += amount; // Add to Revenue
+          if (expenseType != 'Personal') {
+             totalPayments += amount;
              if (bucketLabel != null) {
                financialMap[bucketLabel]!.income += amount;
              }
           }
         } else {
-          // It's a real expense
           totalExpenses += amount;
           if (bucketLabel != null) {
             financialMap[bucketLabel]!.expense += amount;
@@ -280,15 +356,12 @@ class _ReportsScreenState extends State<ReportsScreen> {
       _completionRateDetails = [];
       for (final bucket in buckets) {
         final label = bucket.label;
-        
-        // Job value per period
         double avgValue = 0;
         if (jobValuesByPeriod[label]!.isNotEmpty) {
           avgValue = jobValuesByPeriod[label]!.reduce((a, b) => a + b) / jobValuesByPeriod[label]!.length;
         }
         _jobValueDetails.add(_PeriodDetail(period: label, value: avgValue, count: totalJobsByPeriod[label]));
         
-        // Completion rate per period
         double completionRate = 0;
         if ((totalJobsByPeriod[label] ?? 0) > 0) {
           completionRate = ((completedJobsByPeriod[label] ?? 0) / (totalJobsByPeriod[label]!)) * 100;
@@ -296,17 +369,15 @@ class _ReportsScreenState extends State<ReportsScreen> {
         _completionRateDetails.add(_PeriodDetail(period: label, value: completionRate, count: completedJobsByPeriod[label]));
       }
       
-      // Sort by value descending
       _jobValueDetails.sort((a, b) => b.value.compareTo(a.value));
       _completionRateDetails.sort((a, b) => b.value.compareTo(a.value));
       
-      // Build service details sorted by count descending
       _serviceDetails = jobTypeCounts.entries
           .map((e) => _ServiceDetail(name: e.key, count: e.value))
           .toList()
         ..sort((a, b) => b.count.compareTo(a.count));
       
-      _dayCountsMap = dayCounts;
+      _dayCountsMap = metricCounts; // Note: using metricCounts as fallback for day details if needed
 
       if (mounted) {
         setState(() {
@@ -319,7 +390,12 @@ class _ReportsScreenState extends State<ReportsScreen> {
             totalPayments: totalPayments,
             totalExpenses: totalExpenses,
             topService: topService,
-            busiestDay: busiestDayDisplay,
+            busiestDay: busiestDisplay,
+            busiestTitle: busiestTitle,
+            prevTotalJobs: prevTotalJobs,
+            prevInstallations: prevInstallations,
+            prevMaintenance: prevMaintenance,
+            prevRepairs: prevRepairs,
           );
           _isLoading = false;
         });
@@ -493,11 +569,17 @@ class _ReportsScreenState extends State<ReportsScreen> {
   List<_TimeBucket> _buildBuckets(DateTime startDate, DateTime endDate, DateTime now) {
     switch (_selectedRange) {
       case _ReportRange.today:
+        // Today in 3-hour blocks for more detail
         final start = DateTime(now.year, now.month, now.day);
-        final end = start.add(const Duration(days: 1));
-        return [
-          _TimeBucket(label: 'Today', start: start, end: end),
-        ];
+        return List.generate(8, (i) {
+           final blockStart = start.add(Duration(hours: i * 3));
+           final blockEnd = start.add(Duration(hours: (i + 1) * 3));
+           return _TimeBucket(
+             label: DateFormat('h a').format(blockStart), 
+             start: blockStart, 
+             end: blockEnd
+           );
+        });
       case _ReportRange.weekly:
         final monday = DateTime(startDate.year, startDate.month, startDate.day);
         return List.generate(7, (i) {
@@ -565,6 +647,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
               icon: Icons.work_outline,
               color: AppTheme.primary,
               width: width,
+              comparison: report.getComparisonText(report.totalJobs, report.prevTotalJobs, _selectedRange),
             ),
             _KpiCard(
               title: 'Installations',
@@ -572,6 +655,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
               icon: Icons.construction,
               color: AppTheme.success,
               width: width,
+              comparison: report.getComparisonText(report.installations, report.prevInstallations, _selectedRange),
             ),
             _KpiCard(
               title: 'Maintenance',
@@ -579,6 +663,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
               icon: Icons.cleaning_services,
               color: Colors.teal,
               width: width,
+              comparison: report.getComparisonText(report.maintenance, report.prevMaintenance, _selectedRange),
             ),
             _KpiCard(
               title: 'Repairs',
@@ -586,6 +671,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
               icon: Icons.build_circle_outlined,
               color: AppTheme.warning,
               width: width,
+              comparison: report.getComparisonText(report.repairs, report.prevRepairs, _selectedRange),
             ),
           ],
         );
@@ -593,55 +679,49 @@ class _ReportsScreenState extends State<ReportsScreen> {
     );
   }
 
-  Widget _buildBusinessInsights(_ReportData report, bool mobile) {
+  Widget _buildBusinessInsights(_ReportData data, bool mobile) {
     return LayoutBuilder(
       builder: (context, constraints) {
-        int crossAxisCount = 4;
-        if (constraints.maxWidth < 1200) crossAxisCount = 2;
-        if (mobile) crossAxisCount = 1;
-
-        final gap = mobile ? 12.0 : 24.0;
-        final width = crossAxisCount == 1 ? constraints.maxWidth : (constraints.maxWidth - (gap * (crossAxisCount - 1))) / crossAxisCount;
-
+        final double cardWidth = mobile ? double.infinity : (constraints.maxWidth - 48) / 4;
+        
         return Wrap(
-          spacing: gap,
-          runSpacing: gap,
+          spacing: 16,
+          runSpacing: 16,
           children: [
             _InsightCardClickable(
-              title: 'Avg. Job Value',
-              value: report.avgJobValue,
-              icon: Icons.attach_money,
-              color: const Color(0xFF5C6BC0),
-              backgroundColor: const Color(0xFFE8EAF6),
-              width: width,
-              onTap: () => _showInsightModal(context, 'Avg. Job Value', report.avgJobValue, 'Average amount per job completed.\nTotal Revenue: ${report.totalPaymentsFormatted}\nTotal Jobs: ${report.totalJobs}', periodDetails: _jobValueDetails),
+              title: "Avg Job Value",
+              value: data.avgJobValue,
+              icon: Icons.payments_outlined,
+              color: const Color(0xFF0EA5E9),
+              backgroundColor: const Color(0xFFF0F9FF),
+              width: cardWidth,
+              onTap: () => _showDetailModal("Average Job Value", _jobValueDetails, " (Avg)"),
             ),
             _InsightCardClickable(
-              title: 'Completion Rate',
-              value: report.completionRate,
-              icon: Icons.check_circle_outline,
-              color: const Color(0xFF66BB6A),
-              backgroundColor: const Color(0xFFE8F5E9),
-              width: width,
-              onTap: () => _showInsightModal(context, 'Completion Rate', report.completionRate, 'Completed Jobs: ${report.completedJobs}\nTotal Jobs: ${report.totalJobs}', periodDetails: _completionRateDetails),
+              title: "Completion Rate",
+              value: data.completionRate,
+              icon: Icons.assignment_turned_in_outlined,
+              color: const Color(0xFF10B981),
+              backgroundColor: const Color(0xFFF0FDF4),
+              width: cardWidth,
+              onTap: () => _showDetailModal("Completion Rate", _completionRateDetails, "%"),
             ),
             _InsightCardClickable(
-              title: 'Top Service',
-              value: report.topService,
+              title: "Top Service",
+              value: data.topService,
               icon: Icons.star_outline,
-              color: const Color(0xFFFFA726),
-              backgroundColor: const Color(0xFFFFF3E0),
-              width: width,
-              onTap: () => _showInsightModal(context, 'Top Service', report.topService, 'Most requested service type across the selected period.', serviceDetails: _serviceDetails),
+              color: const Color(0xFFF59E0B),
+              backgroundColor: const Color(0xFFFFFBEB),
+              width: cardWidth,
+              onTap: () => _showDetailModal("Top Service Breakdown", _serviceDetails.map((e) => _PeriodDetail(period: e.name, value: e.count.toDouble())).toList(), " Jobs"),
             ),
-            _InsightCardClickable(
-              title: 'Busiest Day',
-              value: report.busiestDay,
-              icon: Icons.calendar_today,
-              color: const Color(0xFFAB47BC),
-              backgroundColor: const Color(0xFFF3E5F5),
-              width: width,
-              onTap: () => _showInsightModal(context, 'Busiest Day', report.busiestDay, 'Day with the highest number of scheduled jobs.', dayDetails: _dayCountsMap),
+            _InsightCard(
+              title: data.busiestTitle,
+              value: data.busiestDay,
+              icon: Icons.calendar_today_outlined,
+              color: const Color(0xFF8B5CF6),
+              backgroundColor: const Color(0xFFF5F3FF),
+              width: cardWidth,
             ),
           ],
         );
@@ -649,235 +729,74 @@ class _ReportsScreenState extends State<ReportsScreen> {
     );
   }
 
-  void _showInsightModal(BuildContext context, String title, String value, String details, {List<_PeriodDetail>? periodDetails, List<_ServiceDetail>? serviceDetails, Map<String, int>? dayDetails}) {
-    final isJobValue = title == 'Avg. Job Value';
-    final isCompletionRate = title == 'Completion Rate';
-    final isTopService = title == 'Top Service';
-    final isBusiestDay = title == 'Busiest Day';
-    
-    Widget buildDetailsList() {
-      if (isJobValue && periodDetails != null) {
-        return Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text('Job Value by Period (Highest to Lowest):', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
-            const SizedBox(height: 12),
-            ConstrainedBox(
-              constraints: const BoxConstraints(maxHeight: 250),
-              child: SingleChildScrollView(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: List.generate(
-                    periodDetails.length,
-                    (idx) {
-                      final detail = periodDetails[idx];
-                      return Padding(
-                        padding: const EdgeInsets.symmetric(vertical: 6),
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            Flexible(child: Text('${detail.period}:', style: const TextStyle(fontSize: 13))),
-                            const SizedBox(width: 8),
-                            Flexible(child: Text('₱${detail.value.toStringAsFixed(2)} (${detail.count} jobs)', style: const TextStyle(fontSize: 13, color: Colors.blue, fontWeight: FontWeight.w600), textAlign: TextAlign.end)),
-                          ],
-                        ),
-                      );
-                    },
-                  ),
-                ),
-              ),
-            ),
-          ],
-        );
-      } else if (isCompletionRate && periodDetails != null) {
-        return Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text('Completion Rate by Period (Highest to Lowest):', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
-            const SizedBox(height: 12),
-            ConstrainedBox(
-              constraints: const BoxConstraints(maxHeight: 250),
-              child: SingleChildScrollView(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: List.generate(
-                    periodDetails.length,
-                    (idx) {
-                      final detail = periodDetails[idx];
-                      return Padding(
-                        padding: const EdgeInsets.symmetric(vertical: 6),
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            Flexible(child: Text('${detail.period}:', style: const TextStyle(fontSize: 13))),
-                            const SizedBox(width: 8),
-                            Flexible(child: Text('${detail.value.toStringAsFixed(1)}% (${detail.count} completed)', style: const TextStyle(fontSize: 13, color: Colors.green, fontWeight: FontWeight.w600), textAlign: TextAlign.end)),
-                          ],
-                        ),
-                      );
-                    },
-                  ),
-                ),
-              ),
-            ),
-          ],
-        );
-      } else if (isTopService && serviceDetails != null) {
-        return Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text('Services Ranking (Highest to Lowest):', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
-            const SizedBox(height: 12),
-            ConstrainedBox(
-              constraints: const BoxConstraints(maxHeight: 250),
-              child: SingleChildScrollView(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: List.generate(
-                    serviceDetails.length,
-                    (idx) {
-                      final detail = serviceDetails[idx];
-                      return Padding(
-                        padding: const EdgeInsets.symmetric(vertical: 6),
-                        child: Row(
-                          children: [
-                            Text('${idx + 1}.', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: Text(detail.name, style: const TextStyle(fontSize: 13)),
-                            ),
-                            Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                              decoration: BoxDecoration(color: Colors.orange.withOpacity(0.2), borderRadius: BorderRadius.circular(6)),
-                              child: Text('${detail.count}', style: const TextStyle(fontSize: 13, color: Colors.orange, fontWeight: FontWeight.w600)),
-                            ),
-                          ],
-                        ),
-                      );
-                    },
-                  ),
-                ),
-              ),
-            ),
-          ],
-        );
-      } else if (isBusiestDay && dayDetails != null) {
-        final sortedDays = dayDetails.entries.toList()..sort((a, b) => b.value.compareTo(a.value));
-        
-        return Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text('Jobs by Day (Highest to Lowest):', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
-            const SizedBox(height: 12),
-            ConstrainedBox(
-              constraints: const BoxConstraints(maxHeight: 250),
-              child: SingleChildScrollView(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: List.generate(
-                    sortedDays.length,
-                    (idx) {
-                      final day = sortedDays[idx];
-                      return Padding(
-                        padding: const EdgeInsets.symmetric(vertical: 6),
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            Text(day.key, style: const TextStyle(fontSize: 13)),
-                            Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-                              decoration: BoxDecoration(color: Colors.purple.withOpacity(0.2), borderRadius: BorderRadius.circular(6)),
-                              child: Text('${day.value} jobs', style: const TextStyle(fontSize: 13, color: Colors.purple, fontWeight: FontWeight.w600)),
-                            ),
-                          ],
-                        ),
-                      );
-                    },
-                  ),
-                ),
-              ),
-            ),
-          ],
-        );
-      }
-      
-      return Text(details, style: const TextStyle(fontSize: 14, color: Colors.grey));
-    }
-    
+  void _showDetailModal(String title, List<_PeriodDetail> details, String suffix) {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: Text(title),
-        content: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Container(
-                width: double.maxFinite,
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: Colors.blue.withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(12),
+        title: Text(title, style: AppTheme.heading2),
+        content: SizedBox(
+          width: 400,
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: details.map((d) => Padding(
+                padding: const EdgeInsets.symmetric(vertical: 8),
+                child: Row(
+                  children: [
+                    Text(d.period, style: const TextStyle(fontWeight: FontWeight.w600)),
+                    const Spacer(),
+                    Text(
+                      d.value % 1 == 0 ? d.value.toInt().toString() : d.value.toStringAsFixed(1),
+                      style: const TextStyle(fontWeight: FontWeight.bold, color: AppTheme.primary),
+                    ),
+                    Text(suffix, style: const TextStyle(fontSize: 12, color: AppTheme.textSecondary)),
+                  ],
                 ),
-                child: Text(
-                  value,
-                  style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Colors.blue),
-                ),
-              ),
-              const SizedBox(height: 20),
-              buildDetailsList(),
-            ],
+              )).toList(),
+            ),
           ),
         ),
         actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Close'),
-          ),
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text("Close")),
         ],
       ),
     );
   }
 
-  Widget _buildFinancialGrid(_ReportData report, bool mobile) {
+  Widget _buildFinancialGrid(_ReportData data, bool mobile) {
     return LayoutBuilder(
       builder: (context, constraints) {
         int crossAxisCount = 3;
-        if (constraints.maxWidth < 900) crossAxisCount = 1;
-        if (mobile) crossAxisCount = 1;
+        if (constraints.maxWidth < 900 || mobile) crossAxisCount = 1;
         
         final gap = mobile ? 12.0 : 24.0;
-        final width = crossAxisCount == 1 ? constraints.maxWidth : (constraints.maxWidth - (gap * 2)) / 3;
+        final totalGap = gap * (crossAxisCount - 1);
+        final width = (constraints.maxWidth - totalGap) / crossAxisCount;
 
         return Wrap(
           spacing: gap,
           runSpacing: gap,
           children: [
             _FinancialCard(
-              label: 'Total Revenue',
-              amount: report.totalPaymentsFormatted,
-              subtext: 'Verified Payments',
+              label: "Cash-in",
+              amount: data.totalPaymentsFormatted,
+              subtext: "Payments Received",
               width: width,
-              color: AppTheme.success,
+              color: Colors.green,
               icon: Icons.arrow_upward,
             ),
             _FinancialCard(
-              label: 'Total Expenses',
-              amount: report.totalExpensesFormatted,
-              subtext: 'Recorded Expenses',
+              label: "Cash-out",
+              amount: data.totalExpensesFormatted,
+              subtext: "Business Expenses",
               width: width,
-              color: AppTheme.error,
+              color: Colors.red,
               icon: Icons.arrow_downward,
             ),
             _FinancialCard(
-              label: 'Net Income',
-              amount: report.netCashFormatted,
-              subtext: 'Revenue - Expenses',
+              label: "Net Cash",
+              amount: data.netCashFormatted,
+              subtext: "Cash-in - Cash-out",
               width: width,
               color: AppTheme.primary,
               icon: Icons.account_balance_wallet,
@@ -912,19 +831,19 @@ class _ReportsScreenState extends State<ReportsScreen> {
 
   Widget _buildFinancialChart() {
     return _ChartContainer(
-      title: 'Income vs Expenses',
+      title: 'Cash-in vs Cash-out',
       child: _financialChartData.isEmpty 
         ? const Center(child: Text("No data"))
         : _SimpleLineChart(
             data: _financialChartData.map((d) => _ChartPoint(
               label: d.label,
               values: [d.income, d.expense],
-              colors: [AppTheme.success, AppTheme.error],
-              tooltips: ['Income: ${NumberFormat.simpleCurrency(name: 'PHP').format(d.income)}', 'Expense: ${NumberFormat.simpleCurrency(name: 'PHP').format(d.expense)}'],
+              colors: [Colors.green, Colors.red],
+              tooltips: ['Cash-in: ${NumberFormat.simpleCurrency(name: 'PHP').format(d.income)}', 'Cash-out: ${NumberFormat.simpleCurrency(name: 'PHP').format(d.expense)}'],
             )).toList(),
             legendItems: [
-              _LegendItem('Income', AppTheme.success),
-              _LegendItem('Expenses', AppTheme.error),
+              _LegendItem('Cash-in', Colors.green),
+              _LegendItem('Cash-out', Colors.red),
             ],
             leftPadding: 50.0, // Wider padding for currency values
           ),
@@ -991,6 +910,7 @@ class _KpiCard extends StatelessWidget {
   final IconData icon;
   final Color color;
   final double width;
+  final String? comparison;
 
   const _KpiCard({
     required this.title,
@@ -998,10 +918,14 @@ class _KpiCard extends StatelessWidget {
     required this.icon,
     required this.color,
     required this.width,
+    this.comparison,
   });
 
   @override
   Widget build(BuildContext context) {
+    final bool isNegative = comparison?.contains('-') ?? false;
+    final bool isNoData = comparison?.toLowerCase().contains('no prev') ?? false;
+    
     return Container(
       width: width,
       padding: const EdgeInsets.all(16),
@@ -1018,6 +942,22 @@ class _KpiCard extends StatelessWidget {
                 decoration: BoxDecoration(color: color.withOpacity(0.1), borderRadius: BorderRadius.circular(10)),
                 child: Icon(icon, size: 20, color: color),
               ),
+              if (comparison != null)
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: isNoData ? Colors.grey.withOpacity(0.1) : (isNegative ? Colors.red.withOpacity(0.1) : Colors.green.withOpacity(0.1)),
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  child: Text(
+                    comparison!,
+                    style: TextStyle(
+                      fontSize: 10,
+                      fontWeight: FontWeight.bold,
+                      color: isNoData ? Colors.grey : (isNegative ? Colors.red : Colors.green),
+                    ),
+                  ),
+                ),
             ],
           ),
           const SizedBox(height: 16),
@@ -1284,9 +1224,29 @@ class _SimpleLineChartState extends State<_SimpleLineChart> {
                       if (index < 0) index = 0;
                       if (index >= widget.data.length) index = widget.data.length - 1;
 
-                      setState(() {
-                        _selectedIndex = index;
-                      });
+                      // Show Modal instead of floating window
+                      showDialog(
+                        context: context,
+                        builder: (context) => AlertDialog(
+                          title: Text('Details for ${widget.data[index].label}', style: AppTheme.heading2),
+                          content: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: widget.data[index].tooltips.map((t) => Padding(
+                              padding: const EdgeInsets.symmetric(vertical: 4),
+                              child: Row(
+                                children: [
+                                  Container(width: 10, height: 10, decoration: BoxDecoration(color: widget.data[index].colors[widget.data[index].tooltips.indexOf(t)], shape: BoxShape.circle)),
+                                  const SizedBox(width: 8),
+                                  Expanded(child: Text(t, style: const TextStyle(fontWeight: FontWeight.w500))),
+                                ],
+                              ),
+                            )).toList(),
+                          ),
+                          actions: [
+                            TextButton(onPressed: () => Navigator.pop(context), child: const Text("Close")),
+                          ],
+                        ),
+                      );
                     },
                     child: CustomPaint(
                       size: Size(constraints.maxWidth, constraints.maxHeight),
@@ -1298,40 +1258,6 @@ class _SimpleLineChartState extends State<_SimpleLineChart> {
                       ),
                     ),
                   ),
-
-
-                  // Floating Window for Details
-                  if (_selectedIndex != null)
-                   Positioned(
-                     left: (leftPadding + (_selectedIndex! * step)) - 75, // Center box on point
-                     top: chartHeight / 2 - 50, // Floating somewhat centrally or near point
-                     child: Container(
-                        width: 150,
-                        padding: const EdgeInsets.all(12),
-                        decoration: BoxDecoration(
-                          color: AppTheme.surface,
-                          borderRadius: BorderRadius.circular(12),
-                          boxShadow: [
-                            BoxShadow(color: Colors.black.withOpacity(0.1), blurRadius: 10, offset: const Offset(0, 4)),
-                          ],
-                          border: Border.all(color: AppTheme.borderColor),
-                        ),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Text(widget.data[_selectedIndex!].label, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-                            const SizedBox(height: 8),
-                             ...List.generate(widget.data[_selectedIndex!].tooltips.length, (i) {
-                                return Padding(
-                                  padding: const EdgeInsets.only(bottom: 4),
-                                  child: Text(widget.data[_selectedIndex!].tooltips[i], style: const TextStyle(fontSize: 12)),
-                                );
-                             }),
-                          ],
-                        ),
-                     ),
-                   ),
                 ],
               );
             },
@@ -1411,6 +1337,8 @@ class _LineChartPainter extends CustomPainter {
         String labelText;
         if (maxVal > 1000) {
            labelText = '${(labelValue / 1000).toStringAsFixed(1)}k';
+        } else if (maxVal < 10 && maxVal > 0) {
+           labelText = labelValue.toStringAsFixed(1);
         } else {
            labelText = labelValue.toStringAsFixed(0);
         }
@@ -1443,8 +1371,8 @@ class _LineChartPainter extends CustomPainter {
 
          // Draw X-Axis Label (only specific indices to avoid overlapping)
          bool shouldDrawLabel = true;
-         if (data.length > 6) {
-            int skip = (data.length / 5).ceil();
+         if (data.length > 10) {
+            int skip = (data.length / 6).ceil();
             shouldDrawLabel = (i == 0) || (i == data.length - 1) || (i % skip == 0);
          }
 
@@ -1488,6 +1416,13 @@ class _ReportData {
   final double totalExpenses;
   final String topService;
   final String busiestDay;
+  final String busiestTitle;
+
+  // Previous Period Data
+  final int prevTotalJobs;
+  final int prevInstallations;
+  final int prevMaintenance;
+  final int prevRepairs;
 
   const _ReportData({
     required this.totalJobs,
@@ -1499,6 +1434,11 @@ class _ReportData {
     required this.totalExpenses,
     required this.topService,
     required this.busiestDay,
+    this.busiestTitle = 'Busiest Day',
+    this.prevTotalJobs = 0,
+    this.prevInstallations = 0,
+    this.prevMaintenance = 0,
+    this.prevRepairs = 0,
   });
 
   factory _ReportData.empty() {
@@ -1512,7 +1452,27 @@ class _ReportData {
       totalExpenses: 0,
       topService: 'N/A',
       busiestDay: 'N/A',
+      busiestTitle: 'Busiest Day',
+      prevTotalJobs: 0,
+      prevInstallations: 0,
+      prevMaintenance: 0,
+      prevRepairs: 0,
     );
+  }
+
+  String getComparisonText(int current, int prev, _ReportRange range) {
+    if (prev == 0) return 'No prev. data';
+    final diff = current - prev;
+    final prefix = diff >= 0 ? '+' : '';
+    String label = '';
+    switch (range) {
+      case _ReportRange.today: label = 'yesterday'; break;
+      case _ReportRange.weekly: label = 'last week'; break;
+      case _ReportRange.monthly: label = 'last month'; break;
+      case _ReportRange.last6Months: label = 'prev. 6 months'; break;
+      case _ReportRange.yearly: label = 'last year'; break;
+    }
+    return '$prefix$diff from $label';
   }
 
   double get netCash => totalPayments - totalExpenses;
