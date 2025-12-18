@@ -1291,23 +1291,73 @@ class _AddTransactionDialogState extends State<_AddTransactionDialog> {
 
               const SizedBox(height: 12),
 
+              // --- DESCRIPTION FIELD ---
               TextFormField(
                 controller: _nameController,
                 decoration: const InputDecoration(
                   labelText: "Description / Name",
+                  hintText: "e.g. Weekly Fuel",
                   border: OutlineInputBorder(),
+                  // HCI Tip: Show an icon to indicate what this is
+                  prefixIcon: Icon(Icons.description_outlined),
                 ),
-                validator: (v) => v!.isEmpty ? "Required" : null,
+                textCapitalization: TextCapitalization.sentences,
+                validator: (value) {
+                  if (value == null || value.trim().isEmpty) {
+                    return "Description is required";
+                  }
+                  if (value.trim().length < 3) {
+                    return "Description must be at least 3 characters";
+                  }
+                  return null;
+                },
               ),
-              const SizedBox(height: 12),
+
+              const SizedBox(height: 16),
+
+              // --- AMOUNT FIELD (With Smart Validation) ---
               TextFormField(
                 controller: _amountController,
-                keyboardType: TextInputType.number,
-                decoration: const InputDecoration(
-                  labelText: "Amount (₱)",
-                  border: OutlineInputBorder(),
+                // HCI Tip: Force the number keyboard immediately
+                keyboardType: const TextInputType.numberWithOptions(
+                  decimal: true,
                 ),
-                validator: (v) => v!.isEmpty ? "Required" : null,
+                decoration: const InputDecoration(
+                  labelText: "Amount",
+                  hintText: "0.00",
+                  border: OutlineInputBorder(),
+                  prefixText: "₱ ", // Visual cue so they don't type it
+                  suffixText: "PHP",
+                ),
+                validator: (value) {
+                  if (value == null || value.trim().isEmpty) {
+                    return "Amount is required";
+                  }
+
+                  // 1. Remove non-numeric characters (Commas, spaces, currency symbols)
+                  // This makes the field "Forgiving"
+                  final cleanValue = value
+                      .replaceAll(',', '')
+                      .replaceAll('₱', '')
+                      .trim();
+
+                  // 2. Check if it's a valid number
+                  final number = double.tryParse(cleanValue);
+                  if (number == null) {
+                    return "Please enter a valid number (e.g. 100.50)";
+                  }
+
+                  // 3. Logic Checks
+                  if (number <= 0) {
+                    return "Amount must be greater than 0";
+                  }
+                  if (number > 1000000) {
+                    // Safety Cap
+                    return "Amount seems unusually high. Check for extra zeros.";
+                  }
+
+                  return null; // Valid
+                },
               ),
               const SizedBox(height: 24),
               // NEW BUTTON ROW
