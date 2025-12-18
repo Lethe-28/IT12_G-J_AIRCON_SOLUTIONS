@@ -704,7 +704,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
   ) {
     switch (_selectedRange) {
       case _ReportRange.today:
-        // Today in 3-hour blocks for more detail
+        // Keep Today as is (3-hour blocks)
         final start = DateTime(now.year, now.month, now.day);
         return List.generate(8, (i) {
           final blockStart = start.add(Duration(hours: i * 3));
@@ -715,62 +715,64 @@ class _ReportsScreenState extends State<ReportsScreen> {
             end: blockEnd,
           );
         });
+
       case _ReportRange.weekly:
+        // Keep Weekly as is (Daily blocks)
         final monday = DateTime(startDate.year, startDate.month, startDate.day);
         return List.generate(7, (i) {
           final dayStart = monday.add(Duration(days: i));
           final dayEnd = dayStart.add(const Duration(days: 1));
           return _TimeBucket(
-            label: DateFormat('EEE').format(dayStart),
+            label: DateFormat('EEE').format(dayStart), // Mon, Tue...
             start: dayStart,
             end: dayEnd,
           );
         });
+
       case _ReportRange.monthly:
+        // HIGH RES FIX: Use Days (1..31) instead of Weeks
+        // This prevents the "straight line" effect across a whole week
         final buckets = <_TimeBucket>[];
-        DateTime cursor = DateTime(
+        final daysInMonth = DateUtils.getDaysInMonth(
           startDate.year,
           startDate.month,
-          startDate.day,
         );
-        final monthEnd = DateTime(startDate.year, startDate.month + 1, 1);
-        int week = 1;
-        while (cursor.isBefore(monthEnd)) {
-          final next = cursor.add(const Duration(days: 7));
-          final bucketEnd = next.isAfter(monthEnd) ? monthEnd : next;
+
+        for (int i = 0; i < daysInMonth; i++) {
+          final dayStart = DateTime(startDate.year, startDate.month, i + 1);
+          final dayEnd = dayStart.add(const Duration(days: 1));
+
           buckets.add(
-            _TimeBucket(label: 'Week $week', start: cursor, end: bucketEnd),
+            _TimeBucket(
+              label: DateFormat('d').format(dayStart), // 1, 2, 3...
+              start: dayStart,
+              end: dayEnd,
+            ),
           );
-          cursor = bucketEnd;
-          week++;
         }
         return buckets;
+
       case _ReportRange.last6Months:
-        final buckets = <_TimeBucket>[];
-        for (int i = 0; i < 6; i++) {
-          final monthStart = DateTime(startDate.year, startDate.month + i, 1);
-          final monthEnd = DateTime(monthStart.year, monthStart.month + 1, 1);
-          buckets.add(
-            _TimeBucket(
-              label: DateFormat('MMM').format(monthStart),
-              start: monthStart,
-              end: monthEnd,
-            ),
-          );
-        }
-        return buckets;
       case _ReportRange.yearly:
+        // HIGH RES FIX: Use Weeks instead of Months
+        // This shows the specific week activity happened, rather than averaging the whole month
         final buckets = <_TimeBucket>[];
-        for (int m = 1; m <= 12; m++) {
-          final monthStart = DateTime(startDate.year, m, 1);
-          final monthEnd = DateTime(startDate.year, m + 1, 1);
+        DateTime cursor = startDate;
+
+        // Loop week by week until we hit the end date
+        while (cursor.isBefore(endDate)) {
+          final next = cursor.add(const Duration(days: 7));
+          final bucketEnd = next.isAfter(endDate) ? endDate : next;
+
           buckets.add(
             _TimeBucket(
-              label: DateFormat('MMM').format(monthStart),
-              start: monthStart,
-              end: monthEnd,
+              // Label example: "Nov 15"
+              label: DateFormat('MMM d').format(cursor),
+              start: cursor,
+              end: bucketEnd,
             ),
           );
+          cursor = next;
         }
         return buckets;
     }
