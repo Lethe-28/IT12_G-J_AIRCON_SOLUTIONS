@@ -9,17 +9,19 @@ class SharedHeader extends StatelessWidget {
   final bool showNotifications;
   final ValueChanged<String>? onSearchChanged;
   final VoidCallback? onNotificationTap;
+  final Widget? customTitle;
 
   const SharedHeader({
     super.key,
-    required this.welcomeText,
-    required this.subtitleText,
+    this.welcomeText = '', // Default to empty if using customTitle
+    this.subtitleText = '',
     this.notificationCount = 0,
     this.showGreeting = true,
     this.showSearch = true,
     this.showNotifications = true,
     this.onSearchChanged,
     this.onNotificationTap,
+    this.customTitle,
   });
 
   Color _getNotificationColor(int count) {
@@ -92,7 +94,7 @@ class SharedHeader extends StatelessWidget {
             ),
           ) : const SizedBox.shrink();
 
-          final titleSection = Column(
+          final titleSection = customTitle ?? Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               if (welcomeText.isNotEmpty)

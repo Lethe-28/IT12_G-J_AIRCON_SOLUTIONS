@@ -2,7 +2,9 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:printing/printing.dart';
 import 'package:intl/intl.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import 'ui_app_shell.dart';
+import 'data/app_state.dart';
 import 'shared/widgets.dart' show AnimatedCard, HoverCard, AnimatedButton, isMobile;
 import 'dialogs/generate_soa_dialog.dart';
 import 'dialogs/generate_deferment_dialog.dart';
@@ -20,27 +22,57 @@ const Color kBorderColor = Color(0xFFE2E8F0);
 // --- Data Model ---
 
 class DocumentItem {
+  final String? id; // Supabase ID
   final String title;
   final String type; // 'pdf', 'excel', 'image', 'word'
   final String size;
-  final String status; // 'Verified', 'Pending'
   final String category; // 'Statement of Account', 'Deferment Form', 'Weekly Report'
   final String uploadedBy;
   final DateTime date;
   final List<String> tags;
-  final Uint8List? fileBytes; // Store actual file data for accurate storage
+  final Uint8List? fileBytes;
+  bool isArchived;
 
   DocumentItem({
+    this.id,
     required this.title,
     required this.type,
     required this.size,
-    required this.status,
     required this.category,
     required this.uploadedBy,
     required this.date,
     required this.tags,
     this.fileBytes,
+    this.isArchived = false,
   });
+
+  Map<String, dynamic> toMap() {
+    return {
+      if (id != null) 'id': id,
+      'title': title,
+      'type': type,
+      'size': size,
+      'category': category,
+      'uploaded_by': uploadedBy,
+      'date': date.toIso8601String(),
+      'tags': tags,
+      'is_archived': isArchived,
+    };
+  }
+
+  factory DocumentItem.fromMap(Map<String, dynamic> map) {
+    return DocumentItem(
+      id: map['id']?.toString(),
+      title: map['title'] ?? '',
+      type: map['type'] ?? 'pdf',
+      size: map['size'] ?? '0 KB',
+      category: map['category'] ?? 'Other',
+      uploadedBy: map['uploaded_by'] ?? 'System',
+      date: DateTime.parse(map['date'] ?? DateTime.now().toIso8601String()),
+      tags: List<String>.from(map['tags'] ?? []),
+      isArchived: map['is_archived'] ?? false,
+    );
+  }
 }
 
 // --- Main Screen ---
@@ -57,8 +89,8 @@ class _DocumentsScreenState extends State<DocumentsScreen> {
   String _selectedCategory = 'All Documents';
   String _searchQuery = '';
   bool _isGridView = true; // Toggle state
-  String? _statusFilter; // null, 'Pending', 'Verified'
-  final String _sortBy = 'date'; // 'date', 'name'
+  final String _sortBy = 'date';
+  String _dateFilter = 'All Time'; // All Time, Today, This Week, This Month
   
   // Dynamic categories - start with predefined ones
   final List<String> _categories = [
@@ -74,169 +106,131 @@ class _DocumentsScreenState extends State<DocumentsScreen> {
   }
 
   void _seedData() {
-    // Start with an empty documents list so the UI shows only real/generated
-    // documents (for example, SOAs created via the Generate dialog).
-    // Previously this method seeded demo/sample documents; those samples
-    // were removed to ensure only actual documents are displayed.
-    _documents.clear();
-    _updateDashboardPendingDocs();
+    _fetchDocuments();
+  }
+
+  Future<void> _fetchDocuments() async {
+    try {
+      final supabase = Supabase.instance.client;
+      final response = await supabase
+          .from('documents')
+          .select()
+          .order('date', ascending: false);
+      
+      if (mounted) {
+        setState(() {
+          _documents.clear();
+          _documents.addAll((response as List).map((m) => DocumentItem.fromMap(m)));
+        });
+        _updateDashboardPendingDocs();
+      }
+    } catch (e) {
+      debugPrint('Error fetching documents: $e');
+    }
+  }
+
+  Future<String?> _saveToDatabase(DocumentItem doc) async {
+    try {
+      final supabase = Supabase.instance.client;
+      final map = doc.toMap();
+      
+      final response = await supabase
+          .from('documents')
+          .upsert(map)
+          .select()
+          .single();
+      
+      return response['id']?.toString();
+    } catch (e) {
+      debugPrint('Error saving document: $e');
+      return null;
+    }
+  }
+
+  Future<void> _deleteFromDatabase(String id) async {
+    try {
+      final supabase = Supabase.instance.client;
+      await supabase.from('documents').delete().eq('id', id);
+    } catch (e) {
+      debugPrint('Error deleting document: $e');
+    }
   }
 
   void _updateDashboardPendingDocs() {
-    final pendingCount = _documents.where((d) => d.status == 'Pending').length;
-    DashboardProvider().updatePendingDocsCount(pendingCount);
+     // Pending documents concept removed per user request
+     DashboardProvider().updatePendingDocsCount(0);
   }
   
-  Future<void> _addNewCategory() async {
-    final controller = TextEditingController();
-    final result = await showDialog<String>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Add New Category'),
-        content: TextField(
-          controller: controller,
-          autofocus: true,
-          decoration: const InputDecoration(
-            labelText: 'Category Name',
-            hintText: 'e.g., Permits, Licenses',
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
-          ),
-          ElevatedButton(
-            onPressed: () {
-              final name = controller.text.trim();
-              if (name.isNotEmpty && !_categories.contains(name)) {
-                Navigator.pop(context, name);
-              }
-            },
-            child: const Text('Add'),
-          ),
-        ],
-      ),
-    );
+  // Removed _addNewCategory as requested
+  // Method logic removed
+  
+  // Removed _toggleDocumentStatus as Verified/Pending status is removed
+  
+  Future<void> _archiveDocument(DocumentItem doc) async {
+    doc.isArchived = true;
+    await _saveToDatabase(doc);
+    setState(() {});
+    _updateDashboardPendingDocs();
     
-    if (result != null && result.isNotEmpty) {
-      setState(() {
-        _categories.add(result);
-      });
+    if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Category "$result" added'),
+          content: Text('${doc.title} moved to Archive'),
+          backgroundColor: Colors.orange,
           behavior: SnackBarBehavior.floating,
+          action: SnackBarAction(
+            label: 'Undo',
+            textColor: Colors.white,
+            onPressed: () async {
+              doc.isArchived = false;
+              await _saveToDatabase(doc);
+              setState(() {});
+              _updateDashboardPendingDocs();
+            },
+          ),
         ),
       );
     }
   }
-  
-  Future<void> _toggleDocumentStatus(DocumentItem doc) async {
-    final newStatus = doc.status == 'Verified' ? 'Pending' : 'Verified';
-    setState(() {
-      final index = _documents.indexWhere((d) => d == doc);
-      if (index != -1) {
-        _documents[index] = DocumentItem(
-          title: doc.title,
-          type: doc.type,
-          size: doc.size,
-          status: newStatus,
-          category: doc.category,
-          uploadedBy: doc.uploadedBy,
-          date: doc.date,
-          tags: doc.tags,
-        );
-      }
-    });
+
+  Future<void> _restoreDocument(DocumentItem doc) async {
+    doc.isArchived = false;
+    await _saveToDatabase(doc);
+    setState(() {});
     _updateDashboardPendingDocs();
-    
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('Document marked as $newStatus'),
-        behavior: SnackBarBehavior.floating,
-      ),
+      SnackBar(content: Text('${doc.title} restored'), behavior: SnackBarBehavior.floating),
     );
   }
-  
-  Future<void> _archiveDocument(DocumentItem doc) async {
-    // Check if it's a generated document
-    final isGenerated = doc.tags.contains('Generated') || doc.uploadedBy == 'System';
-    
+
+  Future<void> _permanentDelete(DocumentItem doc) async {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Archive Document'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('Are you sure you want to archive "${doc.title}"?'),
-            if (isGenerated) ...[
-              const SizedBox(height: 12),
-              Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: Colors.orange.withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: Colors.orange),
-                ),
-                child: const Row(
-                  children: [
-                    Icon(Icons.warning_amber_rounded, color: Colors.orange, size: 20),
-                    SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        'This is a generated document. Once archived, you may need to regenerate it.',
-                        style: TextStyle(fontSize: 13),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ],
-        ),
+        title: const Text('Delete Permanently'),
+        content: Text('Are you sure you want to permanently delete "${doc.title}"? This action cannot be undone.'),
         actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Cancel'),
-          ),
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
           ElevatedButton(
             onPressed: () => Navigator.pop(context, true),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.red,
-              foregroundColor: Colors.white,
-            ),
-            child: const Text('Archive'),
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red, foregroundColor: Colors.white),
+            child: const Text('Delete'),
           ),
         ],
       ),
     );
-    
+
     if (confirmed == true) {
+      if (doc.id != null) {
+        await _deleteFromDatabase(doc.id!);
+      }
       setState(() {
         _documents.remove(doc);
       });
       _updateDashboardPendingDocs();
-      
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('${doc.title} archived'),
-            backgroundColor: Colors.orange,
-            behavior: SnackBarBehavior.floating,
-            action: SnackBarAction(
-              label: 'Undo',
-              textColor: Colors.white,
-              onPressed: () {
-                setState(() {
-                  _documents.insert(0, doc);
-                });
-                _updateDashboardPendingDocs();
-              },
-            ),
-          ),
+          const SnackBar(content: Text('Document deleted permanently'), backgroundColor: Colors.red, behavior: SnackBarBehavior.floating),
         );
       }
     }
@@ -244,11 +238,27 @@ class _DocumentsScreenState extends State<DocumentsScreen> {
 
   List<DocumentItem> get _filteredDocs {
     var result = _documents.where((doc) {
-      final matchesCategory = _selectedCategory == 'All Documents' || doc.category == _selectedCategory;
+      final isArchiveView = _selectedCategory == 'Archive';
+      if (isArchiveView && !doc.isArchived) return false;
+      if (!isArchiveView && doc.isArchived) return false;
+
+      final matchesCategory = _selectedCategory == 'All Documents' || _selectedCategory == 'Archive' || doc.category == _selectedCategory;
       final matchesSearch = doc.title.toLowerCase().contains(_searchQuery.toLowerCase()) || 
                             doc.uploadedBy.toLowerCase().contains(_searchQuery.toLowerCase());
-      final matchesStatus = _statusFilter == null || doc.status == _statusFilter;
-      return matchesCategory && matchesSearch && matchesStatus;
+      
+      // Date Filter
+      bool matchesDate = true;
+      final now = DateTime.now();
+      if (_dateFilter == 'Today') {
+        matchesDate = doc.date.year == now.year && doc.date.month == now.month && doc.date.day == now.day;
+      } else if (_dateFilter == 'This Week') {
+        final weekAgo = now.subtract(const Duration(days: 7));
+        matchesDate = doc.date.isAfter(weekAgo);
+      } else if (_dateFilter == 'This Month') {
+        matchesDate = doc.date.year == now.year && doc.date.month == now.month;
+      }
+
+      return matchesCategory && matchesSearch && matchesDate;
     }).toList();
     
     // Sort
@@ -357,57 +367,48 @@ class _DocumentsScreenState extends State<DocumentsScreen> {
       backgroundColor: Colors.transparent,
       builder: (context) => const GenerateWeeklyReportDialog(),
     );
-
-    if (excelBytes == null) return;
-
-    final now = DateTime.now();
-    final fileName = 'WeeklyReport_${DateFormat('yyyyMMdd_HHmmss').format(now)}.xlsx';
-    final sizeKB = (excelBytes.length / 1024).toStringAsFixed(0);
     
-    // For Excel, we might want to save it to a temporary file so it can be opened/shared properly
-    // But for now, we follow the pattern of storing bytes.
-    
-    setState(() {
-      _documents.insert(0, DocumentItem(
+    if (excelBytes != null) {
+      final now = DateTime.now();
+      final fileName = 'WeeklyReport_${DateFormat('yyyyMMdd_HHmmss').format(now)}.xlsx';
+      final doc = DocumentItem(
         title: fileName,
         type: 'excel',
-        size: '$sizeKB KB',
-        status: 'Pending',
+        size: '${(excelBytes.length / 1024).toStringAsFixed(1)} KB',
         category: 'Weekly Report',
-        uploadedBy: 'System',
+        uploadedBy: AppState.currentUserName,
         date: now,
         tags: ['Weekly Report', 'Generated', 'Excel'],
         fileBytes: excelBytes,
-      ));
-    });
-    _updateDashboardPendingDocs();
-
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('✓ $fileName generated successfully'),
-          backgroundColor: Colors.green,
-          behavior: SnackBarBehavior.floating,
-          action: SnackBarAction(
-            label: 'Open',
-            textColor: Colors.white,
-            onPressed: () async {
-               // Initial attempt to save and open
-               try {
-                 final dir = await getApplicationDocumentsDirectory();
-                 final file = File('${dir.path}/$fileName');
-                 await file.writeAsBytes(excelBytes);
-                 // We can't easily "open" it without a launcher, but we saved it.
-                 // For now, just show it's saved.
-                 // Printing.sharePdf might not work well for xlsx on all platforms but let's try sharing
-                 await Printing.sharePdf(bytes: excelBytes, filename: fileName);
-               } catch (e) {
-                 print('Error opening file: $e');
-               }
-            },
-          ),
-        ),
       );
+
+      final docId = await _saveToDatabase(doc);
+      final docWithId = DocumentItem(
+        id: docId,
+        title: doc.title,
+        type: doc.type,
+        size: doc.size,
+        category: doc.category,
+        uploadedBy: doc.uploadedBy,
+        date: doc.date,
+        tags: doc.tags,
+        fileBytes: doc.fileBytes,
+      );
+
+      setState(() {
+        _documents.insert(0, docWithId);
+      });
+      _updateDashboardPendingDocs();
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('✓ $fileName generated and saved'),
+            backgroundColor: Colors.green,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
     }
   }
 
@@ -419,45 +420,56 @@ class _DocumentsScreenState extends State<DocumentsScreen> {
       builder: (context) => const GenerateDefermentDialog(),
     );
 
-    if (pdfBytes == null) return;
+    if (pdfBytes != null) {
+      await Printing.layoutPdf(
+        onLayout: (format) async => pdfBytes,
+        name: 'Deferment_Form_${DateFormat('yyyyMMdd_HHmmss').format(DateTime.now())}.pdf',
+      );
 
-    await Printing.layoutPdf(
-      onLayout: (format) async => pdfBytes,
-      name: 'Deferment_Form_${DateFormat('yyyyMMdd_HHmmss').format(DateTime.now())}.pdf',
-    );
-
-    final now = DateTime.now();
-    final fileName = 'Deferment_${DateFormat('yyyyMMdd_HHmmss').format(now)}.pdf';
-    final sizeKB = (pdfBytes.length / 1024).toStringAsFixed(0);
-    
-    setState(() {
-      _documents.insert(0, DocumentItem(
+      final now = DateTime.now();
+      final fileName = 'Deferment_${DateFormat('yyyyMMdd_HHmmss').format(now)}.pdf';
+      final doc = DocumentItem(
         title: fileName,
         type: 'pdf',
-        size: '$sizeKB KB',
-        status: 'Pending',
+        size: '${(pdfBytes.length / 1024).toStringAsFixed(1)} KB',
         category: 'Deferment Form',
-        uploadedBy: 'System',
+        uploadedBy: AppState.currentUserName,
         date: now,
         tags: ['Deferment', 'Generated', 'PDF'],
         fileBytes: pdfBytes,
-      ));
-    });
-    _updateDashboardPendingDocs();
-
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('✓ $fileName generated successfully'),
-          backgroundColor: Colors.green,
-          behavior: SnackBarBehavior.floating,
-        ),
       );
+
+      final docId = await _saveToDatabase(doc);
+      final docWithId = DocumentItem(
+        id: docId,
+        title: doc.title,
+        type: doc.type,
+        size: doc.size,
+        category: doc.category,
+        uploadedBy: doc.uploadedBy,
+        date: doc.date,
+        tags: doc.tags,
+        fileBytes: doc.fileBytes,
+      );
+
+      setState(() {
+        _documents.insert(0, docWithId);
+      });
+      _updateDashboardPendingDocs();
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('✓ $fileName generated and saved'),
+            backgroundColor: Colors.green,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
     }
   }
 
   Future<void> _generateSOA() async {
-    // Show the generation bottom sheet
     final pdfBytes = await showModalBottomSheet<Uint8List>(
       context: context,
       isScrollControlled: true,
@@ -465,42 +477,52 @@ class _DocumentsScreenState extends State<DocumentsScreen> {
       builder: (context) => const GenerateSOADialog(),
     );
 
-    if (pdfBytes == null) return;
+    if (pdfBytes != null) {
+      await Printing.layoutPdf(
+        onLayout: (format) async => pdfBytes,
+        name: 'SOA_${DateFormat('yyyyMMdd_HHmmss').format(DateTime.now())}.pdf',
+      );
 
-    // Show preview and save options
-    await Printing.layoutPdf(
-      onLayout: (format) async => pdfBytes,
-      name: 'SOA_${DateFormat('yyyyMMdd_HHmmss').format(DateTime.now())}.pdf',
-    );
-
-    // Add the generated document to the list
-    final now = DateTime.now();
-    final fileName = 'SOA_${DateFormat('yyyyMMdd_HHmmss').format(now)}.pdf';
-    final sizeKB = (pdfBytes.length / 1024).toStringAsFixed(0);
-    
-    setState(() {
-      _documents.insert(0, DocumentItem(
+      final now = DateTime.now();
+      final fileName = 'SOA_${DateFormat('yyyyMMdd_HHmmss').format(now)}.pdf';
+      final doc = DocumentItem(
         title: fileName,
         type: 'pdf',
-        size: '$sizeKB KB',
-        status: 'Pending',
+        size: '${(pdfBytes.length / 1024).toStringAsFixed(1)} KB',
         category: 'Statement of Account',
-        uploadedBy: 'System',
+        uploadedBy: AppState.currentUserName,
         date: now,
         tags: ['SOA', 'Generated', 'PDF'],
-        fileBytes: pdfBytes, // Store actual bytes for storage calculation
-      ));
-    });
-    _updateDashboardPendingDocs();
-
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('✓ $fileName generated successfully'),
-          backgroundColor: Colors.green,
-          behavior: SnackBarBehavior.floating,
-        ),
+        fileBytes: pdfBytes,
       );
+
+      final docId = await _saveToDatabase(doc);
+      final docWithId = DocumentItem(
+        id: docId,
+        title: doc.title,
+        type: doc.type,
+        size: doc.size,
+        category: doc.category,
+        uploadedBy: doc.uploadedBy,
+        date: doc.date,
+        tags: doc.tags,
+        fileBytes: doc.fileBytes,
+      );
+
+      setState(() {
+        _documents.insert(0, docWithId);
+      });
+      _updateDashboardPendingDocs();
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('✓ $fileName generated and saved'),
+            backgroundColor: Colors.green,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
     }
   }
 
@@ -544,18 +566,21 @@ class _DocumentsScreenState extends State<DocumentsScreen> {
                             contentPadding: const EdgeInsets.symmetric(vertical: 12),
                           ),
                         ),
-
+                        const SizedBox(height: 12),
+                        _buildDateFilter(),
                       ],
                     )
-                  : Row(
+                    : Row(
                       children: [
                         const Text(
                           'Document Management',
                           style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700, color: kTextPrimary, letterSpacing: -0.5),
                         ),
                         const Spacer(),
+                        _buildDateFilter(),
+                        const SizedBox(width: 16),
                         SizedBox(
-                          width: 300,
+                          width: 250,
                           height: 40,
                           child: TextField(
                             onChanged: (v) => setState(() => _searchQuery = v),
@@ -573,7 +598,6 @@ class _DocumentsScreenState extends State<DocumentsScreen> {
                             ),
                           ),
                         ),
-
                       ],
                     ),
             ),
@@ -612,32 +636,9 @@ class _DocumentsScreenState extends State<DocumentsScreen> {
                                     child: _buildMobileCategoryChip(cat, categoryIcons[cat] ?? Icons.folder),
                                   );
                                 }),
-                                // Add Category button
-                                GestureDetector(
-                                  onTap: _addNewCategory,
-                                  child: Container(
-                                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                                    decoration: BoxDecoration(
-                                      color: Colors.white,
-                                      borderRadius: BorderRadius.circular(20),
-                                      border: Border.all(color: kPrimaryColor, width: 1.5),
-                                    ),
-                                    child: const Row(
-                                      mainAxisSize: MainAxisSize.min,
-                                      children: [
-                                        Icon(Icons.add, size: 16, color: kPrimaryColor),
-                                        SizedBox(width: 6),
-                                        Text(
-                                          'Add Category',
-                                          style: TextStyle(
-                                            fontSize: 12,
-                                            color: kPrimaryColor,
-                                            fontWeight: FontWeight.w600,
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
+                                Padding(
+                                  padding: const EdgeInsets.only(right: 8),
+                                  child: _buildMobileCategoryChip('Archive', Icons.archive_outlined),
                                 ),
                               ],
                             ),
@@ -688,13 +689,7 @@ class _DocumentsScreenState extends State<DocumentsScreen> {
                         ),
                         const Divider(height: 1, color: kBorderColor),
                         
-                        // Stats Row
-                        Container(
-                          width: double.infinity,
-                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                          color: const Color(0xFFF8FAFC),
-                          child: _buildStatsRow(),
-                        ),
+                        // Removed Stats Row as per request
 
                         // File Content
                         Expanded(
@@ -798,14 +793,7 @@ class _DocumentsScreenState extends State<DocumentsScreen> {
                               ),
                             ),
                             const Divider(height: 1, color: kBorderColor),
-                            
-                            // Stats Row
-                            Container(
-                              width: double.infinity,
-                              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-                              color: const Color(0xFFF8FAFC),
-                              child: _buildStatsRow(),
-                            ),
+                            // Removed Stats Row as per request
 
                             // File Content
                             Expanded(
@@ -813,43 +801,37 @@ class _DocumentsScreenState extends State<DocumentsScreen> {
                                 padding: const EdgeInsets.all(24),
                                 child: Column(
                                   crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    if (_filteredDocs.isEmpty)
-                                      Column(
-                                        children: [
-                                          _buildGenerateButton(),
-                                          const SizedBox(height: 40),
-                                          const Center(
-                                            child: Padding(
-                                              padding: EdgeInsets.all(40),
-                                              child: Column(
-                                                children: [
-                                                  Icon(Icons.folder_open, size: 80, color: Color(0xFFCBD5E1)),
-                                                  SizedBox(height: 20),
-                                                  Text(
-                                                    "No documents found",
-                                                    style: TextStyle(fontSize: 18, color: Color(0xFF64748B), fontWeight: FontWeight.w600),
-                                                  ),
-                                                  SizedBox(height: 8),
-                                                  Text(
-                                                    "Generate your first document using the button above",
-                                                    style: TextStyle(fontSize: 14, color: Color(0xFF94A3B8)),
-                                                  ),
-                                                ],
-                                              ),
+                                    children: [
+                                      _buildGenerateButton(),
+                                      const SizedBox(height: 24),
+                                      if (_filteredDocs.isEmpty)
+                                        const Center(
+                                          child: Padding(
+                                            padding: EdgeInsets.all(40),
+                                            child: Column(
+                                              children: [
+                                                Icon(Icons.folder_open, size: 80, color: Color(0xFFCBD5E1)),
+                                                SizedBox(height: 20),
+                                                Text(
+                                                  "No documents found",
+                                                  style: TextStyle(fontSize: 18, color: Color(0xFF64748B), fontWeight: FontWeight.w600),
+                                                ),
+                                                SizedBox(height: 8),
+                                                Text(
+                                                  "Generate your first document using the button above",
+                                                  style: TextStyle(fontSize: 14, color: Color(0xFF94A3B8)),
+                                                ),
+                                              ],
                                             ),
                                           ),
-                                        ],
-                                      )
-                                    else ...[
-                                      if (_isGridView)
-                                        _buildGrid(_filteredDocs)
-                                      else
-                                        _buildList(_filteredDocs),
-                                      const SizedBox(height: 24),
-                                      _buildGenerateButton(),
+                                        )
+                                      else ...[
+                                        if (_isGridView)
+                                          _buildGrid(_filteredDocs)
+                                        else
+                                          _buildList(_filteredDocs),
+                                      ],
                                     ],
-                                  ],
                                 ),
                               ),
                             ),
@@ -874,6 +856,7 @@ class _DocumentsScreenState extends State<DocumentsScreen> {
       'Statement of Account': Icons.receipt_long,
       'Deferment Form': Icons.assignment_turned_in,
       'Weekly Report': Icons.assessment_outlined,
+      'Archive': Icons.archive,
     };
     
     final categories = [
@@ -882,6 +865,7 @@ class _DocumentsScreenState extends State<DocumentsScreen> {
         'name': cat,
         'icon': categoryIcons[cat] ?? Icons.folder,
       }),
+      {'name': 'Archive', 'icon': Icons.archive_outlined},
     ];
     
     return Container(
@@ -894,9 +878,15 @@ class _DocumentsScreenState extends State<DocumentsScreen> {
             final name = cat['name'] as String;
             final icon = cat['icon'] as IconData;
             final isSelected = _selectedCategory == name;
-            final count = name == 'All Documents' 
-                ? _documents.length 
-                : _documents.where((d) => d.category == name).length;
+            
+            int count;
+            if (name == 'Archive') {
+              count = _documents.where((d) => d.isArchived).length;
+            } else if (name == 'All Documents') {
+              count = _documents.where((d) => !d.isArchived).length;
+            } else {
+              count = _documents.where((d) => !d.isArchived && d.category == name).length;
+            }
                 
             return InkWell(
               onTap: () => setState(() => _selectedCategory = name),
@@ -939,34 +929,6 @@ class _DocumentsScreenState extends State<DocumentsScreen> {
               ),
             );
           }),
-          const SizedBox(height: 8),
-          InkWell(
-            onTap: _addNewCategory,
-            child: Container(
-              width: double.infinity,
-              margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-              decoration: BoxDecoration(
-                color: Colors.transparent,
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: kPrimaryColor, width: 1.5),
-              ),
-              child: const Row(
-                children: [
-                  Icon(Icons.add, size: 18, color: kPrimaryColor),
-                  SizedBox(width: 12),
-                  Text(
-                    'Add Category',
-                    style: TextStyle(
-                      fontSize: 14,
-                      color: kPrimaryColor,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
         ],
       ),
     );
@@ -974,9 +936,15 @@ class _DocumentsScreenState extends State<DocumentsScreen> {
 
   Widget _buildMobileCategoryChip(String name, IconData icon) {
     final isSelected = _selectedCategory == name;
-    final count = name == 'All Documents' 
-        ? _documents.length 
-        : _documents.where((d) => d.category == name).length;
+    
+    int count;
+    if (name == 'Archive') {
+      count = _documents.where((d) => d.isArchived).length;
+    } else if (name == 'All Documents') {
+      count = _documents.where((d) => !d.isArchived).length;
+    } else {
+      count = _documents.where((d) => !d.isArchived && d.category == name).length;
+    }
     
     return GestureDetector(
       onTap: () => setState(() => _selectedCategory = name),
@@ -1027,63 +995,7 @@ class _DocumentsScreenState extends State<DocumentsScreen> {
     );
   }
 
-  Widget _buildStatsRow() {
-    final pending = _documents.where((d) => d.status == 'Pending').length;
-    final verified = _documents.where((d) => d.status == 'Verified').length;
-    
-    // Calculate actual storage from file bytes
-    final totalBytes = _documents.fold<int>(0, (sum, doc) {
-      return sum + (doc.fileBytes?.length ?? 0);
-    });
-    final totalMB = totalBytes / (1024 * 1024);
-    
-    return SingleChildScrollView(
-      scrollDirection: Axis.horizontal,
-      child: Row(
-        children: [
-          GestureDetector(
-            onTap: () => setState(() => _statusFilter = null),
-            child: _MiniStatChip(
-              label: 'Total Files',
-              value: '${_documents.length}',
-              icon: Icons.folder,
-              color: _statusFilter == null ? kPrimaryColor : Colors.grey,
-              isActive: _statusFilter == null,
-            ),
-          ),
-          const SizedBox(width: 12),
-          GestureDetector(
-            onTap: () => setState(() => _statusFilter = _statusFilter == 'Pending' ? null : 'Pending'),
-            child: _MiniStatChip(
-              label: 'Pending Review',
-              value: '$pending',
-              icon: Icons.pending_outlined,
-              color: _statusFilter == 'Pending' ? Colors.orange : Colors.orange.withOpacity(0.6),
-              isActive: _statusFilter == 'Pending',
-            ),
-          ),
-          const SizedBox(width: 12),
-          GestureDetector(
-            onTap: () => setState(() => _statusFilter = _statusFilter == 'Verified' ? null : 'Verified'),
-            child: _MiniStatChip(
-              label: 'Verified',
-              value: '$verified',
-              icon: Icons.verified_outlined,
-              color: _statusFilter == 'Verified' ? Colors.green : Colors.green.withOpacity(0.6),
-              isActive: _statusFilter == 'Verified',
-            ),
-          ),
-          const SizedBox(width: 12),
-          _MiniStatChip(
-            label: 'Storage Used',
-            value: totalMB >= 1 ? '${totalMB.toStringAsFixed(2)} MB' : '${(totalBytes / 1024).toStringAsFixed(1)} KB',
-            icon: Icons.cloud,
-            color: Colors.blue,
-          ),
-        ],
-      ),
-    );
-  }
+  // Removed unused _buildStatsRow
 
   Widget _buildGenerateButton() {
     final isMobileView = isMobile(context);
@@ -1196,8 +1108,9 @@ class _DocumentsScreenState extends State<DocumentsScreen> {
             delay: Duration(milliseconds: 300 + (index * 50)),
             child: _DocumentGridCard(
               doc: docs[index],
-              onToggleStatus: _toggleDocumentStatus,
               onArchive: _archiveDocument,
+              onRestore: _restoreDocument,
+              onDeletePermanently: _permanentDelete,
             ),
           ),
         );
@@ -1245,21 +1158,11 @@ class _DocumentsScreenState extends State<DocumentsScreen> {
                       ],
                     ),
                   ),
-                  _StatusBadge(status: entry.value.status),
+                  const Spacer(),
                   PopupMenuButton<String>(
                     icon: const Icon(Icons.more_vert, size: 18, color: kTextSecondary),
                     itemBuilder: (context) => [
                       if (entry.value.fileBytes != null) ...[
-                        const PopupMenuItem(
-                          value: 'edit',
-                          child: Row(
-                            children: [
-                              Icon(Icons.edit, size: 18, color: Colors.blue),
-                              SizedBox(width: 8),
-                              Text('Edit'),
-                            ],
-                          ),
-                        ),
                         const PopupMenuItem(
                           value: 'download',
                           child: Row(
@@ -1271,46 +1174,52 @@ class _DocumentsScreenState extends State<DocumentsScreen> {
                           ),
                         ),
                       ],
-                      PopupMenuItem(
-                        value: 'verify',
-                        child: Row(
-                          children: [
-                            Icon(
-                              entry.value.status == 'Verified' ? Icons.pending : Icons.verified,
-                              size: 18,
-                              color: entry.value.status == 'Verified' ? Colors.orange : Colors.green,
-                            ),
-                            const SizedBox(width: 8),
-                            Text(entry.value.status == 'Verified' ? 'Mark as Pending' : 'Mark as Verified'),
-                          ],
-                        ),
-                      ),
+                      if (!entry.value.isArchived)
                       const PopupMenuItem(
                         value: 'archive',
                         child: Row(
                           children: [
-                            Icon(Icons.archive, size: 18, color: Colors.red),
+                            Icon(Icons.archive, size: 18, color: Colors.orange),
                             SizedBox(width: 8),
                             Text('Archive'),
                           ],
                         ),
-                      ),
+                      )
+                      else ...[
+                        const PopupMenuItem(
+                          value: 'restore',
+                          child: Row(
+                            children: [
+                              Icon(Icons.unarchive, size: 18, color: Colors.blue),
+                              SizedBox(width: 8),
+                              Text('Restore'),
+                            ],
+                          ),
+                        ),
+                        const PopupMenuItem(
+                          value: 'delete',
+                          child: Row(
+                            children: [
+                              Icon(Icons.delete_forever, size: 18, color: Colors.red),
+                              SizedBox(width: 8),
+                              Text('Delete Permanently'),
+                            ],
+                          ),
+                        ),
+                      ],
                     ],
                     onSelected: (value) async {
-                      if (value == 'edit') {
-                        await Printing.layoutPdf(
-                          onLayout: (format) async => entry.value.fileBytes!,
-                          name: entry.value.title,
-                        );
-                      } else if (value == 'download') {
+                      if (value == 'download') {
                         await Printing.sharePdf(
                           bytes: entry.value.fileBytes!,
                           filename: entry.value.title,
                         );
-                      } else if (value == 'verify') {
-                        _toggleDocumentStatus(entry.value);
                       } else if (value == 'archive') {
                         _archiveDocument(entry.value);
+                      } else if (value == 'restore') {
+                        _restoreDocument(entry.value);
+                      } else if (value == 'delete') {
+                        _permanentDelete(entry.value);
                       }
                     },
                   ),
@@ -1362,7 +1271,6 @@ class _DocumentsScreenState extends State<DocumentsScreen> {
                     SizedBox(width: 200, child: Text('Name', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: kTextSecondary))),
                     SizedBox(width: 120, child: Text('Owner', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: kTextSecondary))),
                     SizedBox(width: 100, child: Text('Date', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: kTextSecondary))),
-                    SizedBox(width: 100, child: Text('Status', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: kTextSecondary))),
                     SizedBox(width: 40, child: Text('Actions', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: kTextSecondary))),
                   ],
                 ),
@@ -1387,23 +1295,12 @@ class _DocumentsScreenState extends State<DocumentsScreen> {
                     ),
                     SizedBox(width: 120, child: Text(doc.uploadedBy, style: const TextStyle(fontSize: 13, color: kTextSecondary))),
                     SizedBox(width: 100, child: Text('${doc.date.month}/${doc.date.day}/${doc.date.year}', style: const TextStyle(fontSize: 13, color: kTextSecondary))),
-                    SizedBox(width: 100, child: _StatusBadge(status: doc.status)),
                     SizedBox(
                       width: 40,
                       child: PopupMenuButton<String>(
                         icon: const Icon(Icons.more_vert, size: 18, color: kTextSecondary),
                         itemBuilder: (context) => [
                           if (doc.fileBytes != null) ...[
-                            const PopupMenuItem(
-                              value: 'edit',
-                              child: Row(
-                                children: [
-                                  Icon(Icons.edit, size: 18, color: Colors.blue),
-                                  SizedBox(width: 8),
-                                  Text('Edit'),
-                                ],
-                              ),
-                            ),
                             const PopupMenuItem(
                               value: 'download',
                               child: Row(
@@ -1415,46 +1312,52 @@ class _DocumentsScreenState extends State<DocumentsScreen> {
                               ),
                             ),
                           ],
-                          PopupMenuItem(
-                            value: 'verify',
-                            child: Row(
-                              children: [
-                                Icon(
-                                  doc.status == 'Verified' ? Icons.pending : Icons.verified,
-                                  size: 18,
-                                  color: doc.status == 'Verified' ? Colors.orange : Colors.green,
-                                ),
-                                const SizedBox(width: 8),
-                                Text(doc.status == 'Verified' ? 'Mark as Pending' : 'Mark as Verified'),
-                              ],
-                            ),
-                          ),
+                          if (!doc.isArchived)
                           const PopupMenuItem(
                             value: 'archive',
                             child: Row(
                               children: [
-                                Icon(Icons.archive, size: 18, color: Colors.red),
+                                Icon(Icons.archive, size: 18, color: Colors.orange),
                                 SizedBox(width: 8),
                                 Text('Archive'),
                               ],
                             ),
-                          ),
+                          )
+                          else ...[
+                            const PopupMenuItem(
+                              value: 'restore',
+                              child: Row(
+                                children: [
+                                  Icon(Icons.unarchive, size: 18, color: Colors.blue),
+                                  SizedBox(width: 8),
+                                  Text('Restore'),
+                                ],
+                              ),
+                            ),
+                            const PopupMenuItem(
+                              value: 'delete',
+                              child: Row(
+                                children: [
+                                  Icon(Icons.delete_forever, size: 18, color: Colors.red),
+                                  SizedBox(width: 8),
+                                  Text('Delete Permanently'),
+                                ],
+                              ),
+                            ),
+                          ],
                         ],
                         onSelected: (value) async {
-                          if (value == 'edit') {
-                            await Printing.layoutPdf(
-                              onLayout: (format) async => doc.fileBytes!,
-                              name: doc.title,
-                            );
-                          } else if (value == 'download') {
+                          if (value == 'download') {
                             await Printing.sharePdf(
                               bytes: doc.fileBytes!,
                               filename: doc.title,
                             );
-                          } else if (value == 'verify') {
-                            _toggleDocumentStatus(doc);
                           } else if (value == 'archive') {
                             _archiveDocument(doc);
+                          } else if (value == 'restore') {
+                            _restoreDocument(doc);
+                          } else if (value == 'delete') {
+                            _permanentDelete(doc);
                           }
                         },
                       ),
@@ -1489,6 +1392,42 @@ class _DocumentsScreenState extends State<DocumentsScreen> {
       case 'image': return Colors.orange;
       default: return Colors.blue;
     }
+  }
+
+  Widget _buildDateFilter() {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF1F5F9),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: kBorderColor),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: ['All Time', 'Today', 'This Week', 'This Month'].map((range) {
+          final isSelected = _dateFilter == range;
+          return GestureDetector(
+            onTap: () => setState(() => _dateFilter = range),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+              decoration: BoxDecoration(
+                color: isSelected ? Colors.white : Colors.transparent,
+                borderRadius: BorderRadius.circular(6),
+                boxShadow: isSelected ? [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 2, offset: const Offset(0, 1))] : null,
+              ),
+              child: Text(
+                range,
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500,
+                  color: isSelected ? kPrimaryColor : kTextSecondary,
+                ),
+              ),
+            ),
+          );
+        }).toList(),
+      ),
+    );
   }
 }
 
@@ -1531,12 +1470,14 @@ class _MiniStatChip extends StatelessWidget {
 
 class _DocumentGridCard extends StatelessWidget {
   final DocumentItem doc;
-  final Function(DocumentItem) onToggleStatus;
   final Function(DocumentItem) onArchive;
+  final Function(DocumentItem) onRestore;
+  final Function(DocumentItem) onDeletePermanently;
   const _DocumentGridCard({
     required this.doc,
-    required this.onToggleStatus,
     required this.onArchive,
+    required this.onRestore,
+    required this.onDeletePermanently,
   });
 
   @override
@@ -1586,22 +1527,11 @@ class _DocumentGridCard extends StatelessWidget {
                 child: Icon(fileIcon, color: iconColor, size: 20),
               ),
               const Spacer(),
-              _StatusBadge(status: doc.status),
               PopupMenuButton<String>(
                 icon: const Icon(Icons.more_vert, size: 16, color: kTextSecondary),
                 padding: EdgeInsets.zero,
                 itemBuilder: (context) => [
                   if (doc.fileBytes != null) ...[
-                    const PopupMenuItem(
-                      value: 'edit',
-                      child: Row(
-                        children: [
-                          Icon(Icons.edit, size: 16, color: Colors.blue),
-                          SizedBox(width: 8),
-                          Text('Edit', style: TextStyle(fontSize: 13)),
-                        ],
-                      ),
-                    ),
                     const PopupMenuItem(
                       value: 'download',
                       child: Row(
@@ -1613,49 +1543,52 @@ class _DocumentGridCard extends StatelessWidget {
                       ),
                     ),
                   ],
-                  PopupMenuItem(
-                    value: 'verify',
-                    child: Row(
-                      children: [
-                        Icon(
-                          doc.status == 'Verified' ? Icons.pending : Icons.verified,
-                          size: 16,
-                          color: doc.status == 'Verified' ? Colors.orange : Colors.green,
-                        ),
-                        const SizedBox(width: 8),
-                        Text(
-                          doc.status == 'Verified' ? 'Pending' : 'Verify',
-                          style: const TextStyle(fontSize: 13),
-                        ),
-                      ],
-                    ),
-                  ),
+                  if (!doc.isArchived)
                   const PopupMenuItem(
                     value: 'archive',
                     child: Row(
                       children: [
-                        Icon(Icons.archive, size: 16, color: Colors.red),
+                        Icon(Icons.archive, size: 16, color: Colors.orange),
                         SizedBox(width: 8),
                         Text('Archive', style: TextStyle(fontSize: 13)),
                       ],
                     ),
-                  ),
+                  )
+                  else ...[
+                    const PopupMenuItem(
+                      value: 'restore',
+                      child: Row(
+                        children: [
+                          Icon(Icons.unarchive, size: 16, color: Colors.blue),
+                          SizedBox(width: 8),
+                          Text('Restore', style: TextStyle(fontSize: 13)),
+                        ],
+                      ),
+                    ),
+                    const PopupMenuItem(
+                      value: 'delete',
+                      child: Row(
+                        children: [
+                          Icon(Icons.delete_forever, size: 16, color: Colors.red),
+                          SizedBox(width: 8),
+                          Text('Delete Permanently', style: TextStyle(fontSize: 13)),
+                        ],
+                      ),
+                    ),
+                  ],
                 ],
                 onSelected: (value) async {
-                  if (value == 'edit') {
-                    await Printing.layoutPdf(
-                      onLayout: (format) async => doc.fileBytes!,
-                      name: doc.title,
-                    );
-                  } else if (value == 'download') {
+                  if (value == 'download') {
                     await Printing.sharePdf(
                       bytes: doc.fileBytes!,
                       filename: doc.title,
                     );
-                  } else if (value == 'verify') {
-                    onToggleStatus(doc);
                   } else if (value == 'archive') {
                     onArchive(doc);
+                  } else if (value == 'restore') {
+                    onRestore(doc);
+                  } else if (value == 'delete') {
+                    onDeletePermanently(doc);
                   }
                 },
               ),
@@ -1692,30 +1625,6 @@ class _DocumentGridCard extends StatelessWidget {
   }
 }
 
-class _StatusBadge extends StatelessWidget {
-  final String status;
-  const _StatusBadge({required this.status});
-
-  @override
-  Widget build(BuildContext context) {
-    final isVerified = status == 'Verified';
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-      decoration: BoxDecoration(
-        color: isVerified ? const Color(0xFFDCFCE7) : const Color(0xFFFFF4DE),
-        borderRadius: BorderRadius.circular(4),
-      ),
-      child: Text(
-        status,
-        style: TextStyle(
-          fontSize: 10,
-          fontWeight: FontWeight.w600,
-          color: isVerified ? const Color(0xFF15803D) : const Color(0xFFB45309),
-        ),
-      ),
-    );
-  }
-}
 
 class _GenerateOptionTile extends StatelessWidget {
   final IconData icon;

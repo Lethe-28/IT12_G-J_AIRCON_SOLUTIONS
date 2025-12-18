@@ -488,10 +488,29 @@ class _DashboardScreenState extends State<DashboardScreen> {
       body: Column(
         children: [
           SharedHeader(
-            welcomeText: AppState.hasShownWelcome
-                ? ''
-                : AppState.headerWelcomeText(),
-            subtitleText: AppState.headerSubtitle(),
+            customTitle: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  "Here's what's happening",
+                  style: TextStyle(
+                    fontSize: titleFontSize * 0.65,
+                    color: Colors.black45,
+                    fontWeight: FontWeight.w600,
+                    letterSpacing: 0.8,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  "In your business today",
+                  style: TextStyle(
+                    fontSize: titleFontSize * 1.1,
+                    fontWeight: FontWeight.w800,
+                    color: const Color(0xFF0F172A),
+                  ),
+                ),
+              ],
+            ),
             notificationCount: _dashboardProvider.notificationItems.length,
             onSearchChanged: (value) {
               setState(() => _searchQuery = value.toLowerCase());
