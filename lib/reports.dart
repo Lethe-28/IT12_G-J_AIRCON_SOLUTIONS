@@ -3,7 +3,8 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:intl/intl.dart' hide TextDirection;
 import 'ui_app_shell.dart';
 import 'theme/app_theme.dart';
-import 'shared/widgets.dart' show AnimatedCard, HoverCard, AnimatedButton, isMobile;
+import 'shared/widgets.dart'
+    show AnimatedCard, HoverCard, AnimatedButton, isMobile;
 
 // --- Main Screen ---
 
@@ -21,7 +22,11 @@ class _TimeBucket {
   final DateTime start;
   final DateTime end;
 
-  const _TimeBucket({required this.label, required this.start, required this.end});
+  const _TimeBucket({
+    required this.label,
+    required this.start,
+    required this.end,
+  });
 
   bool contains(DateTime date) => !date.isBefore(start) && date.isBefore(end);
 }
@@ -43,7 +48,7 @@ class _ServiceDetail {
 
 class _ReportsScreenState extends State<ReportsScreen> {
   _ReportRange _selectedRange = _ReportRange.today;
-  
+
   bool _isLoading = false;
   _ReportData _reportData = _ReportData.empty();
   List<_ChartDataPoint> _serviceChartData = [];
@@ -132,7 +137,9 @@ class _ReportsScreenState extends State<ReportsScreen> {
       // 1. Fetch Job Orders with payments
       final jobsResponse = await supabase
           .from('job_orders')
-          .select('id, status, date_scheduled, customer_id, customers(company_name, first_name, last_name), job_types(job_type_name), payments(amount, status)')
+          .select(
+            'id, status, date_scheduled, customer_id, customers(company_name, first_name, last_name), job_types(job_type_name), payments(amount, status)',
+          )
           .gte('date_scheduled', startStr)
           .lte('date_scheduled', endStr);
 
@@ -165,10 +172,15 @@ class _ReportsScreenState extends State<ReportsScreen> {
       int prevRepairs = 0;
 
       for (var job in prevJobsResponse) {
-        final typeName = (job['job_types']?['job_type_name'] ?? 'Unknown').toString().toLowerCase();
-        if (typeName.contains('install')) prevInstallations++;
-        else if (typeName.contains('maintenance') || typeName.contains('clean')) prevMaintenance++;
-        else if (typeName.contains('repair')) prevRepairs++;
+        final typeName = (job['job_types']?['job_type_name'] ?? 'Unknown')
+            .toString()
+            .toLowerCase();
+        if (typeName.contains('install'))
+          prevInstallations++;
+        else if (typeName.contains('maintenance') || typeName.contains('clean'))
+          prevMaintenance++;
+        else if (typeName.contains('repair'))
+          prevRepairs++;
       }
 
       // --- Process Current Data ---
@@ -180,20 +192,29 @@ class _ReportsScreenState extends State<ReportsScreen> {
 
       Map<String, _ChartDataPoint> serviceMap = {
         for (final bucket in buckets)
-          bucket.label: _ChartDataPoint(label: bucket.label, installations: 0, maintenance: 0, repairs: 0),
+          bucket.label: _ChartDataPoint(
+            label: bucket.label,
+            installations: 0,
+            maintenance: 0,
+            repairs: 0,
+          ),
       };
       Map<String, _FinancialChartPoint> financialMap = {
         for (final bucket in buckets)
-          bucket.label: _FinancialChartPoint(label: bucket.label, income: 0, expense: 0),
+          bucket.label: _FinancialChartPoint(
+            label: bucket.label,
+            income: 0,
+            expense: 0,
+          ),
       };
       Map<int, _TopCustomer> customerAggMap = {};
-      
+
       Map<String, int> jobTypeCounts = {};
       Map<String, List<double>> jobValuesByPeriod = {};
       Map<String, int> completedJobsByPeriod = {};
       Map<String, int> totalJobsByPeriod = {};
       Map<String, int> metricCounts = {}; // For busiest day/week/month logic
-      
+
       // Initialize period maps
       for (final bucket in buckets) {
         jobValuesByPeriod[bucket.label] = [];
@@ -202,17 +223,21 @@ class _ReportsScreenState extends State<ReportsScreen> {
       }
 
       for (var job in jobsResponse) {
-        final typeName = (job['job_types']?['job_type_name'] ?? 'Unknown').toString();
+        final typeName = (job['job_types']?['job_type_name'] ?? 'Unknown')
+            .toString();
         final typeKey = typeName.toLowerCase();
         final status = (job['status'] ?? '').toString().toLowerCase();
         final date = DateTime.parse(job['date_scheduled']).toLocal();
 
         if (status == 'completed') completedJobs++;
-        
+
         // Categorize
-        if (typeKey.contains('install')) installations++;
-        else if (typeKey.contains('maintenance') || typeKey.contains('clean')) maintenance++;
-        else if (typeKey.contains('repair')) repairs++;
+        if (typeKey.contains('install'))
+          installations++;
+        else if (typeKey.contains('maintenance') || typeKey.contains('clean'))
+          maintenance++;
+        else if (typeKey.contains('repair'))
+          repairs++;
 
         // Top Service Logic
         jobTypeCounts[typeName] = (jobTypeCounts[typeName] ?? 0) + 1;
@@ -222,10 +247,14 @@ class _ReportsScreenState extends State<ReportsScreen> {
         switch (_selectedRange) {
           case _ReportRange.today:
             final hour = date.hour;
-            if (hour >= 5 && hour < 12) key = 'Morning';
-            else if (hour >= 12 && hour < 17) key = 'Afternoon';
-            else if (hour >= 17 && hour < 21) key = 'Evening';
-            else key = 'Night';
+            if (hour >= 5 && hour < 12)
+              key = 'Morning';
+            else if (hour >= 12 && hour < 17)
+              key = 'Afternoon';
+            else if (hour >= 17 && hour < 21)
+              key = 'Evening';
+            else
+              key = 'Night';
             break;
           case _ReportRange.weekly:
             key = DateFormat('EEEE').format(date);
@@ -247,24 +276,30 @@ class _ReportsScreenState extends State<ReportsScreen> {
         // Period-based stats (for charts and modals)
         final bucketLabel = _bucketLabelFor(date, buckets);
         if (bucketLabel != null) {
-          if (typeKey.contains('install')) serviceMap[bucketLabel]!.installations++;
-          else if (typeKey.contains('maintenance') || typeKey.contains('clean')) serviceMap[bucketLabel]!.maintenance++;
-          else if (typeKey.contains('repair')) serviceMap[bucketLabel]!.repairs++;
-          
-          totalJobsByPeriod[bucketLabel] = (totalJobsByPeriod[bucketLabel] ?? 0) + 1;
-          
+          if (typeKey.contains('install'))
+            serviceMap[bucketLabel]!.installations++;
+          else if (typeKey.contains('maintenance') || typeKey.contains('clean'))
+            serviceMap[bucketLabel]!.maintenance++;
+          else if (typeKey.contains('repair'))
+            serviceMap[bucketLabel]!.repairs++;
+
+          totalJobsByPeriod[bucketLabel] =
+              (totalJobsByPeriod[bucketLabel] ?? 0) + 1;
+
           double jobValue = 0;
           if (job['payments'] != null && (job['payments'] as List).isNotEmpty) {
             for (var payment in (job['payments'] as List)) {
-              if ((payment['status'] ?? '').toString().toLowerCase() == 'verified') {
+              if ((payment['status'] ?? '').toString().toLowerCase() ==
+                  'verified') {
                 jobValue += ((payment['amount'] as num?) ?? 0).toDouble();
               }
             }
           }
           jobValuesByPeriod[bucketLabel]!.add(jobValue);
-          
+
           if (status == 'completed') {
-            completedJobsByPeriod[bucketLabel] = (completedJobsByPeriod[bucketLabel] ?? 0) + 1;
+            completedJobsByPeriod[bucketLabel] =
+                (completedJobsByPeriod[bucketLabel] ?? 0) + 1;
           }
         }
 
@@ -272,8 +307,10 @@ class _ReportsScreenState extends State<ReportsScreen> {
         if (job['customer_id'] != null && job['customers'] != null) {
           final cid = job['customer_id'] as int;
           final cData = job['customers'];
-          final name = cData['company_name'] ?? '${cData['first_name']} ${cData['last_name']}';
-          
+          final name =
+              cData['company_name'] ??
+              '${cData['first_name']} ${cData['last_name']}';
+
           if (!customerAggMap.containsKey(cid)) {
             customerAggMap[cid] = _TopCustomer(name: name, jobCount: 0);
           }
@@ -301,13 +338,23 @@ class _ReportsScreenState extends State<ReportsScreen> {
         }
       });
 
-      String busiestDisplay = busiestLabel == 'N/A' ? 'N/A' : '$busiestLabel ($maxMetricCount)';
+      String busiestDisplay = busiestLabel == 'N/A'
+          ? 'N/A'
+          : '$busiestLabel ($maxMetricCount)';
       String busiestTitle = '';
       switch (_selectedRange) {
-        case _ReportRange.today: busiestTitle = 'Busiest Time'; break;
-        case _ReportRange.weekly: busiestTitle = 'Busiest Day'; break;
-        case _ReportRange.monthly: busiestTitle = 'Busiest Week'; break;
-        default: busiestTitle = 'Busiest Month'; break;
+        case _ReportRange.today:
+          busiestTitle = 'Busiest Time';
+          break;
+        case _ReportRange.weekly:
+          busiestTitle = 'Busiest Day';
+          break;
+        case _ReportRange.monthly:
+          busiestTitle = 'Busiest Week';
+          break;
+        default:
+          busiestTitle = 'Busiest Month';
+          break;
       }
 
       double totalPayments = 0;
@@ -328,25 +375,35 @@ class _ReportsScreenState extends State<ReportsScreen> {
         final expenseType = e['expense_type'];
         final date = DateTime.parse(e['date']).toLocal();
         final bucketLabel = _bucketLabelFor(date, buckets);
-        
+
         if (isIncome) {
-          if (expenseType != 'Personal') {
-             totalPayments += amount;
-             if (bucketLabel != null) {
-               financialMap[bucketLabel]!.income += amount;
-             }
+          // --- STRICT REVENUE LOGIC ---
+          // Only count actual business earnings (Scrap, Refunds, etc.)
+          // EXCLUDE: 'Added Funds' (Owner's Money), 'Capital' (Investment), 'Personal'
+          const excludedIncomeTypes = ['Added Funds', 'Capital', 'Personal'];
+
+          if (!excludedIncomeTypes.contains(expenseType)) {
+            totalPayments += amount;
+            if (bucketLabel != null) {
+              financialMap[bucketLabel]!.income += amount;
+            }
           }
         } else {
-          totalExpenses += amount;
-          if (bucketLabel != null) {
-            financialMap[bucketLabel]!.expense += amount;
+          // --- STRICT EXPENSE LOGIC ---
+          // Only count Business/Operational Expenses
+          // EXCLUDE: 'Personal' (Owner Withdrawals)
+          if (expenseType != 'Personal') {
+            totalExpenses += amount;
+            if (bucketLabel != null) {
+              financialMap[bucketLabel]!.expense += amount;
+            }
           }
         }
       }
 
       _serviceChartData = buckets.map((b) => serviceMap[b.label]!).toList();
       _financialChartData = buckets.map((b) => financialMap[b.label]!).toList();
-      
+
       _topCustomers = customerAggMap.values.toList()
         ..sort((a, b) => b.jobCount.compareTo(a.jobCount));
       if (_topCustomers.length > 5) _topCustomers = _topCustomers.sublist(0, 5);
@@ -358,26 +415,45 @@ class _ReportsScreenState extends State<ReportsScreen> {
         final label = bucket.label;
         double avgValue = 0;
         if (jobValuesByPeriod[label]!.isNotEmpty) {
-          avgValue = jobValuesByPeriod[label]!.reduce((a, b) => a + b) / jobValuesByPeriod[label]!.length;
+          avgValue =
+              jobValuesByPeriod[label]!.reduce((a, b) => a + b) /
+              jobValuesByPeriod[label]!.length;
         }
-        _jobValueDetails.add(_PeriodDetail(period: label, value: avgValue, count: totalJobsByPeriod[label]));
-        
+        _jobValueDetails.add(
+          _PeriodDetail(
+            period: label,
+            value: avgValue,
+            count: totalJobsByPeriod[label],
+          ),
+        );
+
         double completionRate = 0;
         if ((totalJobsByPeriod[label] ?? 0) > 0) {
-          completionRate = ((completedJobsByPeriod[label] ?? 0) / (totalJobsByPeriod[label]!)) * 100;
+          completionRate =
+              ((completedJobsByPeriod[label] ?? 0) /
+                  (totalJobsByPeriod[label]!)) *
+              100;
         }
-        _completionRateDetails.add(_PeriodDetail(period: label, value: completionRate, count: completedJobsByPeriod[label]));
+        _completionRateDetails.add(
+          _PeriodDetail(
+            period: label,
+            value: completionRate,
+            count: completedJobsByPeriod[label],
+          ),
+        );
       }
-      
+
       _jobValueDetails.sort((a, b) => b.value.compareTo(a.value));
       _completionRateDetails.sort((a, b) => b.value.compareTo(a.value));
-      
-      _serviceDetails = jobTypeCounts.entries
-          .map((e) => _ServiceDetail(name: e.key, count: e.value))
-          .toList()
-        ..sort((a, b) => b.count.compareTo(a.count));
-      
-      _dayCountsMap = metricCounts; // Note: using metricCounts as fallback for day details if needed
+
+      _serviceDetails =
+          jobTypeCounts.entries
+              .map((e) => _ServiceDetail(name: e.key, count: e.value))
+              .toList()
+            ..sort((a, b) => b.count.compareTo(a.count));
+
+      _dayCountsMap =
+          metricCounts; // Note: using metricCounts as fallback for day details if needed
 
       if (mounted) {
         setState(() {
@@ -400,7 +476,6 @@ class _ReportsScreenState extends State<ReportsScreen> {
           _isLoading = false;
         });
       }
-
     } catch (e) {
       debugPrint('Error fetching report data: $e');
       if (mounted) setState(() => _isLoading = false);
@@ -410,56 +485,87 @@ class _ReportsScreenState extends State<ReportsScreen> {
   @override
   Widget build(BuildContext context) {
     final bool mobile = isMobile(context);
-    
+
     return AppShell(
       selectedIndex: 4,
       // NEW: Pass dropdown to AppBar explicitly on Mobile
-      actions: mobile ? [
-         Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-            margin: const EdgeInsets.only(right: 8),
-            decoration: BoxDecoration(
-              color: AppTheme.background,
-              borderRadius: BorderRadius.circular(8),
-              border: Border.all(color: AppTheme.borderColor),
-            ),
-            child: DropdownButtonHideUnderline(
-              child: DropdownButton<_ReportRange>(
-                value: _selectedRange,
-                isDense: true,
-                icon: const Icon(Icons.keyboard_arrow_down, color: AppTheme.textSecondary),
-                style: AppTheme.body.copyWith(fontWeight: FontWeight.w600),
-                items: const [
-                  DropdownMenuItem(value: _ReportRange.today, child: Text("Today")),
-                  DropdownMenuItem(value: _ReportRange.weekly, child: Text("Weekly")),
-                  DropdownMenuItem(value: _ReportRange.monthly, child: Text("Monthly")),
-                  DropdownMenuItem(value: _ReportRange.last6Months, child: Text("Last 6 Months")),
-                  DropdownMenuItem(value: _ReportRange.yearly, child: Text("Yearly")),
-                ],
-                onChanged: (val) {
-                  if (val != null) _updateRange(val);
-                },
+      actions: mobile
+          ? [
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 4,
+                ),
+                margin: const EdgeInsets.only(right: 8),
+                decoration: BoxDecoration(
+                  color: AppTheme.background,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: AppTheme.borderColor),
+                ),
+                child: DropdownButtonHideUnderline(
+                  child: DropdownButton<_ReportRange>(
+                    value: _selectedRange,
+                    isDense: true,
+                    icon: const Icon(
+                      Icons.keyboard_arrow_down,
+                      color: AppTheme.textSecondary,
+                    ),
+                    style: AppTheme.body.copyWith(fontWeight: FontWeight.w600),
+                    items: const [
+                      DropdownMenuItem(
+                        value: _ReportRange.today,
+                        child: Text("Today"),
+                      ),
+                      DropdownMenuItem(
+                        value: _ReportRange.weekly,
+                        child: Text("Weekly"),
+                      ),
+                      DropdownMenuItem(
+                        value: _ReportRange.monthly,
+                        child: Text("Monthly"),
+                      ),
+                      DropdownMenuItem(
+                        value: _ReportRange.last6Months,
+                        child: Text("Last 6 Months"),
+                      ),
+                      DropdownMenuItem(
+                        value: _ReportRange.yearly,
+                        child: Text("Yearly"),
+                      ),
+                    ],
+                    onChanged: (val) {
+                      if (val != null) _updateRange(val);
+                    },
+                  ),
+                ),
               ),
-            ),
-          ),
-      ] : null,
+            ]
+          : null,
       body: Container(
         color: AppTheme.background,
         child: Column(
           children: [
             // Header (Desktop Only for Dropdown)
-             if (!mobile)
+            if (!mobile)
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 24,
+                  vertical: 19,
+                ),
                 decoration: const BoxDecoration(
                   color: AppTheme.surface,
-                  border: Border(bottom: BorderSide(color: AppTheme.borderColor)),
+                  border: Border(
+                    bottom: BorderSide(color: AppTheme.borderColor),
+                  ),
                 ),
                 child: Row(
-                  mainAxisAlignment: MainAxisAlignment.end, 
+                  mainAxisAlignment: MainAxisAlignment.end,
                   children: [
                     Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 4,
+                      ),
                       decoration: BoxDecoration(
                         color: AppTheme.background,
                         borderRadius: BorderRadius.circular(8),
@@ -469,14 +575,34 @@ class _ReportsScreenState extends State<ReportsScreen> {
                         child: DropdownButton<_ReportRange>(
                           value: _selectedRange,
                           isDense: true,
-                          icon: const Icon(Icons.keyboard_arrow_down, color: AppTheme.textSecondary),
-                          style: AppTheme.body.copyWith(fontWeight: FontWeight.w600),
+                          icon: const Icon(
+                            Icons.keyboard_arrow_down,
+                            color: AppTheme.textSecondary,
+                          ),
+                          style: AppTheme.body.copyWith(
+                            fontWeight: FontWeight.w600,
+                          ),
                           items: const [
-                            DropdownMenuItem(value: _ReportRange.today, child: Text("Today")),
-                            DropdownMenuItem(value: _ReportRange.weekly, child: Text("Weekly")),
-                            DropdownMenuItem(value: _ReportRange.monthly, child: Text("Monthly")),
-                            DropdownMenuItem(value: _ReportRange.last6Months, child: Text("Last 6 Months")),
-                            DropdownMenuItem(value: _ReportRange.yearly, child: Text("Yearly")),
+                            DropdownMenuItem(
+                              value: _ReportRange.today,
+                              child: Text("Today"),
+                            ),
+                            DropdownMenuItem(
+                              value: _ReportRange.weekly,
+                              child: Text("Weekly"),
+                            ),
+                            DropdownMenuItem(
+                              value: _ReportRange.monthly,
+                              child: Text("Monthly"),
+                            ),
+                            DropdownMenuItem(
+                              value: _ReportRange.last6Months,
+                              child: Text("Last 6 Months"),
+                            ),
+                            DropdownMenuItem(
+                              value: _ReportRange.yearly,
+                              child: Text("Yearly"),
+                            ),
                           ],
                           onChanged: (val) {
                             if (val != null) _updateRange(val);
@@ -490,68 +616,73 @@ class _ReportsScreenState extends State<ReportsScreen> {
 
             // Content
             Expanded(
-              child: _isLoading 
-                ? const Center(child: CircularProgressIndicator())
-                : SingleChildScrollView(
-                  padding: EdgeInsets.all(mobile ? 16 : 32),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      // Kpis
-                      _buildKpiGrid(_reportData, mobile),
-                      SizedBox(height: mobile ? 16 : 32),
+              child: _isLoading
+                  ? const Center(child: CircularProgressIndicator())
+                  : SingleChildScrollView(
+                      padding: EdgeInsets.all(mobile ? 16 : 32),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          // Kpis
+                          _buildKpiGrid(_reportData, mobile),
+                          SizedBox(height: mobile ? 16 : 32),
 
-                      // Business Insights
-                      Text("Business Insights", style: AppTheme.heading2),
-                      const SizedBox(height: 12),
-                      _buildBusinessInsights(_reportData, mobile),
-                      SizedBox(height: mobile ? 16 : 32),
-                      
-                      // Charts (Moved to Top)
-                      if (_selectedRange != _ReportRange.today) ...[
-                        Text("Performance Analytics", style: AppTheme.heading2),
-                        const SizedBox(height: 12),
-                        if (mobile) ...[
-                           _buildServiceChart(),
-                           const SizedBox(height: 16),
-                           _buildFinancialChart(),
-                           const SizedBox(height: 16),
-                           _buildTopCustomers(),
-                        ] else 
-                          Column(
-                            crossAxisAlignment: CrossAxisAlignment.stretch,
-                            children: [
-                               IntrinsicHeight( // Ensure equal height for row items
-                                 child: Row(
-                                   crossAxisAlignment: CrossAxisAlignment.stretch,
-                                   children: [
-                                     Expanded(
-                                       flex: 2,
-                                       child: _buildServiceChart(),
-                                     ),
-                                     const SizedBox(width: 24),
-                                     Expanded(
-                                       flex: 1,
-                                       child: _buildTopCustomers(),
-                                     ),
-                                   ],
-                                 ),
-                               ),
-                               const SizedBox(height: 24),
-                               _buildFinancialChart(),
-                            ],
-                          ),
-                         SizedBox(height: mobile ? 16 : 32),
-                      ],
+                          // Business Insights
+                          Text("Business Insights", style: AppTheme.heading2),
+                          const SizedBox(height: 12),
+                          _buildBusinessInsights(_reportData, mobile),
+                          SizedBox(height: mobile ? 16 : 32),
 
-                      // Financials
-                      Text("Financial Overview", style: AppTheme.heading2),
-                      const SizedBox(height: 12),
-                      _buildFinancialGrid(_reportData, mobile),
-                      SizedBox(height: mobile ? 16 : 32),
-                    ],
-                  ),
-                ),
+                          // Charts (Moved to Top)
+                          if (_selectedRange != _ReportRange.today) ...[
+                            Text(
+                              "Performance Analytics",
+                              style: AppTheme.heading2,
+                            ),
+                            const SizedBox(height: 12),
+                            if (mobile) ...[
+                              _buildServiceChart(),
+                              const SizedBox(height: 16),
+                              _buildFinancialChart(),
+                              const SizedBox(height: 16),
+                              _buildTopCustomers(),
+                            ] else
+                              Column(
+                                crossAxisAlignment: CrossAxisAlignment.stretch,
+                                children: [
+                                  IntrinsicHeight(
+                                    // Ensure equal height for row items
+                                    child: Row(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.stretch,
+                                      children: [
+                                        Expanded(
+                                          flex: 2,
+                                          child: _buildServiceChart(),
+                                        ),
+                                        const SizedBox(width: 24),
+                                        Expanded(
+                                          flex: 1,
+                                          child: _buildTopCustomers(),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                  const SizedBox(height: 24),
+                                  _buildFinancialChart(),
+                                ],
+                              ),
+                            SizedBox(height: mobile ? 16 : 32),
+                          ],
+
+                          // Financials
+                          Text("Financial Overview", style: AppTheme.heading2),
+                          const SizedBox(height: 12),
+                          _buildFinancialGrid(_reportData, mobile),
+                          SizedBox(height: mobile ? 16 : 32),
+                        ],
+                      ),
+                    ),
             ),
           ],
         ),
@@ -566,36 +697,50 @@ class _ReportsScreenState extends State<ReportsScreen> {
     _fetchReportData();
   }
 
-  List<_TimeBucket> _buildBuckets(DateTime startDate, DateTime endDate, DateTime now) {
+  List<_TimeBucket> _buildBuckets(
+    DateTime startDate,
+    DateTime endDate,
+    DateTime now,
+  ) {
     switch (_selectedRange) {
       case _ReportRange.today:
         // Today in 3-hour blocks for more detail
         final start = DateTime(now.year, now.month, now.day);
         return List.generate(8, (i) {
-           final blockStart = start.add(Duration(hours: i * 3));
-           final blockEnd = start.add(Duration(hours: (i + 1) * 3));
-           return _TimeBucket(
-             label: DateFormat('h a').format(blockStart), 
-             start: blockStart, 
-             end: blockEnd
-           );
+          final blockStart = start.add(Duration(hours: i * 3));
+          final blockEnd = start.add(Duration(hours: (i + 1) * 3));
+          return _TimeBucket(
+            label: DateFormat('h a').format(blockStart),
+            start: blockStart,
+            end: blockEnd,
+          );
         });
       case _ReportRange.weekly:
         final monday = DateTime(startDate.year, startDate.month, startDate.day);
         return List.generate(7, (i) {
           final dayStart = monday.add(Duration(days: i));
           final dayEnd = dayStart.add(const Duration(days: 1));
-          return _TimeBucket(label: DateFormat('EEE').format(dayStart), start: dayStart, end: dayEnd);
+          return _TimeBucket(
+            label: DateFormat('EEE').format(dayStart),
+            start: dayStart,
+            end: dayEnd,
+          );
         });
       case _ReportRange.monthly:
         final buckets = <_TimeBucket>[];
-        DateTime cursor = DateTime(startDate.year, startDate.month, startDate.day);
+        DateTime cursor = DateTime(
+          startDate.year,
+          startDate.month,
+          startDate.day,
+        );
         final monthEnd = DateTime(startDate.year, startDate.month + 1, 1);
         int week = 1;
         while (cursor.isBefore(monthEnd)) {
           final next = cursor.add(const Duration(days: 7));
           final bucketEnd = next.isAfter(monthEnd) ? monthEnd : next;
-          buckets.add(_TimeBucket(label: 'Week $week', start: cursor, end: bucketEnd));
+          buckets.add(
+            _TimeBucket(label: 'Week $week', start: cursor, end: bucketEnd),
+          );
           cursor = bucketEnd;
           week++;
         }
@@ -605,7 +750,13 @@ class _ReportsScreenState extends State<ReportsScreen> {
         for (int i = 0; i < 6; i++) {
           final monthStart = DateTime(startDate.year, startDate.month + i, 1);
           final monthEnd = DateTime(monthStart.year, monthStart.month + 1, 1);
-          buckets.add(_TimeBucket(label: DateFormat('MMM').format(monthStart), start: monthStart, end: monthEnd));
+          buckets.add(
+            _TimeBucket(
+              label: DateFormat('MMM').format(monthStart),
+              start: monthStart,
+              end: monthEnd,
+            ),
+          );
         }
         return buckets;
       case _ReportRange.yearly:
@@ -613,7 +764,13 @@ class _ReportsScreenState extends State<ReportsScreen> {
         for (int m = 1; m <= 12; m++) {
           final monthStart = DateTime(startDate.year, m, 1);
           final monthEnd = DateTime(startDate.year, m + 1, 1);
-          buckets.add(_TimeBucket(label: DateFormat('MMM').format(monthStart), start: monthStart, end: monthEnd));
+          buckets.add(
+            _TimeBucket(
+              label: DateFormat('MMM').format(monthStart),
+              start: monthStart,
+              end: monthEnd,
+            ),
+          );
         }
         return buckets;
     }
@@ -631,8 +788,8 @@ class _ReportsScreenState extends State<ReportsScreen> {
       builder: (context, constraints) {
         int crossAxisCount = 4;
         if (constraints.maxWidth < 1200) crossAxisCount = 2;
-        if (mobile) crossAxisCount = 2; 
-        
+        if (mobile) crossAxisCount = 2;
+
         final gap = mobile ? 12.0 : 24.0;
         final totalGap = gap * (crossAxisCount - 1);
         final width = (constraints.maxWidth - totalGap) / crossAxisCount;
@@ -647,7 +804,11 @@ class _ReportsScreenState extends State<ReportsScreen> {
               icon: Icons.work_outline,
               color: AppTheme.primary,
               width: width,
-              comparison: report.getComparisonText(report.totalJobs, report.prevTotalJobs, _selectedRange),
+              comparison: report.getComparisonText(
+                report.totalJobs,
+                report.prevTotalJobs,
+                _selectedRange,
+              ),
             ),
             _KpiCard(
               title: 'Installations',
@@ -655,7 +816,11 @@ class _ReportsScreenState extends State<ReportsScreen> {
               icon: Icons.construction,
               color: AppTheme.success,
               width: width,
-              comparison: report.getComparisonText(report.installations, report.prevInstallations, _selectedRange),
+              comparison: report.getComparisonText(
+                report.installations,
+                report.prevInstallations,
+                _selectedRange,
+              ),
             ),
             _KpiCard(
               title: 'Maintenance',
@@ -663,7 +828,11 @@ class _ReportsScreenState extends State<ReportsScreen> {
               icon: Icons.cleaning_services,
               color: Colors.teal,
               width: width,
-              comparison: report.getComparisonText(report.maintenance, report.prevMaintenance, _selectedRange),
+              comparison: report.getComparisonText(
+                report.maintenance,
+                report.prevMaintenance,
+                _selectedRange,
+              ),
             ),
             _KpiCard(
               title: 'Repairs',
@@ -671,7 +840,11 @@ class _ReportsScreenState extends State<ReportsScreen> {
               icon: Icons.build_circle_outlined,
               color: AppTheme.warning,
               width: width,
-              comparison: report.getComparisonText(report.repairs, report.prevRepairs, _selectedRange),
+              comparison: report.getComparisonText(
+                report.repairs,
+                report.prevRepairs,
+                _selectedRange,
+              ),
             ),
           ],
         );
@@ -682,8 +855,10 @@ class _ReportsScreenState extends State<ReportsScreen> {
   Widget _buildBusinessInsights(_ReportData data, bool mobile) {
     return LayoutBuilder(
       builder: (context, constraints) {
-        final double cardWidth = mobile ? double.infinity : (constraints.maxWidth - 48) / 4;
-        
+        final double cardWidth = mobile
+            ? double.infinity
+            : (constraints.maxWidth - 48) / 4;
+
         return Wrap(
           spacing: 16,
           runSpacing: 16,
@@ -695,7 +870,11 @@ class _ReportsScreenState extends State<ReportsScreen> {
               color: const Color(0xFF0EA5E9),
               backgroundColor: const Color(0xFFF0F9FF),
               width: cardWidth,
-              onTap: () => _showDetailModal("Average Job Value", _jobValueDetails, " (Avg)"),
+              onTap: () => _showDetailModal(
+                "Average Job Value",
+                _jobValueDetails,
+                " (Avg)",
+              ),
             ),
             _InsightCardClickable(
               title: "Completion Rate",
@@ -704,7 +883,11 @@ class _ReportsScreenState extends State<ReportsScreen> {
               color: const Color(0xFF10B981),
               backgroundColor: const Color(0xFFF0FDF4),
               width: cardWidth,
-              onTap: () => _showDetailModal("Completion Rate", _completionRateDetails, "%"),
+              onTap: () => _showDetailModal(
+                "Completion Rate",
+                _completionRateDetails,
+                "%",
+              ),
             ),
             _InsightCardClickable(
               title: "Top Service",
@@ -713,7 +896,18 @@ class _ReportsScreenState extends State<ReportsScreen> {
               color: const Color(0xFFF59E0B),
               backgroundColor: const Color(0xFFFFFBEB),
               width: cardWidth,
-              onTap: () => _showDetailModal("Top Service Breakdown", _serviceDetails.map((e) => _PeriodDetail(period: e.name, value: e.count.toDouble())).toList(), " Jobs"),
+              onTap: () => _showDetailModal(
+                "Top Service Breakdown",
+                _serviceDetails
+                    .map(
+                      (e) => _PeriodDetail(
+                        period: e.name,
+                        value: e.count.toDouble(),
+                      ),
+                    )
+                    .toList(),
+                " Jobs",
+              ),
             ),
             _InsightCard(
               title: data.busiestTitle,
@@ -729,7 +923,11 @@ class _ReportsScreenState extends State<ReportsScreen> {
     );
   }
 
-  void _showDetailModal(String title, List<_PeriodDetail> details, String suffix) {
+  void _showDetailModal(
+    String title,
+    List<_PeriodDetail> details,
+    String suffix,
+  ) {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
@@ -739,25 +937,46 @@ class _ReportsScreenState extends State<ReportsScreen> {
           child: SingleChildScrollView(
             child: Column(
               mainAxisSize: MainAxisSize.min,
-              children: details.map((d) => Padding(
-                padding: const EdgeInsets.symmetric(vertical: 8),
-                child: Row(
-                  children: [
-                    Text(d.period, style: const TextStyle(fontWeight: FontWeight.w600)),
-                    const Spacer(),
-                    Text(
-                      d.value % 1 == 0 ? d.value.toInt().toString() : d.value.toStringAsFixed(1),
-                      style: const TextStyle(fontWeight: FontWeight.bold, color: AppTheme.primary),
+              children: details
+                  .map(
+                    (d) => Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 8),
+                      child: Row(
+                        children: [
+                          Text(
+                            d.period,
+                            style: const TextStyle(fontWeight: FontWeight.w600),
+                          ),
+                          const Spacer(),
+                          Text(
+                            d.value % 1 == 0
+                                ? d.value.toInt().toString()
+                                : d.value.toStringAsFixed(1),
+                            style: const TextStyle(
+                              fontWeight: FontWeight.bold,
+                              color: AppTheme.primary,
+                            ),
+                          ),
+                          Text(
+                            suffix,
+                            style: const TextStyle(
+                              fontSize: 12,
+                              color: AppTheme.textSecondary,
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
-                    Text(suffix, style: const TextStyle(fontSize: 12, color: AppTheme.textSecondary)),
-                  ],
-                ),
-              )).toList(),
+                  )
+                  .toList(),
             ),
           ),
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text("Close")),
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text("Close"),
+          ),
         ],
       ),
     );
@@ -768,7 +987,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
       builder: (context, constraints) {
         int crossAxisCount = 3;
         if (constraints.maxWidth < 900 || mobile) crossAxisCount = 1;
-        
+
         final gap = mobile ? 12.0 : 24.0;
         final totalGap = gap * (crossAxisCount - 1);
         final width = (constraints.maxWidth - totalGap) / crossAxisCount;
@@ -810,72 +1029,122 @@ class _ReportsScreenState extends State<ReportsScreen> {
   Widget _buildServiceChart() {
     return _ChartContainer(
       title: 'Service Trends',
-      child: _serviceChartData.isEmpty 
-        ? const Center(child: Text("No data"))
-        : _SimpleLineChart(
-            data: _serviceChartData.map((d) => _ChartPoint(
-              label: d.label,
-              values: [d.installations.toDouble(), d.maintenance.toDouble(), d.repairs.toDouble()],
-              colors: [AppTheme.primary, AppTheme.success, AppTheme.warning],
-              tooltips: ['Installations: ${d.installations}', 'Maintenance: ${d.maintenance}', 'Repairs: ${d.repairs}'],
-            )).toList(),
-            legendItems: [
-              _LegendItem('Installation', AppTheme.primary),
-              _LegendItem('Maintenance', AppTheme.success),
-              _LegendItem('Repair', AppTheme.warning),
-            ],
-            leftPadding: 30.0, // Reduced padding for single digits
-          ),
+      child: _serviceChartData.isEmpty
+          ? const Center(child: Text("No data"))
+          : _SimpleLineChart(
+              data: _serviceChartData
+                  .map(
+                    (d) => _ChartPoint(
+                      label: d.label,
+                      values: [
+                        d.installations.toDouble(),
+                        d.maintenance.toDouble(),
+                        d.repairs.toDouble(),
+                      ],
+                      colors: [
+                        AppTheme.primary,
+                        AppTheme.success,
+                        AppTheme.warning,
+                      ],
+                      tooltips: [
+                        'Installations: ${d.installations}',
+                        'Maintenance: ${d.maintenance}',
+                        'Repairs: ${d.repairs}',
+                      ],
+                    ),
+                  )
+                  .toList(),
+              legendItems: [
+                _LegendItem('Installation', AppTheme.primary),
+                _LegendItem('Maintenance', AppTheme.success),
+                _LegendItem('Repair', AppTheme.warning),
+              ],
+              leftPadding: 30.0, // Reduced padding for single digits
+            ),
     );
   }
 
   Widget _buildFinancialChart() {
     return _ChartContainer(
       title: 'Cash-in vs Cash-out',
-      child: _financialChartData.isEmpty 
-        ? const Center(child: Text("No data"))
-        : _SimpleLineChart(
-            data: _financialChartData.map((d) => _ChartPoint(
-              label: d.label,
-              values: [d.income, d.expense],
-              colors: [Colors.green, Colors.red],
-              tooltips: ['Cash-in: ${NumberFormat.simpleCurrency(name: 'PHP').format(d.income)}', 'Cash-out: ${NumberFormat.simpleCurrency(name: 'PHP').format(d.expense)}'],
-            )).toList(),
-            legendItems: [
-              _LegendItem('Cash-in', Colors.green),
-              _LegendItem('Cash-out', Colors.red),
-            ],
-            leftPadding: 50.0, // Wider padding for currency values
-          ),
+      child: _financialChartData.isEmpty
+          ? const Center(child: Text("No data"))
+          : _SimpleLineChart(
+              data: _financialChartData
+                  .map(
+                    (d) => _ChartPoint(
+                      label: d.label,
+                      values: [d.income, d.expense],
+                      colors: [Colors.green, Colors.red],
+                      tooltips: [
+                        'Cash-in: ${NumberFormat.simpleCurrency(name: 'PHP').format(d.income)}',
+                        'Cash-out: ${NumberFormat.simpleCurrency(name: 'PHP').format(d.expense)}',
+                      ],
+                    ),
+                  )
+                  .toList(),
+              legendItems: [
+                _LegendItem('Cash-in', Colors.green),
+                _LegendItem('Cash-out', Colors.red),
+              ],
+              leftPadding: 50.0, // Wider padding for currency values
+            ),
     );
   }
 
-// ... (omitting Top Customers layout as it doesn't change)
+  // ... (omitting Top Customers layout as it doesn't change)
 
   Widget _buildTopCustomers() {
     return _ChartContainer(
       title: 'Top Customers (by Volume)',
       child: _topCustomers.isEmpty
-        ? const Center(child: Text("No data"))
-        : SingleChildScrollView(
-            child: Column(
-              children: _topCustomers.map((c) => Padding(
-                padding: const EdgeInsets.symmetric(vertical: 8),
-                child: Row(
-                  children: [
-                    CircleAvatar(
-                      radius: 16,
-                      backgroundColor: AppTheme.primary.withOpacity(0.1),
-                      child: Text(c.name[0].toUpperCase(), style: const TextStyle(fontSize: 12, color: AppTheme.primary, fontWeight: FontWeight.bold)),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(child: Text(c.name, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13))),
-                    Text('${c.jobCount} Jobs', style: const TextStyle(color: AppTheme.textSecondary, fontSize: 12)),
-                  ],
-                ),
-              )).toList(),
+          ? const Center(child: Text("No data"))
+          : SingleChildScrollView(
+              child: Column(
+                children: _topCustomers
+                    .map(
+                      (c) => Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 8),
+                        child: Row(
+                          children: [
+                            CircleAvatar(
+                              radius: 16,
+                              backgroundColor: AppTheme.primary.withOpacity(
+                                0.1,
+                              ),
+                              child: Text(
+                                c.name[0].toUpperCase(),
+                                style: const TextStyle(
+                                  fontSize: 12,
+                                  color: AppTheme.primary,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Text(
+                                c.name,
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w600,
+                                  fontSize: 13,
+                                ),
+                              ),
+                            ),
+                            Text(
+                              '${c.jobCount} Jobs',
+                              style: const TextStyle(
+                                color: AppTheme.textSecondary,
+                                fontSize: 12,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    )
+                    .toList(),
+              ),
             ),
-          ),
     );
   }
 }
@@ -897,7 +1166,7 @@ class _ChartContainer extends StatelessWidget {
         children: [
           Text(title, style: AppTheme.heading3),
           const SizedBox(height: 24),
-          SizedBox(height: 300, child: child), 
+          SizedBox(height: 300, child: child),
         ],
       ),
     );
@@ -924,12 +1193,13 @@ class _KpiCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final bool isNegative = comparison?.contains('-') ?? false;
-    final bool isNoData = comparison?.toLowerCase().contains('no prev') ?? false;
-    
+    final bool isNoData =
+        comparison?.toLowerCase().contains('no prev') ?? false;
+
     return Container(
       width: width,
       padding: const EdgeInsets.all(16),
-      decoration: AppTheme.cardDecoration, 
+      decoration: AppTheme.cardDecoration,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
@@ -939,14 +1209,24 @@ class _KpiCard extends StatelessWidget {
             children: [
               Container(
                 padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(color: color.withOpacity(0.1), borderRadius: BorderRadius.circular(10)),
+                decoration: BoxDecoration(
+                  color: color.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(10),
+                ),
                 child: Icon(icon, size: 20, color: color),
               ),
               if (comparison != null)
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 6,
+                    vertical: 2,
+                  ),
                   decoration: BoxDecoration(
-                    color: isNoData ? Colors.grey.withOpacity(0.1) : (isNegative ? Colors.red.withOpacity(0.1) : Colors.green.withOpacity(0.1)),
+                    color: isNoData
+                        ? Colors.grey.withOpacity(0.1)
+                        : (isNegative
+                              ? Colors.red.withOpacity(0.1)
+                              : Colors.green.withOpacity(0.1)),
                     borderRadius: BorderRadius.circular(4),
                   ),
                   child: Text(
@@ -954,7 +1234,9 @@ class _KpiCard extends StatelessWidget {
                     style: TextStyle(
                       fontSize: 10,
                       fontWeight: FontWeight.bold,
-                      color: isNoData ? Colors.grey : (isNegative ? Colors.red : Colors.green),
+                      color: isNoData
+                          ? Colors.grey
+                          : (isNegative ? Colors.red : Colors.green),
                     ),
                   ),
                 ),
@@ -1140,7 +1422,10 @@ class _FinancialCard extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(label, style: AppTheme.caption.copyWith(fontWeight: FontWeight.w600)),
+                Text(
+                  label,
+                  style: AppTheme.caption.copyWith(fontWeight: FontWeight.w600),
+                ),
                 const SizedBox(height: 4),
                 FittedBox(
                   fit: BoxFit.scaleDown,
@@ -1148,7 +1433,14 @@ class _FinancialCard extends StatelessWidget {
                   child: Text(amount, style: AppTheme.heading2),
                 ),
                 const SizedBox(height: 2),
-                Text(subtext, style: TextStyle(fontSize: 11, color: color.withOpacity(0.8), fontWeight: FontWeight.w500)),
+                Text(
+                  subtext,
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: color.withOpacity(0.8),
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
               ],
             ),
           ),
@@ -1166,16 +1458,21 @@ class _ChartPoint {
   final List<Color> colors;
   final List<String> tooltips;
 
-  _ChartPoint({required this.label, required this.values, required this.colors, required this.tooltips});
+  _ChartPoint({
+    required this.label,
+    required this.values,
+    required this.colors,
+    required this.tooltips,
+  });
 }
 
 class _SimpleLineChart extends StatefulWidget {
   final List<_ChartPoint> data;
   final List<_LegendItem> legendItems;
   final double leftPadding;
-  
+
   const _SimpleLineChart({
-    required this.data, 
+    required this.data,
     required this.legendItems,
     this.leftPadding = 40.0,
   });
@@ -1204,9 +1501,10 @@ class _SimpleLineChartState extends State<_SimpleLineChart> {
         Expanded(
           child: LayoutBuilder(
             builder: (context, constraints) {
-              final double leftPadding = widget.leftPadding; 
+              final double leftPadding = widget.leftPadding;
               final width = constraints.maxWidth - leftPadding;
-              final step = width / (widget.data.length > 1 ? widget.data.length - 1 : 1);
+              final step =
+                  width / (widget.data.length > 1 ? widget.data.length - 1 : 1);
               final chartHeight = constraints.maxHeight;
 
               return Stack(
@@ -1215,35 +1513,68 @@ class _SimpleLineChartState extends State<_SimpleLineChart> {
                   GestureDetector(
                     onTapUp: (details) {
                       final renderBox = context.findRenderObject() as RenderBox;
-                      final localPos = renderBox.globalToLocal(details.globalPosition);
-                      
+                      final localPos = renderBox.globalToLocal(
+                        details.globalPosition,
+                      );
+
                       // Find closest index
                       double dx = localPos.dx - leftPadding;
                       int index = (dx / step).round();
-                      
+
                       if (index < 0) index = 0;
-                      if (index >= widget.data.length) index = widget.data.length - 1;
+                      if (index >= widget.data.length)
+                        index = widget.data.length - 1;
 
                       // Show Modal instead of floating window
                       showDialog(
                         context: context,
                         builder: (context) => AlertDialog(
-                          title: Text('Details for ${widget.data[index].label}', style: AppTheme.heading2),
+                          title: Text(
+                            'Details for ${widget.data[index].label}',
+                            style: AppTheme.heading2,
+                          ),
                           content: Column(
                             mainAxisSize: MainAxisSize.min,
-                            children: widget.data[index].tooltips.map((t) => Padding(
-                              padding: const EdgeInsets.symmetric(vertical: 4),
-                              child: Row(
-                                children: [
-                                  Container(width: 10, height: 10, decoration: BoxDecoration(color: widget.data[index].colors[widget.data[index].tooltips.indexOf(t)], shape: BoxShape.circle)),
-                                  const SizedBox(width: 8),
-                                  Expanded(child: Text(t, style: const TextStyle(fontWeight: FontWeight.w500))),
-                                ],
-                              ),
-                            )).toList(),
+                            children: widget.data[index].tooltips
+                                .map(
+                                  (t) => Padding(
+                                    padding: const EdgeInsets.symmetric(
+                                      vertical: 4,
+                                    ),
+                                    child: Row(
+                                      children: [
+                                        Container(
+                                          width: 10,
+                                          height: 10,
+                                          decoration: BoxDecoration(
+                                            color:
+                                                widget.data[index].colors[widget
+                                                    .data[index]
+                                                    .tooltips
+                                                    .indexOf(t)],
+                                            shape: BoxShape.circle,
+                                          ),
+                                        ),
+                                        const SizedBox(width: 8),
+                                        Expanded(
+                                          child: Text(
+                                            t,
+                                            style: const TextStyle(
+                                              fontWeight: FontWeight.w500,
+                                            ),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                )
+                                .toList(),
                           ),
                           actions: [
-                            TextButton(onPressed: () => Navigator.pop(context), child: const Text("Close")),
+                            TextButton(
+                              onPressed: () => Navigator.pop(context),
+                              child: const Text("Close"),
+                            ),
                           ],
                         ),
                       );
@@ -1263,23 +1594,40 @@ class _SimpleLineChartState extends State<_SimpleLineChart> {
             },
           ),
         ),
-         const SizedBox(height: 16),
-         // Legend
-         Wrap(
-           spacing: 16,
-           runSpacing: 8,
-           alignment: WrapAlignment.center,
-           children: widget.legendItems.map((item) => Row(
-             mainAxisSize: MainAxisSize.min,
-             children: [
-               Container(width: 12, height: 12, decoration: BoxDecoration(color: item.color, shape: BoxShape.circle)),
-               const SizedBox(width: 8),
-               Text(item.label, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w500)),
-             ],
-           )).toList(),
-         ),
-       ],
-     );
+        const SizedBox(height: 16),
+        // Legend
+        Wrap(
+          spacing: 16,
+          runSpacing: 8,
+          alignment: WrapAlignment.center,
+          children: widget.legendItems
+              .map(
+                (item) => Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Container(
+                      width: 12,
+                      height: 12,
+                      decoration: BoxDecoration(
+                        color: item.color,
+                        shape: BoxShape.circle,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      item.label,
+                      style: const TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ],
+                ),
+              )
+              .toList(),
+        ),
+      ],
+    );
   }
 }
 
@@ -1295,7 +1643,12 @@ class _LineChartPainter extends CustomPainter {
   final int? selectedIndex;
   final double leftPadding;
 
-  _LineChartPainter({required this.data, required this.maxVal, this.selectedIndex, this.leftPadding = 40.0});
+  _LineChartPainter({
+    required this.data,
+    required this.maxVal,
+    this.selectedIndex,
+    this.leftPadding = 40.0,
+  });
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -1304,88 +1657,94 @@ class _LineChartPainter extends CustomPainter {
       ..style = PaintingStyle.stroke
       ..strokeCap = StrokeCap.round;
 
-    final dotPaint = Paint()
-      ..style = PaintingStyle.fill;
+    final dotPaint = Paint()..style = PaintingStyle.fill;
 
     // Grid and Axis properties
     const int gridLines = 5;
-    const double bottomPadding = 24.0; 
-    
+    const double bottomPadding = 24.0;
+
     final double chartWidth = size.width - leftPadding;
     final double chartHeight = size.height - bottomPadding;
-    
+
     final double stepX = chartWidth / (data.length > 1 ? data.length - 1 : 1);
-    
+
     // Draw Grid and Y-Axis Labels
     final gridPaint = Paint()
       ..color = Colors.grey.withOpacity(0.2)
       ..strokeWidth = 1.0;
 
-    final textPainter = TextPainter(
-      textDirection: TextDirection.ltr,
-    );
+    final textPainter = TextPainter(textDirection: TextDirection.ltr);
 
     for (int i = 0; i <= gridLines; i++) {
-        final double normalizedValue = i / gridLines;
-        final double y = chartHeight - (chartHeight * normalizedValue);
-        
-        // Draw horizontal grid line
-        canvas.drawLine(Offset(leftPadding, y), Offset(size.width, y), gridPaint);
-        
-        // Draw Y-Axis Label
-        final double labelValue = maxVal * normalizedValue;
-        String labelText;
-        if (maxVal > 1000) {
-           labelText = '${(labelValue / 1000).toStringAsFixed(1)}k';
-        } else if (maxVal < 10 && maxVal > 0) {
-           labelText = labelValue.toStringAsFixed(1);
-        } else {
-           labelText = labelValue.toStringAsFixed(0);
-        }
-        
-        textPainter.text = TextSpan(
-          text: labelText,
-          style: TextStyle(color: Colors.grey[600], fontSize: 10),
-        );
-        textPainter.layout();
-        textPainter.paint(canvas, Offset(leftPadding - textPainter.width - 8, y - textPainter.height / 2));
+      final double normalizedValue = i / gridLines;
+      final double y = chartHeight - (chartHeight * normalizedValue);
+
+      // Draw horizontal grid line
+      canvas.drawLine(Offset(leftPadding, y), Offset(size.width, y), gridPaint);
+
+      // Draw Y-Axis Label
+      final double labelValue = maxVal * normalizedValue;
+      String labelText;
+      if (maxVal > 1000) {
+        labelText = '${(labelValue / 1000).toStringAsFixed(1)}k';
+      } else if (maxVal < 10 && maxVal > 0) {
+        labelText = labelValue.toStringAsFixed(1);
+      } else {
+        labelText = labelValue.toStringAsFixed(0);
+      }
+
+      textPainter.text = TextSpan(
+        text: labelText,
+        style: TextStyle(color: Colors.grey[600], fontSize: 10),
+      );
+      textPainter.layout();
+      textPainter.paint(
+        canvas,
+        Offset(leftPadding - textPainter.width - 8, y - textPainter.height / 2),
+      );
     }
 
     // Determine number of lines (series) based on first point
     int seriesCount = data.first.values.length;
 
     for (int s = 0; s < seriesCount; s++) {
-       paint.color = data.first.colors[s];
-       dotPaint.color = data.first.colors[s];
+      paint.color = data.first.colors[s];
+      dotPaint.color = data.first.colors[s];
 
-       final path = Path();
-       for (int i = 0; i < data.length; i++) {
-         final x = leftPadding + (i * stepX);
-         final y = chartHeight - ((data[i].values[s] / maxVal) * chartHeight);
-         
-         if (i == 0) path.moveTo(x, y);
-         else path.lineTo(x, y);
+      final path = Path();
+      for (int i = 0; i < data.length; i++) {
+        final x = leftPadding + (i * stepX);
+        final y = chartHeight - ((data[i].values[s] / maxVal) * chartHeight);
 
-         // Draw dots
-         canvas.drawCircle(Offset(x, y), 4, dotPaint);
+        if (i == 0)
+          path.moveTo(x, y);
+        else
+          path.lineTo(x, y);
 
-         // Draw X-Axis Label (only specific indices to avoid overlapping)
-         bool shouldDrawLabel = true;
-         if (data.length > 10) {
-            int skip = (data.length / 6).ceil();
-            shouldDrawLabel = (i == 0) || (i == data.length - 1) || (i % skip == 0);
-         }
+        // Draw dots
+        canvas.drawCircle(Offset(x, y), 4, dotPaint);
 
-         if (s == 0 && shouldDrawLabel) { 
-            textPainter.text = TextSpan(
-              text: data[i].label,
-              style: TextStyle(color: Colors.grey[600], fontSize: 10),
-            );
-            textPainter.layout();
-            textPainter.paint(canvas, Offset(x - textPainter.width / 2, chartHeight + 8));
-         }
-       }
-       canvas.drawPath(path, paint);
+        // Draw X-Axis Label (only specific indices to avoid overlapping)
+        bool shouldDrawLabel = true;
+        if (data.length > 10) {
+          int skip = (data.length / 6).ceil();
+          shouldDrawLabel =
+              (i == 0) || (i == data.length - 1) || (i % skip == 0);
+        }
+
+        if (s == 0 && shouldDrawLabel) {
+          textPainter.text = TextSpan(
+            text: data[i].label,
+            style: TextStyle(color: Colors.grey[600], fontSize: 10),
+          );
+          textPainter.layout();
+          textPainter.paint(
+            canvas,
+            Offset(x - textPainter.width / 2, chartHeight + 8),
+          );
+        }
+      }
+      canvas.drawPath(path, paint);
     }
 
     // Highlight selected index
@@ -1395,7 +1754,7 @@ class _LineChartPainter extends CustomPainter {
         ..color = Colors.black.withOpacity(0.5)
         ..strokeWidth = 1
         ..style = PaintingStyle.stroke;
-      
+
       canvas.drawLine(Offset(x, 0), Offset(x, chartHeight), linePaint);
     }
   }
@@ -1466,11 +1825,21 @@ class _ReportData {
     final prefix = diff >= 0 ? '+' : '';
     String label = '';
     switch (range) {
-      case _ReportRange.today: label = 'yesterday'; break;
-      case _ReportRange.weekly: label = 'last week'; break;
-      case _ReportRange.monthly: label = 'last month'; break;
-      case _ReportRange.last6Months: label = 'prev. 6 months'; break;
-      case _ReportRange.yearly: label = 'last year'; break;
+      case _ReportRange.today:
+        label = 'yesterday';
+        break;
+      case _ReportRange.weekly:
+        label = 'last week';
+        break;
+      case _ReportRange.monthly:
+        label = 'last month';
+        break;
+      case _ReportRange.last6Months:
+        label = 'prev. 6 months';
+        break;
+      case _ReportRange.yearly:
+        label = 'last year';
+        break;
     }
     return '$prefix$diff from $label';
   }
@@ -1479,7 +1848,7 @@ class _ReportData {
   String get totalPaymentsFormatted => '₱${totalPayments.toStringAsFixed(2)}';
   String get totalExpensesFormatted => '₱${totalExpenses.toStringAsFixed(2)}';
   String get netCashFormatted => '₱${netCash.toStringAsFixed(2)}';
-  
+
   String get avgJobValue {
     if (totalJobs == 0) return '₱0.00';
     return '₱${(totalPayments / totalJobs).toStringAsFixed(2)}';
@@ -1510,7 +1879,11 @@ class _FinancialChartPoint {
   double income;
   double expense;
 
-  _FinancialChartPoint({required this.label, required this.income, required this.expense});
+  _FinancialChartPoint({
+    required this.label,
+    required this.income,
+    required this.expense,
+  });
 }
 
 class _CustomerChartPoint {
