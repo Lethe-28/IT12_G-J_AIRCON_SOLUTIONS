@@ -92,21 +92,45 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
 
         if (!matchesQuery) return false;
 
-        // 2. Category Filter
+        // 2. SIMPLIFIED FILTERS
         if (_selectedFilter == 'All') return true;
-        if (_selectedFilter == 'Revenue / In') return txn.type == 'IN';
-        if (_selectedFilter == 'Expenses / Out')
-          return txn.type == 'OUT'; // Added Filter
-        if (_selectedFilter == 'Operational')
-          return txn.category == 'Operational';
-        if (_selectedFilter == 'Petty Cash')
-          return txn.category == 'Petty Cash';
-        if (_selectedFilter == 'Personal') return txn.category == 'Personal';
+
+        // REVENUE FILTER:
+        // Shows: Automated Job Revenue + Manual 'Other Income'
+        // Hides: Owner's 'Added Funds'
+        if (_selectedFilter == 'Revenue') {
+          return (txn.category == 'Job Revenue' ||
+                  txn.category == 'Other Income') &&
+              txn.type == 'IN';
+        }
+
+        // ADDED FUNDS FILTER:
+        // Shows: Owner's deposits (Added Funds, Capital, Personal In)
+        if (_selectedFilter == 'Added Funds') {
+          return (txn.category == 'Added Funds' ||
+                  txn.category == 'Capital' ||
+                  txn.category == 'Personal') &&
+              txn.type == 'IN';
+        }
+
+        // OPERATIONAL FILTER:
+        // Shows: Business Expenses (Operational, Petty Cash, Capital Out)
+        if (_selectedFilter == 'Operational') {
+          return (txn.category == 'Operational' ||
+                  txn.category == 'Petty Cash' ||
+                  txn.category == 'Capital') &&
+              txn.type == 'OUT';
+        }
+
+        // PERSONAL FILTER:
+        // Shows: Owner Withdrawals
+        if (_selectedFilter == 'Personal') {
+          return txn.category == 'Personal' && txn.type == 'OUT';
+        }
 
         return true;
       }).toList();
-
-      // Reset to page 1 when filter changes
+      // Reset to page 1
       _currentPage = 1;
 
       // 3. Recalculate Totals based on Filter
@@ -115,28 +139,20 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
 
       for (var txn in _filteredTransactions) {
         if (txn.type == 'IN') {
-          // Rule: Only count Personal Income if explicitly filtering for Personal
-          // Otherwise, "Cash In" means Business Revenue
+          // Logic: If filter is "Personal", only count Personal In.
+          // Otherwise, "Revenue" counts Business In.
           if (txn.category == 'Personal') {
-            if (_selectedFilter == 'Personal') {
-              tempIn += txn.amount;
-            }
+            if (_selectedFilter == 'Personal') tempIn += txn.amount;
           } else {
-            // Normal Business Revenue
             tempIn += txn.amount;
           }
         } else {
-          // Expenses (OUT)
           tempOut += txn.amount;
         }
       }
 
       _displayIn = tempIn;
       _displayOut = tempOut;
-
-      debugPrint(
-        "Filtered transactions: ${_filteredTransactions.length} (from ${_monthTransactions.length})",
-      );
     });
   }
 
@@ -550,14 +566,22 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
                           child: DropdownButton<String>(
                             value: _selectedFilter,
                             icon: const Icon(Icons.filter_list, size: 20),
-                            items: ['All', 'Revenue', 'Operational', 'Personal']
-                                .map(
-                                  (f) => DropdownMenuItem(
-                                    value: f,
-                                    child: Text(f),
-                                  ),
-                                )
-                                .toList(),
+                            // Inside build() -> DropdownButton
+                            items:
+                                [
+                                      'All',
+                                      'Revenue',
+                                      'Operational',
+                                      'Personal',
+                                      'Added Funds',
+                                    ]
+                                    .map(
+                                      (f) => DropdownMenuItem(
+                                        value: f,
+                                        child: Text(f),
+                                      ),
+                                    )
+                                    .toList(),
                             onChanged: (v) {
                               if (v != null) {
                                 setState(() {
@@ -592,29 +616,135 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
                         itemCount: _filteredTransactions.length,
                         separatorBuilder: (ctx, i) =>
                             const SizedBox(height: 12),
-                        itemBuilder: (ctx, i) => _TransactionCard(
-                          txn: _filteredTransactions[i],
-                          onTap: () async {
-                            // Only allow editing manually created expenses (starting with E-)
-                            if (_filteredTransactions[i].id.startsWith('E-')) {
-                              await showDialog(
-                                context: context,
-                                builder: (_) => _AddTransactionDialog(
-                                  transactionToEdit: _filteredTransactions[i],
-                                ),
+                        itemBuilder: (ctx, i) {
+                          final txn = _filteredTransactions[i];
+
+                          return _TransactionCard(
+                            txn: txn,
+                            onTap: () async {
+                              // 1. COMMON: Check if trying to edit a past month (Keep existing logic)
+                              final now = DateTime.now();
+                              final startOfCurrentMonth = DateTime(
+                                now.year,
+                                now.month,
+                                1,
                               );
-                              _fetchMonthlyData();
-                            } else {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(
-                                  content: Text(
-                                    "Cannot edit automated job payments here.",
+
+                              if (txn.date.isBefore(startOfCurrentMonth)) {
+                                final proceed = await showDialog<bool>(
+                                  context: context,
+                                  builder: (c) => AlertDialog(
+                                    title: const Row(
+                                      children: [
+                                        Icon(
+                                          Icons.warning_amber,
+                                          color: Colors.orange,
+                                        ),
+                                        SizedBox(width: 8),
+                                        Text("Edit Past Record?"),
+                                      ],
+                                    ),
+                                    content: const Text(
+                                      "You are editing a record from a previous month.\n\n"
+                                      "Changing this will affect the 'Beginning Cash' for all subsequent months. Do you want to proceed?",
+                                    ),
+                                    actions: [
+                                      TextButton(
+                                        onPressed: () =>
+                                            Navigator.pop(c, false),
+                                        child: const Text("Cancel"),
+                                      ),
+                                      ElevatedButton(
+                                        style: ElevatedButton.styleFrom(
+                                          backgroundColor: Colors.orange,
+                                        ),
+                                        onPressed: () => Navigator.pop(c, true),
+                                        child: const Text("Edit Anyway"),
+                                      ),
+                                    ],
                                   ),
-                                ),
-                              );
-                            }
-                          },
-                        ),
+                                );
+                                if (proceed != true) return;
+                              }
+
+                              // 2. ROUTING LOGIC
+                              if (txn.id.startsWith('E-')) {
+                                // --- EDIT EXPENSE ---
+
+                                // NEW CHECK: Is this expense linked to a Job?
+                                if (txn.relatedJob != null) {
+                                  final confirmLinked = await showDialog<bool>(
+                                    context: context,
+                                    builder: (c) => AlertDialog(
+                                      title: const Text("Edit Linked Expense?"),
+                                      content: Text(
+                                        "This expense is linked to Job Order ${txn.relatedJob}.\n\n"
+                                        "Editing it here will change the cost record for that job. Proceed?",
+                                      ),
+                                      actions: [
+                                        TextButton(
+                                          onPressed: () =>
+                                              Navigator.pop(c, false),
+                                          child: const Text("Cancel"),
+                                        ),
+                                        ElevatedButton(
+                                          onPressed: () =>
+                                              Navigator.pop(c, true),
+                                          child: const Text("Proceed"),
+                                        ),
+                                      ],
+                                    ),
+                                  );
+                                  if (confirmLinked != true)
+                                    return; // Stop if cancelled
+                                }
+
+                                // Open Dialog
+                                await showDialog(
+                                  context: context,
+                                  builder: (_) => _AddTransactionDialog(
+                                    transactionToEdit: txn,
+                                  ),
+                                );
+                                _fetchMonthlyData();
+                              } else if (txn.id.startsWith('P-')) {
+                                // --- EDIT PAYMENT (Existing Logic) ---
+                                final confirmEdit = await showDialog<bool>(
+                                  context: context,
+                                  builder: (c) => AlertDialog(
+                                    title: const Text(
+                                      "Edit Automated Payment?",
+                                    ),
+                                    content: const Text(
+                                      "This payment was automatically linked to a Job Order.\n\n"
+                                      "Editing it here will update the finance records, but ensure the changes align with the actual Job Order details.",
+                                    ),
+                                    actions: [
+                                      TextButton(
+                                        onPressed: () =>
+                                            Navigator.pop(c, false),
+                                        child: const Text("Cancel"),
+                                      ),
+                                      ElevatedButton(
+                                        onPressed: () => Navigator.pop(c, true),
+                                        child: const Text("Proceed"),
+                                      ),
+                                    ],
+                                  ),
+                                );
+
+                                if (confirmEdit == true) {
+                                  await showDialog(
+                                    context: context,
+                                    builder: (_) =>
+                                        _EditPaymentDialog(payment: txn),
+                                  );
+                                  _fetchMonthlyData();
+                                }
+                              }
+                            },
+                          );
+                        },
                       ),
               ),
             ),
@@ -1032,6 +1162,7 @@ class _AddTransactionDialogState extends State<_AddTransactionDialog> {
               // 1. TYPE TOGGLE
               Row(
                 children: [
+                  // MONEY OUT TOGGLE
                   Expanded(
                     child: _TypeToggle(
                       label: "Money Out",
@@ -1039,11 +1170,13 @@ class _AddTransactionDialogState extends State<_AddTransactionDialog> {
                       color: Colors.red,
                       onTap: () => setState(() {
                         _isIncome = false;
-                        _category = 'Operational';
+                        _category = 'Operational'; // Default
                       }),
                     ),
                   ),
                   const SizedBox(width: 12),
+
+                  // MONEY IN TOGGLE
                   Expanded(
                     child: _TypeToggle(
                       label: "Money In",
@@ -1051,7 +1184,8 @@ class _AddTransactionDialogState extends State<_AddTransactionDialog> {
                       color: Colors.green,
                       onTap: () => setState(() {
                         _isIncome = true;
-                        _category = 'General Income';
+                        // Default to 'Added Funds' because 'Revenue' is disabled
+                        _category = 'Added Funds';
                       }),
                     ),
                   ),
@@ -1059,37 +1193,25 @@ class _AddTransactionDialogState extends State<_AddTransactionDialog> {
               ),
               const SizedBox(height: 16),
 
-              // 2. CATEGORY SELECTOR (The important part for "Personal")
-              if (!_isIncome)
-                DropdownButtonFormField<String>(
-                  value: _category,
-                  decoration: const InputDecoration(
-                    labelText: "Category",
-                    border: OutlineInputBorder(),
-                  ),
-                  // ADD PERSONAL AND PETTY CASH HERE
-                  items: ['Operational', 'Personal', 'Petty Cash', 'Capital']
-                      .map((c) => DropdownMenuItem(value: c, child: Text(c)))
-                      .toList(),
-                  onChanged: (v) => setState(() => _category = v!),
+              // 2. CATEGORY SELECTOR (Strict Mode)
+              DropdownButtonFormField<String>(
+                value: _category,
+                decoration: const InputDecoration(
+                  labelText: "Category",
+                  border: OutlineInputBorder(),
                 ),
-              if (_isIncome)
-                Container(
-                  padding: const EdgeInsets.all(12),
-                  width: double.infinity,
-                  decoration: BoxDecoration(
-                    color: Colors.green.withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: const Text(
-                    "Category: General Income / Revenue",
-                    style: TextStyle(
-                      color: Colors.green,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                ),
-
+                // LOGIC:
+                // Money In: Only 'Added Funds' (Owner) or 'Other Income' (Scrap).
+                //           Real Revenue MUST come from Job Orders.
+                // Money Out: 'Operational' (Biz) or 'Personal' (Owner).
+                items:
+                    (_isIncome
+                            ? ['Added Funds', 'Other Income']
+                            : ['Operational', 'Personal'])
+                        .map((c) => DropdownMenuItem(value: c, child: Text(c)))
+                        .toList(),
+                onChanged: (v) => setState(() => _category = v!),
+              ),
               const SizedBox(height: 12),
 
               // --- NEW: DATE PICKER WITH FUTURE LOCK ---
@@ -1266,6 +1388,208 @@ class _TypeToggle extends StatelessWidget {
             fontWeight: FontWeight.bold,
           ),
         ),
+      ),
+    );
+  }
+}
+
+// --- NEW: Dedicated Dialog for Editing Payments ---
+class _EditPaymentDialog extends StatefulWidget {
+  final Transaction payment;
+  const _EditPaymentDialog({required this.payment});
+
+  @override
+  State<_EditPaymentDialog> createState() => _EditPaymentDialogState();
+}
+
+class _EditPaymentDialogState extends State<_EditPaymentDialog> {
+  final _formKey = GlobalKey<FormState>();
+  final _amountController = TextEditingController();
+
+  // Extra fields specific to payments
+  String _method = 'Cash';
+  DateTime _date = DateTime.now();
+  bool _isLoading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadPaymentDetails();
+  }
+
+  Future<void> _loadPaymentDetails() async {
+    // 1. Parse ID (Remove "P-" prefix)
+    final id = widget.payment.id.split('-')[1];
+
+    // 2. Fetch fresh data from DB
+    final data = await Supabase.instance.client
+        .from('payments')
+        .select('amount, payment_date, payment_method')
+        .eq('id', id)
+        .single();
+
+    if (mounted) {
+      setState(() {
+        _amountController.text = data['amount'].toString();
+        _date = DateTime.parse(data['payment_date']);
+        _method = data['payment_method'] ?? 'Cash';
+        _isLoading = false;
+      });
+    }
+  }
+
+  Future<void> _save() async {
+    if (!_formKey.currentState!.validate()) return;
+
+    final id = widget.payment.id.split('-')[1];
+    final cleanAmount = _amountController.text.replaceAll(',', '').trim();
+
+    // BUSINESS STANDARD FIX:
+    // Format explicitly as YYYY-MM-DD based on the user's selection.
+    // We do NOT use toUtc() because we want to force this specific calendar date.
+    final String dateString =
+        "${_date.year}-${_date.month.toString().padLeft(2, '0')}-${_date.day.toString().padLeft(2, '0')}";
+
+    try {
+      await Supabase.instance.client
+          .from('payments')
+          .update({
+            'amount': double.parse(cleanAmount),
+            'payment_date': dateString,
+            'payment_method': _method,
+          })
+          .eq('id', id);
+
+      if (mounted) Navigator.pop(context, true); // Return true on success
+    } catch (e) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text("Error: $e")));
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Dialog(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      child: Container(
+        width: 400,
+        padding: const EdgeInsets.all(24),
+        child: _isLoading
+            ? const SizedBox(
+                height: 100,
+                child: Center(child: CircularProgressIndicator()),
+              )
+            : Form(
+                key: _formKey,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      "Edit Payment",
+                      style: TextStyle(
+                        fontSize: 20,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      "Linked to ${widget.payment.relatedJob ?? 'Unknown Job'}",
+                      style: const TextStyle(fontSize: 12, color: Colors.grey),
+                    ),
+                    const SizedBox(height: 20),
+
+                    // Date Picker
+                    GestureDetector(
+                      onTap: () async {
+                        final picked = await showDatePicker(
+                          context: context,
+                          initialDate: _date,
+                          firstDate: DateTime(2020),
+                          lastDate: DateTime.now(), // No future dates
+                        );
+                        if (picked != null) setState(() => _date = picked);
+                      },
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 16,
+                        ),
+                        decoration: BoxDecoration(
+                          border: Border.all(color: Colors.grey),
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Text(
+                              "Date: ${_date.month}/${_date.day}/${_date.year}",
+                            ),
+                            const Icon(
+                              Icons.calendar_today,
+                              color: Colors.grey,
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+
+                    // Amount
+                    TextFormField(
+                      controller: _amountController,
+                      keyboardType: const TextInputType.numberWithOptions(
+                        decimal: true,
+                      ),
+                      decoration: const InputDecoration(
+                        labelText: "Amount",
+                        border: OutlineInputBorder(),
+                        prefixText: "₱ ",
+                      ),
+                      validator: (v) => v!.isEmpty ? "Required" : null,
+                    ),
+                    const SizedBox(height: 12),
+
+                    // Method Dropdown
+                    DropdownButtonFormField<String>(
+                      value:
+                          [
+                            'Cash',
+                            'GCash',
+                            'Bank Transfer',
+                            'Cheque',
+                          ].contains(_method)
+                          ? _method
+                          : 'Cash',
+                      decoration: const InputDecoration(
+                        labelText: "Payment Method",
+                        border: OutlineInputBorder(),
+                      ),
+                      items: ['Cash', 'GCash', 'Bank Transfer', 'Cheque']
+                          .map(
+                            (m) => DropdownMenuItem(value: m, child: Text(m)),
+                          )
+                          .toList(),
+                      onChanged: (v) => setState(() => _method = v!),
+                    ),
+                    const SizedBox(height: 24),
+
+                    SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton(
+                        onPressed: _save,
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.green, // Green for money
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(vertical: 16),
+                        ),
+                        child: const Text("Update Payment"),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
       ),
     );
   }
