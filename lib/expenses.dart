@@ -1090,10 +1090,9 @@ class _AddTransactionDialogState extends State<_AddTransactionDialog> {
     }
   }
 
-  Future<void> _save() async {
+  Future<void> _save({bool closeAfter = true}) async {
     if (!_formKey.currentState!.validate()) return;
 
-    // Input Cleaning (Remove ₱, commas)
     String cleanAmount = _amountController.text
         .replaceAll('₱', '')
         .replaceAll(',', '')
@@ -1111,25 +1110,48 @@ class _AddTransactionDialogState extends State<_AddTransactionDialog> {
         'expense_type': _category,
         'is_income': _isIncome,
         'user_id': Supabase.instance.client.auth.currentUser?.id,
-        // Only link job if it's an Operational Expense (Money Out)
         'job_order_id': ((_category == 'Operational') && !_isIncome)
             ? _selectedJobId
             : null,
       };
 
       if (widget.transactionToEdit != null) {
-        // UPDATE EXISTING
+        // UPDATE EXISTING (Always close after edit)
         final rawId = widget.transactionToEdit!.id.split('-')[1];
         await Supabase.instance.client
             .from('expenses')
             .update(data)
             .eq('id', rawId);
+
+        if (mounted) Navigator.pop(context);
       } else {
         // INSERT NEW
         await Supabase.instance.client.from('expenses').insert(data);
-      }
 
-      if (mounted) Navigator.pop(context);
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text("Record Saved!"),
+              duration: Duration(milliseconds: 800),
+              backgroundColor: Colors.green,
+            ),
+          );
+
+          if (closeAfter) {
+            Navigator.pop(context);
+          } else {
+            // RESET FIELDS FOR NEXT ENTRY
+            // UX Tip: Keep the Date and Category, just clear the specific details
+            setState(() {
+              _nameController.clear();
+              _amountController.clear();
+              // Keep _date, _category, _isIncome as is
+            });
+            // Refocus the name field for speed
+            FocusScope.of(context).requestFocus(FocusNode());
+          }
+        }
+      }
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text("Error: $e"), backgroundColor: Colors.red),
@@ -1288,17 +1310,43 @@ class _AddTransactionDialogState extends State<_AddTransactionDialog> {
                 validator: (v) => v!.isEmpty ? "Required" : null,
               ),
               const SizedBox(height: 24),
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton(
-                  onPressed: _save,
-                  style: ElevatedButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(vertical: 16),
-                    backgroundColor: Colors.blueAccent,
-                    foregroundColor: Colors.white,
+              // NEW BUTTON ROW
+              Row(
+                children: [
+                  // 1. SAVE & ADD ANOTHER (Grey/Secondary)
+                  // Only show this when creating new records, not editing
+                  if (widget.transactionToEdit == null) ...[
+                    Expanded(
+                      child: OutlinedButton(
+                        onPressed: () => _save(closeAfter: false),
+                        style: OutlinedButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(vertical: 16),
+                          foregroundColor: Colors.blueGrey,
+                          side: BorderSide(color: Colors.blueGrey.shade200),
+                        ),
+                        child: const Text("Save & Add Another"),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                  ],
+
+                  // 2. SAVE & CLOSE (Blue/Primary)
+                  Expanded(
+                    child: ElevatedButton(
+                      onPressed: () => _save(closeAfter: true),
+                      style: ElevatedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 16),
+                        backgroundColor: Colors.blueAccent,
+                        foregroundColor: Colors.white,
+                      ),
+                      child: Text(
+                        widget.transactionToEdit == null
+                            ? "Save & Close"
+                            : "Update Record",
+                      ),
+                    ),
                   ),
-                  child: const Text("Save Record"),
-                ),
+                ],
               ),
             ],
           ),
