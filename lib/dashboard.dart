@@ -8,6 +8,7 @@ import 'theme/app_theme.dart';
 import 'shared_header.dart';
 import 'shared/widgets.dart' show AnimatedCard, isMobile;
 import 'scheduling.dart';
+import 'data/activity_history.dart';
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
@@ -778,16 +779,32 @@ class _DashboardScreenState extends State<DashboardScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Row(
+          // --- UPDATED HEADER ROW ---
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Text(
+              const Text(
                 'Recent Activity',
                 style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
               ),
-              Spacer(),
-              Icon(Icons.history, color: Colors.grey, size: 20),
+              // Replaced Icon with Text Button
+              TextButton(
+                onPressed: () {
+                  Navigator.of(context).pushReplacement(
+                    MaterialPageRoute(
+                      builder: (_) => const ActivityHistoryScreen(),
+                    ),
+                  );
+                },
+                style: TextButton.styleFrom(
+                  visualDensity: VisualDensity.compact,
+                  padding: EdgeInsets.zero,
+                ),
+                child: const Text("View All", style: TextStyle(fontSize: 13)),
+              ),
             ],
           ),
+          // --------------------------
           const SizedBox(height: 16),
           if (_dashboardProvider.activityItems.isEmpty)
             const Padding(

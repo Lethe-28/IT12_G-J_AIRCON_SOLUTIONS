@@ -395,7 +395,7 @@ class DashboardProvider extends ChangeNotifier {
           .from('activity_logs')
           .select('*')
           .order('created_at', ascending: false)
-          .limit(20);
+          .limit(5);
 
       for (var log in logs) {
         final date = DateTime.parse(log['created_at']).toLocal();
