@@ -29,7 +29,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   final DashboardProvider _dashboardProvider = DashboardProvider();
   bool _isLoading = true;
   String _searchQuery = '';
-  String _dateRange = 'Today';
+  String _dateRange = 'Monthly';
   RealtimeChannel? _subscription;
 
   bool get _isServiceManager => AppState.currentRole == UserRole.serviceManager;
@@ -511,7 +511,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         // Title Row
+                        // Title Row with WORKING Filter
                         Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
                             Text(
                               'Overview',
@@ -520,12 +522,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                 fontWeight: FontWeight.w700,
                               ),
                             ),
-                            const Spacer(),
-                            const Spacer(),
+
+                            // --- DYNAMIC DATE FILTER ---
                             Container(
                               padding: const EdgeInsets.symmetric(
                                 horizontal: 12,
-                                vertical: 6,
                               ),
                               decoration: BoxDecoration(
                                 color: Colors.white,
@@ -534,24 +535,59 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                   color: const Color(0xFFE2E8F0),
                                 ),
                               ),
-                              child: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  const Icon(
-                                    Icons.today,
-                                    size: 14,
+                              child: DropdownButtonHideUnderline(
+                                child: DropdownButton<String>(
+                                  value: _dateRange,
+                                  icon: const Icon(
+                                    Icons.keyboard_arrow_down,
+                                    size: 16,
                                     color: Colors.black54,
                                   ),
-                                  const SizedBox(width: 8),
-                                  Text(
-                                    'Today',
-                                    style: TextStyle(
-                                      fontSize: titleFontSize * 0.7,
-                                      fontWeight: FontWeight.w600,
-                                      color: Colors.black54,
-                                    ),
+                                  style: TextStyle(
+                                    fontSize: titleFontSize * 0.7,
+                                    fontWeight: FontWeight.w600,
+                                    color: Colors.black54,
+                                    fontFamily: 'Inter', // Or your app font
                                   ),
-                                ],
+                                  items:
+                                      [
+                                        'Today',
+                                        'Weekly',
+                                        'Monthly',
+                                        'Yearly',
+                                      ].map((String value) {
+                                        return DropdownMenuItem<String>(
+                                          value: value,
+                                          child: Row(
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: [
+                                              Icon(
+                                                // Dynamic Icon based on selection
+                                                value == 'Today'
+                                                    ? Icons.today
+                                                    : value == 'Weekly'
+                                                    ? Icons.date_range
+                                                    : Icons.calendar_month,
+                                                size: 14,
+                                                color: Colors.black54,
+                                              ),
+                                              const SizedBox(width: 8),
+                                              Text(value),
+                                            ],
+                                          ),
+                                        );
+                                      }).toList(),
+                                  onChanged: (newValue) {
+                                    if (newValue != null) {
+                                      setState(() {
+                                        _dateRange = newValue;
+                                        _isLoading =
+                                            true; // Show loading indicator
+                                      });
+                                      _loadData(); // Re-fetch everything
+                                    }
+                                  },
+                                ),
                               ),
                             ),
                           ],

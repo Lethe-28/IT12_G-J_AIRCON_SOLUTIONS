@@ -2,22 +2,20 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../services/notification_service.dart';
 
-/// Centralized data provider for dashboard statistics and real-time data
 class DashboardProvider extends ChangeNotifier {
   static final DashboardProvider _instance = DashboardProvider._internal();
   factory DashboardProvider() => _instance;
   DashboardProvider._internal();
 
-  // Cache for performance
+  // Cache variables
   int _pendingJobsCount = 0;
   int _pendingDocsCount = 0;
   double _totalRevenue = 0.0;
   double _totalExpenses = 0.0;
-  List<TodayJobItem> _todayJobs = [];
+  List<TodayJobItem> _todayJobs = []; // This list powers the "Schedule" list
 
-  // SEPARATE LISTS
-  List<AttentionItem> _notificationItems = []; // For the Bell (Warnings)
-  List<AttentionItem> _activityItems = []; // For the Dashboard List (History)
+  List<AttentionItem> _notificationItems = [];
+  List<AttentionItem> _activityItems = [];
 
   DateTime? _lastFetch;
 
@@ -27,24 +25,21 @@ class DashboardProvider extends ChangeNotifier {
   double get totalRevenue => _totalRevenue;
   double get totalExpenses => _totalExpenses;
   List<TodayJobItem> get todayJobs => _todayJobs;
-
-  // Expose both lists separately
   List<AttentionItem> get notificationItems => _notificationItems;
   List<AttentionItem> get activityItems => _activityItems;
+  List<AttentionItem> get attentionItems =>
+      _notificationItems; // Legacy support
 
-  // Legacy getter for backward compatibility (points to notifications)
-  List<AttentionItem> get attentionItems => _notificationItems;
-
-  /// Fetch all dashboard data
-  Future<void> fetchDashboardData({String dateRange = 'Today'}) async {
+  // --- MAIN FETCH METHOD ---
+  Future<void> fetchDashboardData({String dateRange = 'Monthly'}) async {
     try {
       await Future.wait([
-        _fetchPendingJobs(),
-        _fetchTodayJobs(dateRange),
+        _fetchPendingJobs(dateRange), // Now Dynamic!
+        _fetchScheduledJobs(dateRange), // Renamed from _fetchTodayJobs
         _fetchTotalRevenue(dateRange),
         _fetchTotalExpenses(dateRange),
-        _fetchNotifications(), // 1. Fetch Actionable Warnings
-        _fetchActivityLogs(), // 2. Fetch Audit History
+        _fetchNotifications(),
+        _fetchActivityLogs(),
       ]);
       _lastFetch = DateTime.now();
       notifyListeners();
@@ -53,21 +48,58 @@ class DashboardProvider extends ChangeNotifier {
     }
   }
 
-  /// Refresh if data is stale (older than 30 seconds)
-  Future<void> refreshIfNeeded() async {
-    if (_lastFetch == null ||
-        DateTime.now().difference(_lastFetch!) > const Duration(seconds: 30)) {
-      await fetchDashboardData();
+  // --- HELPER: Date Ranges ---
+  // Returns [startDate, endDate] as Strings (YYYY-MM-DD)
+  List<String> _getDateRange(String range) {
+    final now = DateTime.now();
+    DateTime start;
+    DateTime end;
+
+    switch (range) {
+      case 'Weekly':
+        // Start of week (Monday)
+        start = now.subtract(Duration(days: now.weekday - 1));
+        end = start.add(const Duration(days: 6));
+        break;
+      case 'Monthly':
+        start = DateTime(now.year, now.month, 1);
+        end = DateTime(now.year, now.month + 1, 0); // Last day of month
+        break;
+      case 'Yearly':
+        start = DateTime(now.year, 1, 1);
+        end = DateTime(now.year, 12, 31);
+        break;
+      case 'Today':
+      default:
+        start = now;
+        end = now;
+        break;
     }
+
+    // Format YYYY-MM-DD
+    String fmt(DateTime d) =>
+        "${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}";
+
+    return [fmt(start), fmt(end)];
   }
 
-  Future<void> _fetchPendingJobs() async {
+  // --- 1. DYNAMIC PENDING JOBS ---
+  Future<void> _fetchPendingJobs(String dateRange) async {
     try {
       final supabase = Supabase.instance.client;
-      final response = await supabase.from('job_orders').select('id').inFilter(
-        'status',
-        ['Pending', 'Scheduled', 'In Progress'],
-      );
+      final range = _getDateRange(dateRange); // [start, end]
+
+      // Logic: Count jobs that are NOT completed/cancelled AND scheduled in this range
+      final response = await supabase
+          .from('job_orders')
+          .select('id')
+          .inFilter('status', [
+            'Pending',
+            'Scheduled',
+            'In Progress',
+          ]) // Active statuses
+          .gte('date_scheduled', "${range[0]}T00:00:00") // Start of range
+          .lte('date_scheduled', "${range[1]}T23:59:59"); // End of range
 
       _pendingJobsCount = response.length;
     } catch (e) {
@@ -76,55 +108,31 @@ class DashboardProvider extends ChangeNotifier {
     }
   }
 
-  Future<void> _fetchTodayJobs(String dateRange) async {
+  // --- 2. DYNAMIC SCHEDULE LIST ---
+  Future<void> _fetchScheduledJobs(String dateRange) async {
     try {
       final supabase = Supabase.instance.client;
-      final now = DateTime.now();
-      DateTime startDate;
-      DateTime endDate;
-
-      switch (dateRange) {
-        case 'Weekly':
-          startDate = now.subtract(Duration(days: now.weekday - 1));
-          startDate = DateTime(startDate.year, startDate.month, startDate.day);
-          endDate = DateTime(now.year, now.month, now.day, 23, 59, 59);
-          break;
-        case 'Monthly':
-          startDate = DateTime(now.year, now.month, 1);
-          endDate = DateTime(now.year, now.month, now.day, 23, 59, 59);
-          break;
-        case 'Yearly':
-          startDate = DateTime(now.year, 1, 1);
-          endDate = DateTime(now.year, now.month, now.day, 23, 59, 59);
-          break;
-        default: // Today
-          startDate = DateTime(now.year, now.month, now.day);
-          endDate = DateTime(now.year, now.month, now.day, 23, 59, 59);
-      }
+      final range = _getDateRange(dateRange);
 
       final response = await supabase
           .from('job_orders')
           .select(
             '*, customers(first_name, last_name, company_name), job_types(job_type_name)',
           )
-          .gte('date_scheduled', startDate.toUtc().toIso8601String())
-          .lte('date_scheduled', endDate.toUtc().toIso8601String())
+          .gte('date_scheduled', "${range[0]}T00:00:00")
+          .lte('date_scheduled', "${range[1]}T23:59:59")
           .order('date_scheduled', ascending: true);
 
       _todayJobs = response.map<TodayJobItem>((row) {
         final customer = row['customers'];
         String clientName = 'Unknown';
         if (customer != null) {
-          if (customer['company_name'] != null &&
-              customer['company_name'].toString().isNotEmpty) {
-            clientName = customer['company_name'];
-          } else {
-            clientName = '${customer['first_name']} ${customer['last_name']}';
-          }
+          clientName =
+              customer['company_name'] ??
+              '${customer['first_name']} ${customer['last_name']}';
         }
 
         DateTime scheduled = DateTime.parse(row['date_scheduled']).toLocal();
-
         const months = [
           "Jan",
           "Feb",
@@ -143,11 +151,7 @@ class DashboardProvider extends ChangeNotifier {
 
         String time =
             '${scheduled.hour == 0 ? 12 : (scheduled.hour > 12 ? scheduled.hour - 12 : scheduled.hour)}:${scheduled.minute.toString().padLeft(2, '0')}';
-        if (scheduled.hour < 12) {
-          time += ' AM';
-        } else {
-          time += ' PM';
-        }
+        time += (scheduled.hour < 12) ? ' AM' : ' PM';
 
         return TodayJobItem(
           id: row['client_jo_number'] ?? 'JO-${row['id']}',
@@ -159,115 +163,77 @@ class DashboardProvider extends ChangeNotifier {
         );
       }).toList();
     } catch (e) {
-      debugPrint('Error fetching today jobs: $e');
+      debugPrint('Error fetching scheduled jobs: $e');
       _todayJobs = [];
     }
   }
 
+  // --- 3. REVENUE (Strict Logic) ---
   Future<void> _fetchTotalRevenue(String dateRange) async {
     try {
       final supabase = Supabase.instance.client;
-      final now = DateTime.now();
-      DateTime? startDate;
+      final range = _getDateRange(dateRange);
 
-      switch (dateRange) {
-        case 'Weekly':
-          startDate = now.subtract(Duration(days: now.weekday - 1));
-          startDate = DateTime(startDate.year, startDate.month, startDate.day);
-          break;
-        case 'Monthly':
-          startDate = DateTime(now.year, now.month, 1);
-          break;
-        case 'Yearly':
-          startDate = DateTime(now.year, 1, 1);
-          break;
-        case 'Today':
-          startDate = DateTime(now.year, now.month, now.day);
-          break;
-        default:
-          startDate = null; // All time
-      }
-
-      var query = supabase
+      // A. Job Payments (Verified)
+      final payments = await supabase
           .from('payments')
           .select('amount')
-          .eq('status', 'Verified');
+          .eq('status', 'Verified')
+          .gte('payment_date', range[0])
+          .lte('payment_date', range[1]);
 
-      if (startDate != null) {
-        query = query.gte('payment_date', startDate.toIso8601String());
-      }
-
-      final response = await query;
-
-      _totalRevenue = response.fold<double>(
-        0,
+      double total = payments.fold(
+        0.0,
         (sum, row) => sum + (row['amount'] ?? 0.0),
       );
 
-      // ADD: Fetch "Cash In" (General Income) from expenses table
-      var incomeQuery = supabase
+      // B. Manual Revenue (Other Income)
+      // FIX: Changed 'category' to 'expense_type' to match your DB schema
+      final otherIncome = await supabase
           .from('expenses')
           .select('amount')
           .eq('is_income', true)
-          .neq('category', 'Personal');
+          // Exclude Owner Money using the correct column name
+          .neq('expense_type', 'Added Funds')
+          .neq('expense_type', 'Capital')
+          .neq('expense_type', 'Personal')
+          .gte('date', range[0])
+          .lte('date', range[1]);
 
-      if (startDate != null) {
-        incomeQuery = incomeQuery.gte('date', startDate.toIso8601String());
-      }
-      
-      final incomeResponse = await incomeQuery;
-      final incomeSum = incomeResponse.fold<double>(
-        0, 
-        (sum, row) => sum + (row['amount'] ?? 0.0)
+      total += otherIncome.fold(
+        0.0,
+        (sum, row) => sum + (row['amount'] ?? 0.0),
       );
 
-      _totalRevenue += incomeSum;
-
+      _totalRevenue = total;
     } catch (e) {
-      debugPrint('Error fetching total revenue: $e');
+      debugPrint('Error fetching revenue: $e');
       _totalRevenue = 0.0;
     }
   }
 
+  // --- 4. EXPENSES (Strict Logic) ---
   Future<void> _fetchTotalExpenses(String dateRange) async {
     try {
       final supabase = Supabase.instance.client;
-      final now = DateTime.now();
-      DateTime? startDate;
+      final range = _getDateRange(dateRange);
 
-      switch (dateRange) {
-        case 'Weekly':
-          startDate = now.subtract(Duration(days: now.weekday - 1));
-          startDate = DateTime(startDate.year, startDate.month, startDate.day);
-          break;
-        case 'Monthly':
-          startDate = DateTime(now.year, now.month, 1);
-          break;
-        case 'Yearly':
-          startDate = DateTime(now.year, 1, 1);
-          break;
-        case 'Today':
-          startDate = DateTime(now.year, now.month, now.day);
-          break;
-        default:
-          startDate = null; // All time
-      }
+      // Operational Expenses Only (Money Out)
+      // FIX: Changed 'category' to 'expense_type' to match your DB schema
+      final expenses = await supabase
+          .from('expenses')
+          .select('amount')
+          .neq('is_income', true)
+          .neq('expense_type', 'Personal') // Exclude Owner Draw
+          .gte('date', range[0])
+          .lte('date', range[1]);
 
-      // FIX: Only fetch expenses where is_income IS NOT true (false or null)
-      var query = supabase.from('expenses').select('amount').neq('is_income', true);
-
-      if (startDate != null) {
-        query = query.gte('date', startDate.toIso8601String());
-      }
-
-      final response = await query;
-
-      _totalExpenses = response.fold<double>(
-        0,
+      _totalExpenses = expenses.fold(
+        0.0,
         (sum, row) => sum + (row['amount'] ?? 0.0),
       );
     } catch (e) {
-      debugPrint('Error fetching total expenses: $e');
+      debugPrint('Error fetching expenses: $e');
       _totalExpenses = 0.0;
     }
   }
@@ -313,7 +279,9 @@ class DashboardProvider extends ChangeNotifier {
       // B. Overdue Jobs
       final overdueJobs = await supabase
           .from('job_orders')
-          .select('id, client_jo_number, date_scheduled, customers(company_name, first_name, last_name), job_types(job_type_name)')
+          .select(
+            'id, client_jo_number, date_scheduled, customers(company_name, first_name, last_name), job_types(job_type_name)',
+          )
           .neq('status', 'Completed')
           .neq('status', 'Cancelled')
           .lt('date_scheduled', now.toUtc().toIso8601String())
@@ -321,12 +289,15 @@ class DashboardProvider extends ChangeNotifier {
 
       for (var job in overdueJobs) {
         final customer = job['customers'];
-        final customerName = customer?['company_name'] ?? 
-            '${customer?['first_name'] ?? ''} ${customer?['last_name'] ?? ''}'.trim();
+        final customerName =
+            customer?['company_name'] ??
+            '${customer?['first_name'] ?? ''} ${customer?['last_name'] ?? ''}'
+                .trim();
         final serviceType = job['job_types']?['job_type_name'] ?? 'N/A';
         final dateScheduled = DateTime.parse(job['date_scheduled']).toLocal();
-        final dateStr = '${dateScheduled.month}/${dateScheduled.day}/${dateScheduled.year}';
-        
+        final dateStr =
+            '${dateScheduled.month}/${dateScheduled.day}/${dateScheduled.year}';
+
         _notificationItems.add(
           AttentionItem(
             title: 'Job order overdue',
@@ -362,8 +333,10 @@ class DashboardProvider extends ChangeNotifier {
           final date = DateTime.parse(job['date_scheduled']).toLocal();
           final dateStr = "${date.month}/${date.day}/${date.year}";
           final customer = job['customers'];
-          final customerName = customer?['company_name'] ?? 
-              '${customer?['first_name'] ?? ''} ${customer?['last_name'] ?? ''}'.trim();
+          final customerName =
+              customer?['company_name'] ??
+              '${customer?['first_name'] ?? ''} ${customer?['last_name'] ?? ''}'
+                  .trim();
           final serviceType = job['job_types']?['job_type_name'] ?? 'N/A';
 
           _notificationItems.add(
@@ -385,15 +358,17 @@ class DashboardProvider extends ChangeNotifier {
 
       // Notify only if High Priority exists
       if (_notificationItems.any((i) => i.priority == 'High')) {
-        final highPriorityItems = _notificationItems.where((i) => i.priority == 'High').toList();
+        final highPriorityItems = _notificationItems
+            .where((i) => i.priority == 'High')
+            .toList();
         final buffer = StringBuffer();
-        
+
         // Take up to 3 high priority items to list details
         final itemsToShow = highPriorityItems.take(3).toList();
         for (var item in itemsToShow) {
           buffer.writeln('• ${item.title}: ${item.reference}');
         }
-        
+
         final remaining = highPriorityItems.length - itemsToShow.length;
         if (remaining > 0) {
           buffer.writeln('... and $remaining more items.');
