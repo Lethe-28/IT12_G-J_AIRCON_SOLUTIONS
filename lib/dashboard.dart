@@ -30,7 +30,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   final DashboardProvider _dashboardProvider = DashboardProvider();
   bool _isLoading = true;
   String _searchQuery = '';
-  String _dateRange = 'Monthly';
+  String _dateRange = 'All';
   RealtimeChannel? _subscription;
 
   bool get _isServiceManager => AppState.currentRole == UserRole.serviceManager;
@@ -556,6 +556,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                         'Weekly',
                                         'Monthly',
                                         'Yearly',
+                                        'All',
                                       ].map((String value) {
                                         return DropdownMenuItem<String>(
                                           value: value,

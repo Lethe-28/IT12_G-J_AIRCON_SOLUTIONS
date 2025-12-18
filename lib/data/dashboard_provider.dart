@@ -69,6 +69,10 @@ class DashboardProvider extends ChangeNotifier {
         start = DateTime(now.year, 1, 1);
         end = DateTime(now.year, 12, 31);
         break;
+      case 'All': // <--- NEW CASE
+        start = DateTime(2000, 1, 1); // Way back in the past
+        end = DateTime(2100, 12, 31); // Way in the future
+        break;
       case 'Today':
       default:
         start = now;
