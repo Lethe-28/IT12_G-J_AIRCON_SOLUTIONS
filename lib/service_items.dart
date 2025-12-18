@@ -657,8 +657,14 @@ class _ServiceItemDialogState extends State<_ServiceItemDialog> {
                           Icons.label_outline,
                           isRequired: true,
                         ),
-                        validator: (v) =>
-                            v == null || v.trim().isEmpty ? 'Required' : null,
+                        textCapitalization: TextCapitalization.words,
+                        validator: (v) {
+                          if (v == null || v.trim().isEmpty) return 'Required';
+                          // Validation: Prevent 1-letter names like "A"
+                          if (v.trim().length < 3)
+                            return 'Name too short (min 3 chars)';
+                          return null;
+                        },
                       ),
                       const SizedBox(height: 16),
                       DropdownButtonFormField<String>(
@@ -703,8 +709,18 @@ class _ServiceItemDialogState extends State<_ServiceItemDialog> {
                         ],
                         validator: (v) {
                           if (v == null || v.isEmpty) return 'Required';
-                          if (double.tryParse(v) == null)
-                            return 'Invalid number';
+
+                          // FIX: Define 'price' here first!
+                          final price = double.tryParse(v);
+
+                          if (price == null) return 'Invalid number';
+
+                          // Validation: Prevent Free Items
+                          if (price <= 0) return 'Price must be greater than 0';
+
+                          if (price > 500000)
+                            return 'Amount seems unusually high.';
+
                           return null;
                         },
                       ),

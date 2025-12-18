@@ -724,6 +724,27 @@ class _CustomerDialogState extends State<_CustomerDialog> {
     }
   }
 
+  // --- VALIDATORS ---
+  String? _validatePhone(String? value) {
+    if (value == null || value.trim().isEmpty) return 'Required';
+    final trimmed = value.trim();
+    // Regex: Matches PH Mobile (09xxxxxxxxx) OR Landlines (7-12 digits)
+    if (!RegExp(r'^(09\d{9}|\d{7,12})$').hasMatch(trimmed)) {
+      return 'Invalid format (e.g. 09171234567)';
+    }
+    return null;
+  }
+
+  String? _validateEmail(String? value) {
+    if (value == null || value.trim().isEmpty) return null; // Email is optional
+    // Basic Email Regex
+    final emailRegex = RegExp(r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$');
+    if (!emailRegex.hasMatch(value.trim())) {
+      return 'Invalid email address';
+    }
+    return null;
+  }
+
   @override
   Widget build(BuildContext context) {
     final isB2B = _typeId == 1;
@@ -880,8 +901,7 @@ class _CustomerDialogState extends State<_CustomerDialog> {
                           isRequired: true,
                         ),
                         keyboardType: TextInputType.phone,
-                        validator: (v) =>
-                            v == null || v.trim().isEmpty ? 'Required' : null,
+                        validator: _validatePhone,
                       ),
 
                       const SizedBox(height: 12),
@@ -894,6 +914,7 @@ class _CustomerDialogState extends State<_CustomerDialog> {
                           Icons.email_outlined,
                         ),
                         keyboardType: TextInputType.emailAddress,
+                        validator: _validateEmail,
                       ),
                       const SizedBox(height: 16),
                       const Text(

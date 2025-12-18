@@ -1668,7 +1668,7 @@ class _LineChartPainter extends CustomPainter {
 
     final double stepX = chartWidth / (data.length > 1 ? data.length - 1 : 1);
 
-    // Draw Grid and Y-Axis Labels
+    // 1. Draw Grid and Y-Axis Labels
     final gridPaint = Paint()
       ..color = Colors.grey.withOpacity(0.2)
       ..strokeWidth = 1.0;
@@ -1704,50 +1704,77 @@ class _LineChartPainter extends CustomPainter {
       );
     }
 
-    // Determine number of lines (series) based on first point
+    // 2. Draw X-Axis Labels (Independent of data values)
+    for (int i = 0; i < data.length; i++) {
+      final x = leftPadding + (i * stepX);
+
+      // Determine if we should draw this label to avoid overcrowding
+      bool shouldDrawLabel = true;
+      if (data.length > 10) {
+        int skip = (data.length / 6).ceil();
+        shouldDrawLabel = (i == 0) || (i == data.length - 1) || (i % skip == 0);
+      }
+
+      if (shouldDrawLabel) {
+        textPainter.text = TextSpan(
+          text: data[i].label,
+          style: TextStyle(color: Colors.grey[600], fontSize: 10),
+        );
+        textPainter.layout();
+        textPainter.paint(
+          canvas,
+          Offset(x - textPainter.width / 2, chartHeight + 8),
+        );
+      }
+    }
+
+    // 3. Draw Lines (With "Rise from Zero" Logic)
     int seriesCount = data.first.values.length;
 
     for (int s = 0; s < seriesCount; s++) {
       paint.color = data.first.colors[s];
       dotPaint.color = data.first.colors[s];
 
-      final path = Path();
+      // Find the first non-zero point
+      int startIndex = -1;
       for (int i = 0; i < data.length; i++) {
-        final x = leftPadding + (i * stepX);
-        final y = chartHeight - ((data[i].values[s] / maxVal) * chartHeight);
-
-        if (i == 0)
-          path.moveTo(x, y);
-        else
-          path.lineTo(x, y);
-
-        // Draw dots
-        canvas.drawCircle(Offset(x, y), 4, dotPaint);
-
-        // Draw X-Axis Label (only specific indices to avoid overlapping)
-        bool shouldDrawLabel = true;
-        if (data.length > 10) {
-          int skip = (data.length / 6).ceil();
-          shouldDrawLabel =
-              (i == 0) || (i == data.length - 1) || (i % skip == 0);
-        }
-
-        if (s == 0 && shouldDrawLabel) {
-          textPainter.text = TextSpan(
-            text: data[i].label,
-            style: TextStyle(color: Colors.grey[600], fontSize: 10),
-          );
-          textPainter.layout();
-          textPainter.paint(
-            canvas,
-            Offset(x - textPainter.width / 2, chartHeight + 8),
-          );
+        if (data[i].values[s] > 0) {
+          startIndex = i;
+          break;
         }
       }
+
+      // If entire series is 0, skip
+      if (startIndex == -1) continue;
+
+      final path = Path();
+
+      // LOGIC: If the data starts later (e.g., index 3),
+      // we want to start drawing from index 2 at y=0 so it "rises" up.
+      if (startIndex > 0) {
+        final xPrev = leftPadding + ((startIndex - 1) * stepX);
+        final yZero = chartHeight; // Bottom of chart
+        path.moveTo(xPrev, yZero);
+      } else {
+        // If data starts at index 0, we just start there
+        final x = leftPadding;
+        final y = chartHeight - ((data[0].values[s] / maxVal) * chartHeight);
+        path.moveTo(x, y);
+      }
+
+      // Continue drawing the rest of the line
+      for (int i = startIndex; i < data.length; i++) {
+        final x = leftPadding + (i * stepX);
+        final y = chartHeight - ((data[i].values[s] / maxVal) * chartHeight);
+        path.lineTo(x, y);
+
+        // Draw circles for data points
+        canvas.drawCircle(Offset(x, y), 4, dotPaint);
+      }
+
       canvas.drawPath(path, paint);
     }
-
-    // Highlight selected index
+    // 4. Highlight selected index (Tooltip line)
     if (selectedIndex != null) {
       final x = leftPadding + (selectedIndex! * stepX);
       final linePaint = Paint()

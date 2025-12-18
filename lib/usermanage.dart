@@ -592,6 +592,23 @@ class _UserDialogState extends State<_UserDialog> {
     }
   }
 
+  // --- VALIDATORS ---
+  String? _validateEmail(String? value) {
+    if (value == null || value.trim().isEmpty) return 'Required';
+    // Strict Email Regex
+    final emailRegex = RegExp(r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$');
+    if (!emailRegex.hasMatch(value.trim())) {
+      return 'Invalid email format';
+    }
+    return null;
+  }
+
+  String? _validateName(String? value) {
+    if (value == null || value.trim().isEmpty) return 'Required';
+    if (value.trim().length < 2) return 'Name too short';
+    return null;
+  }
+
   @override
   Widget build(BuildContext context) {
     return Container(
@@ -646,8 +663,9 @@ class _UserDialogState extends State<_UserDialog> {
                         Icons.badge_outlined,
                         isRequired: true,
                       ),
-                      validator: (v) =>
-                          v == null || v.trim().isEmpty ? 'Required' : null,
+                      textCapitalization:
+                          TextCapitalization.words, // HCI: Auto-Caps
+                      validator: _validateName, // New Validator
                     ),
                     const SizedBox(height: 16),
                     TextFormField(
@@ -658,12 +676,8 @@ class _UserDialogState extends State<_UserDialog> {
                         isRequired: true,
                       ),
                       enabled: widget.user == null,
-                      validator: (v) {
-                        if (v == null || v.trim().isEmpty) return 'Required';
-                        if (!v.contains('@') || !v.contains('.'))
-                          return 'Invalid email format';
-                        return null;
-                      },
+                      keyboardType: TextInputType.emailAddress,
+                      validator: _validateEmail, // New
                     ),
                     const SizedBox(height: 16),
                     DropdownButtonFormField<int>(
@@ -693,22 +707,45 @@ class _UserDialogState extends State<_UserDialog> {
                           borderRadius: BorderRadius.circular(8),
                           border: Border.all(color: Colors.indigo[100]!),
                         ),
-                        child: const Row(
+                        child: Row(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Icon(
+                            const Icon(
                               Icons.info_outline,
                               size: 20,
                               color: Colors.indigo,
                             ),
-                            SizedBox(width: 12),
+                            const SizedBox(width: 12),
                             Expanded(
-                              child: Text(
-                                "Action Required: This creates the profile and access level. Ask the user to Sign Up with this exact email to create their password and link their account.",
-                                style: TextStyle(
-                                  fontSize: 13,
-                                  color: Color(0xFF1A237E), // Indigo 900
-                                  fontWeight: FontWeight.w500,
+                              child: RichText(
+                                text: const TextSpan(
+                                  style: TextStyle(
+                                    fontSize: 13,
+                                    color: Color(0xFF1A237E),
+                                    height: 1.4,
+                                  ),
+                                  children: [
+                                    TextSpan(
+                                      text: "Pre-Provisioning Profile:\n",
+                                      style: TextStyle(
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                    TextSpan(
+                                      text:
+                                          "This does not create a password. The user must ",
+                                    ),
+                                    TextSpan(
+                                      text: "Sign Up",
+                                      style: TextStyle(
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                    TextSpan(
+                                      text:
+                                          " in the app using this exact email address to inherit these permissions.",
+                                    ),
+                                  ],
                                 ),
                               ),
                             ),

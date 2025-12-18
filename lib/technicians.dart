@@ -648,6 +648,19 @@ class _TechnicianDialogState extends State<_TechnicianDialog> {
     }
   }
 
+  // --- VALIDATOR ---
+  String? _validatePhone(String? value) {
+    if (value == null || value.trim().isEmpty) return 'Required';
+    final trimmed = value.trim();
+    // Strict Regex:
+    // 1. Mobile: Starts with 09, followed by 9 digits (e.g., 09171234567)
+    // 2. Landline: 7 to 12 digits total
+    if (!RegExp(r'^(09\d{9}|\d{7,12})$').hasMatch(trimmed)) {
+      return 'Invalid format (e.g. 09171234567)';
+    }
+    return null;
+  }
+
   @override
   Widget build(BuildContext context) {
     final isMobile = MediaQuery.of(context).size.width < 600;
@@ -726,6 +739,8 @@ class _TechnicianDialogState extends State<_TechnicianDialog> {
                                 Icons.person_outline,
                                 isRequired: true,
                               ),
+                              textCapitalization: TextCapitalization
+                                  .words, // HCI: Auto-capitalize
                               validator: (v) => v == null || v.trim().isEmpty
                                   ? 'Required'
                                   : null,
@@ -763,17 +778,12 @@ class _TechnicianDialogState extends State<_TechnicianDialog> {
                         ),
                         keyboardType: TextInputType.phone,
                         inputFormatters: [
-                          FilteringTextInputFormatter.allow(
-                            RegExp(r'[0-9+ \-]'),
-                          ),
+                          FilteringTextInputFormatter.digitsOnly,
+                          LengthLimitingTextInputFormatter(
+                            11,
+                          ), // Limit to standard mobile length
                         ],
-                        validator: (v) {
-                          if (v == null || v.trim().isEmpty) return 'Required';
-                          final digits = v.replaceAll(RegExp(r'\D'), '');
-                          if (digits.length < 7) return 'Too short';
-                          if (digits.length > 13) return 'Too long';
-                          return null;
-                        },
+                        validator: _validatePhone, // Use our new validator
                       ),
                     ],
                   ),
