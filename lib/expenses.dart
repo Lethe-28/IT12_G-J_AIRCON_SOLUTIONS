@@ -98,7 +98,7 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
         // REVENUE FILTER:
         // Shows: Automated Job Revenue + Manual 'Other Income'
         // Hides: Owner's 'Added Funds'
-        if (_selectedFilter == 'Revenue') {
+        if (_selectedFilter == 'Cash-In') {
           return (txn.category == 'Job Revenue' ||
                   txn.category == 'Other Income') &&
               txn.type == 'IN';
@@ -570,7 +570,7 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
                             items:
                                 [
                                       'All',
-                                      'Revenue',
+                                      'Cash-In',
                                       'Operational',
                                       'Personal',
                                       'Added Funds',

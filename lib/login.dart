@@ -1,5 +1,10 @@
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:image/image.dart' as img;
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'data/app_state.dart';
 
 class LoginScreen extends StatefulWidget {
@@ -18,6 +23,8 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
   bool _isLoading = false;
   bool _isSignUp = false; // Toggle between Login and Signup
   bool _obscurePassword = true;
+  bool _rememberMe = false;
+  ImageProvider? _logoTransparent;
 
   late AnimationController _animationController;
   late Animation<Offset> _slideAnimation;
@@ -26,6 +33,8 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
   @override
   void initState() {
     super.initState();
+    _loadSavedCredentials();
+    _prepareTransparentLogo();
     
     _animationController = AnimationController(
       vsync: this,
@@ -50,6 +59,79 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
 
     // Start animation
     _animationController.forward();
+  }
+
+  Future<void> _prepareTransparentLogo() async {
+    try {
+      final data = await rootBundle.load('lib/image/logo.png');
+      final bytes = data.buffer.asUint8List();
+      final decoded = img.decodeImage(bytes);
+      if (decoded == null) return;
+
+      // Detect the background color from the top-left pixel (usually white)
+      final bg = decoded.getPixel(0, 0);
+      final bgR = bg.r.toInt();
+      final bgG = bg.g.toInt();
+      final bgB = bg.b.toInt();
+
+      const tolerance = 10; // allow slight variation
+
+      bool isBackground(int r, int g, int b) {
+        return (r - bgR).abs() <= tolerance &&
+               (g - bgG).abs() <= tolerance &&
+               (b - bgB).abs() <= tolerance;
+      }
+
+      // Make background pixels transparent
+      for (var y = 0; y < decoded.height; y++) {
+        for (var x = 0; x < decoded.width; x++) {
+          final pixel = decoded.getPixel(x, y);
+          final r = pixel.r.toInt();
+          final g = pixel.g.toInt();
+          final b = pixel.b.toInt();
+          final a = pixel.a.toInt();
+
+          if (isBackground(r, g, b)) {
+            decoded.setPixelRgba(x, y, r, g, b, 0);
+          } else {
+            decoded.setPixelRgba(x, y, r, g, b, a);
+          }
+        }
+      }
+
+      final transparentBytes = Uint8List.fromList(img.encodePng(decoded));
+      if (mounted) {
+        setState(() {
+          _logoTransparent = MemoryImage(transparentBytes);
+        });
+      }
+    } catch (_) {
+      // If anything fails, fall back to the regular asset without crashing.
+    }
+  }
+
+  Future<void> _loadSavedCredentials() async {
+    final prefs = await SharedPreferences.getInstance();
+    final savedEmail = prefs.getString('saved_email');
+    final rememberMe = prefs.getBool('remember_me') ?? false;
+    
+    if (mounted && rememberMe && savedEmail != null) {
+      setState(() {
+        _emailController.text = savedEmail;
+        _rememberMe = true;
+      });
+    }
+  }
+
+  Future<void> _saveCredentials() async {
+    final prefs = await SharedPreferences.getInstance();
+    if (_rememberMe) {
+      await prefs.setString('saved_email', _emailController.text.trim());
+      await prefs.setBool('remember_me', true);
+    } else {
+      await prefs.remove('saved_email');
+      await prefs.setBool('remember_me', false);
+    }
   }
 
   @override
@@ -135,6 +217,9 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
           // Reset welcome flag on new login
           AppState.hasShownWelcome = false;
 
+          // Save credentials if Remember Me is checked
+          await _saveCredentials();
+
           Navigator.of(context).pushReplacementNamed('/dashboard');
         }
       }
@@ -193,83 +278,29 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
                   flex: 5,
                   child: Container(
                     decoration: const BoxDecoration(
-                      gradient: LinearGradient(
-                        begin: Alignment.topLeft,
-                        end: Alignment.bottomRight,
-                        colors: [
-                          Color(0xFF0F172A), // Dark Slate
-                          Color(0xFF1E3A8A), // Brand Blue
-                        ],
+                      image: DecorationImage(
+                        image: AssetImage('lib/image/background.png'),
+                        fit: BoxFit.cover,
                       ),
                     ),
-                    child: Stack(
-                      children: [
-                        // Decorative Circles
-                        Positioned(
-                          top: -100,
-                          left: -100,
-                          child: Container(
-                            width: 400,
-                            height: 400,
-                            decoration: BoxDecoration(
-                              shape: BoxShape.circle,
-                              color: Colors.white.withOpacity(0.05),
+                    child: Center(
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          _buildLogo(size: 200),
+                          const SizedBox(height: 40),
+                          const Text(
+                            'G&J Aircon Solutions',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 36,
+                              fontWeight: FontWeight.bold,
+                              letterSpacing: 1.2,
                             ),
                           ),
-                        ),
-                        Positioned(
-                          bottom: -50,
-                          right: -50,
-                          child: Container(
-                            width: 300,
-                            height: 300,
-                            decoration: BoxDecoration(
-                              shape: BoxShape.circle,
-                              color: Colors.red.withOpacity(0.1),
-                            ),
-                          ),
-                        ),
-                        // Content
-                        Center(
-                          child: Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Container(
-                                width: 140,
-                                height: 140,
-                                decoration: BoxDecoration(
-                                  color: Colors.white,
-                                  borderRadius: BorderRadius.circular(30),
-                                  boxShadow: [
-                                    BoxShadow(
-                                      color: Colors.black.withOpacity(0.2),
-                                      blurRadius: 30,
-                                      offset: const Offset(0, 15),
-                                    ),
-                                  ],
-                                ),
-                                padding: const EdgeInsets.all(20),
-                                child: Image.asset(
-                                  'lib/image/logo.png',
-                                  fit: BoxFit.contain,
-                                ),
-                              ),
-                              const SizedBox(height: 40),
-                              const Text(
-                                'G & J Solutions',
-                                style: TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 36,
-                                  fontWeight: FontWeight.bold,
-                                  letterSpacing: 1.2,
-                                ),
-                              ),
-                              const SizedBox(height: 16),
-
-                            ],
-                          ),
-                        ),
-                      ],
+                          const SizedBox(height: 16),
+                        ],
+                      ),
                     ),
                   ),
                 ),
@@ -326,10 +357,7 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
                           ],
                         ),
                         padding: const EdgeInsets.all(16),
-                        child: Image.asset(
-                          'lib/image/logo.png',
-                          fit: BoxFit.contain,
-                        ),
+                        child: _buildLogo(size: 100),
                       ),
                       const SizedBox(height: 32),
                       
@@ -447,29 +475,66 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
             ),
           ),
 
-          // Forgot Password
+          // Remember Me & Forgot Password Row
           AnimatedCrossFade(
             firstChild: Container(),
             secondChild: Padding(
               padding: const EdgeInsets.only(top: 12),
-              child: Align(
-                alignment: Alignment.centerRight,
-                child: TextButton(
-                  onPressed: _isLoading ? null : _forgotPassword,
-                  style: TextButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(horizontal: 8),
-                    minimumSize: Size.zero,
-                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  // Remember Me Checkbox
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      SizedBox(
+                        width: 24,
+                        height: 24,
+                        child: Checkbox(
+                          value: _rememberMe,
+                          onChanged: (value) {
+                            setState(() => _rememberMe = value ?? false);
+                          },
+                          activeColor: const Color(0xFF2563EB),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      GestureDetector(
+                        onTap: () {
+                          setState(() => _rememberMe = !_rememberMe);
+                        },
+                        child: const Text(
+                          'Remember me',
+                          style: TextStyle(
+                            color: Color(0xFF475569),
+                            fontSize: 13,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
-                  child: const Text(
-                    'Forgot Password?',
-                    style: TextStyle(
-                      color: Color(0xFF2563EB),
-                      fontWeight: FontWeight.w600,
-                      fontSize: 13,
+                  // Forgot Password
+                  TextButton(
+                    onPressed: _isLoading ? null : _forgotPassword,
+                    style: TextButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(horizontal: 8),
+                      minimumSize: Size.zero,
+                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    ),
+                    child: const Text(
+                      'Forgot Password?',
+                      style: TextStyle(
+                        color: Color(0xFF2563EB),
+                        fontWeight: FontWeight.w600,
+                        fontSize: 13,
+                      ),
                     ),
                   ),
-                ),
+                ],
               ),
             ),
             crossFadeState: !_isSignUp
@@ -569,6 +634,16 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
   ),
 );
 }
+
+  Widget _buildLogo({double size = 200}) {
+    final provider = _logoTransparent ?? const AssetImage('lib/image/logo.png');
+    return Image(
+      image: provider,
+      width: size,
+      height: size,
+      fit: BoxFit.contain,
+    );
+  }
 
 Widget _buildTextField({
     required TextEditingController controller,

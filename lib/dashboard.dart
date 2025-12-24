@@ -707,7 +707,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
         final expensesCard = _OverviewCard(
           title: 'Expenses',
           value: '₱${_dashboardProvider.totalExpenses.toStringAsFixed(0)}',
-          icon: Icons.money_off,
+          icon: Icons.payment,
           color: Colors.red,
           fontSize: fontSize,
           onTap: () => Navigator.of(context).pushReplacementNamed('/expenses'),
@@ -751,7 +751,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   title: 'Expenses',
                   value:
                       '₱${_dashboardProvider.totalExpenses.toStringAsFixed(0)}',
-                  icon: Icons.money_off,
+                  icon: Icons.payment,
                   color: Colors.red,
                   onTap: () =>
                       Navigator.of(context).pushReplacementNamed('/expenses'),

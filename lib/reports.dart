@@ -1015,7 +1015,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
               icon: Icons.arrow_downward,
             ),
             _FinancialCard(
-              label: "Net Cash",
+              label: "Ending Cash",
               amount: data.netCashFormatted,
               subtext: "Cash-in - Cash-out",
               width: width,
